@@ -1,0 +1,391 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Scan Ball · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  body { background: var(--bg); }
+  .scan-wrap { max-width: 480px; margin: 0 auto; padding: var(--s-4) var(--s-4) var(--s-8); }
+
+  /* GPS status */
+  .gps-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; border-radius: var(--r-md);
+    font-size: 14px; font-weight: 600; margin-bottom: var(--s-4);
+    border: 1px solid var(--border);
+  }
+  .gps-bar.locking  { background: var(--surface-2); color: var(--ink-2); }
+  .gps-bar.locked   { background: rgba(46,125,91,0.1); color: #2E7D5B; border-color: rgba(46,125,91,0.3); }
+  .gps-bar.error    { background: rgba(192,57,43,0.1); color: var(--danger); border-color: rgba(192,57,43,0.3); }
+  .gps-icon { font-size: 20px; flex-shrink: 0; }
+
+  /* Location type picker */
+  .loc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); margin: var(--s-3) 0; }
+  .loc-btn {
+    display: flex; flex-direction: column; align-items: center; gap: 6px;
+    padding: var(--s-4); border-radius: var(--r-md);
+    border: 2px solid var(--border-2); background: var(--surface);
+    cursor: pointer; font-size: 13px; font-weight: 600; color: var(--ink);
+    transition: border-color var(--t-fast), background var(--t-fast);
+  }
+  .loc-btn .loc-icon { font-size: 28px; }
+  .loc-btn:hover { border-color: var(--primary); }
+  .loc-btn.selected { border-color: var(--primary); background: rgba(15,61,46,0.06); }
+  .loc-btn.oob.selected { border-color: var(--danger); background: rgba(192,57,43,0.06); }
+
+  /* Ball info card */
+  .ball-info { margin-bottom: var(--s-4); }
+  .ball-info .player-name { font-family: var(--font-display); font-size: 26px; font-weight: 700; }
+  .ball-info .team-name   { font-size: 14px; color: var(--ink-2); margin-top: 2px; }
+  .ball-info .code-tag    { font-family: var(--font-mono); font-size: 13px; font-weight: 700; padding: 3px 10px; background: var(--surface-2); border-radius: var(--r-sm); display: inline-block; margin-top: 6px; }
+
+  /* Result */
+  .result-card { text-align: center; padding: var(--s-6) var(--s-4); }
+  .result-score { font-family: var(--font-display); font-size: 64px; font-weight: 700; line-height: 1; }
+  .result-unit  { font-size: 20px; color: var(--ink-2); margin-top: 4px; }
+  .result-loc   { display: inline-block; margin-top: var(--s-3); }
+  .result-meta  { color: var(--ink-2); font-size: 14px; margin-top: var(--s-3); }
+</style>
+</head>
+<body>
+
+<script src="/js/jord.js"></script>
+<script>
+(function () {
+  /* ─── State ─── */
+  var gpsPos     = null;
+  var ballData   = null;
+  var locType    = null;  /* fairway | rough | oob | lost */
+  var submitted  = false;
+  var scanner    = null;
+
+  document.addEventListener('DOMContentLoaded', function () {
+    JORD.renderTopbar('Ball Scan');
+    var code = JORD.path(1);
+    if (code) {
+      loadBall(code);
+    } else {
+      renderCodeEntry();
+    }
+  });
+
+  /* ─── GPS ─── */
+  function startGPS() {
+    setGPS('locking', '📡', 'Acquiring GPS…');
+    navigator.geolocation.getCurrentPosition(
+      function (pos) {
+        gpsPos = { lat: pos.coords.latitude, lon: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) };
+        setGPS('locked', '📍', 'GPS locked · ±' + gpsPos.acc + ' m accuracy');
+        enableSubmit();
+      },
+      function (err) {
+        setGPS('error', '❌', 'GPS unavailable: ' + (err.message || 'check location permission'));
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+    );
+  }
+
+  function setGPS(cls, icon, msg) {
+    var bar = document.getElementById('gps-bar');
+    if (!bar) return;
+    bar.className = 'gps-bar ' + cls;
+    bar.innerHTML = '<span class="gps-icon">' + icon + '</span><span>' + msg + '</span>';
+    if (cls === 'locking') bar.innerHTML += '<span class="spinner" style="margin-left:auto"></span>';
+  }
+
+  /* ─── Load ball ─── */
+  function loadBall(code) {
+    var root = getRoot();
+    root.innerHTML = '<div class="text-center" style="padding:60px 0"><div class="spinner spinner-lg" style="margin:0 auto"></div><p class="mt-4">Loading…</p></div>';
+
+    fetch('/api/ball/' + code.toUpperCase())
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) { renderError(data.error); return; }
+        ballData = data;
+        renderScanUI();
+      })
+      .catch(function () { renderError('Cannot connect to server. Check Wi-Fi.'); });
+  }
+
+  /* ─── Main scan UI ─── */
+  function renderScanUI() {
+    if (!ballData) return;
+    var root = getRoot();
+    root.innerHTML = '';
+
+    /* Ball info */
+    var infoCard = document.createElement('div');
+    infoCard.className = 'card ball-info';
+    infoCard.innerHTML = '<div class="hero-eyebrow">' + (ballData.event_name || 'Tournament') + '</div>'
+      + '<div class="player-name mt-2">' + (ballData.player_name || 'Player') + '</div>'
+      + '<div class="team-name">' + (ballData.team_name || 'Unregistered') + '</div>'
+      + '<div class="code-tag">' + ballData.drop_code + '</div>';
+
+    /* Status badge */
+    if (ballData.event_status === 'ended') {
+      infoCard.innerHTML += '<div class="badge badge-accent mt-3">Tournament Ended</div>';
+      root.appendChild(infoCard);
+      root.appendChild(buildErrorEl('This tournament has ended. No more scans accepted.'));
+      return;
+    }
+    root.appendChild(infoCard);
+
+    /* GPS bar */
+    var gpsBar = document.createElement('div');
+    gpsBar.id = 'gps-bar';
+    gpsBar.className = 'gps-bar locking';
+    gpsBar.innerHTML = '<span class="gps-icon">📡</span><span>Acquiring GPS…</span><span class="spinner" style="margin-left:auto"></span>';
+    root.appendChild(gpsBar);
+
+    /* Contest type */
+    if (ballData.has_longest_drive) {
+      renderLDForm(root);
+    } else if (ballData.has_closest_pin) {
+      renderCPForm(root);
+    } else {
+      root.appendChild(buildErrorEl('No contest configured for this tournament.'));
+      return;
+    }
+
+    startGPS();
+  }
+
+  /* ─── Longest Drive form ─── */
+  function renderLDForm(root) {
+    var card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = '<h3 class="card-title">Longest Drive</h3>'
+      + '<p class="card-sub">Where did your ball land? Select the location, then submit.</p>';
+
+    var grid = document.createElement('div');
+    grid.className = 'loc-grid';
+    var locs = [
+      { key: 'fairway', icon: '🟩', label: 'Fairway' },
+      { key: 'rough',   icon: '🌿', label: 'Rough' },
+      { key: 'oob',     icon: '🚫', label: 'Out of Bounds' },
+      { key: 'lost',    icon: '❓', label: 'Lost Ball' }
+    ];
+    locs.forEach(function (loc) {
+      var btn = document.createElement('button');
+      btn.className = 'loc-btn' + (loc.key === 'oob' || loc.key === 'lost' ? ' oob' : '');
+      btn.dataset.loc = loc.key;
+      btn.innerHTML = '<span class="loc-icon">' + loc.icon + '</span>' + loc.label;
+      btn.addEventListener('click', function () {
+        grid.querySelectorAll('.loc-btn').forEach(function (b) { b.classList.remove('selected'); });
+        btn.classList.add('selected');
+        locType = loc.key;
+        enableSubmit();
+      });
+      grid.appendChild(btn);
+    });
+    card.appendChild(grid);
+
+    var submitBtn = document.createElement('button');
+    submitBtn.id = 'submit-btn';
+    submitBtn.className = 'btn btn-primary btn-block btn-lg mt-4';
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submit Shot';
+    var errEl = document.createElement('div');
+    errEl.id = 'submit-err';
+    errEl.className = 'text-danger mt-2 small';
+
+    submitBtn.addEventListener('click', function () {
+      if (!gpsPos) { errEl.textContent = 'Waiting for GPS lock…'; return; }
+      if (!locType) { errEl.textContent = 'Select where your ball landed.'; return; }
+      doSubmitLD(submitBtn, errEl);
+    });
+
+    card.appendChild(submitBtn);
+    card.appendChild(errEl);
+    root.appendChild(card);
+  }
+
+  /* ─── Closest to Pin form ─── */
+  function renderCPForm(root) {
+    var card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = '<h3 class="card-title">Closest to the Pin</h3>'
+      + '<p class="card-sub">Stand at your ball on the green, then submit — GPS will capture the distance.</p>';
+
+    var submitBtn = document.createElement('button');
+    submitBtn.id = 'submit-btn';
+    submitBtn.className = 'btn btn-primary btn-block btn-lg mt-4';
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submit My Position';
+    locType = 'cp';
+
+    var errEl = document.createElement('div');
+    errEl.id = 'submit-err';
+    errEl.className = 'text-danger mt-2 small';
+
+    submitBtn.addEventListener('click', function () {
+      if (!gpsPos) { errEl.textContent = 'Waiting for GPS lock…'; return; }
+      doSubmitCP(submitBtn, errEl);
+    });
+
+    card.appendChild(submitBtn);
+    card.appendChild(errEl);
+    root.appendChild(card);
+  }
+
+  /* ─── Submit LD ─── */
+  function doSubmitLD(btn, errEl) {
+    btn.disabled = true; btn.textContent = 'Submitting…';
+    fetch('/api/scan/ld/' + ballData.drop_code, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat: gpsPos.lat, lon: gpsPos.lon, location_type: locType })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.error) { errEl.textContent = data.error; btn.disabled = false; btn.textContent = 'Submit Shot'; return; }
+      renderResultLD(data);
+    })
+    .catch(function () { errEl.textContent = 'Network error. Check connection and retry.'; btn.disabled = false; btn.textContent = 'Submit Shot'; });
+  }
+
+  /* ─── Submit CP ─── */
+  function doSubmitCP(btn, errEl) {
+    btn.disabled = true; btn.textContent = 'Submitting…';
+    fetch('/api/scan/cp/' + ballData.drop_code, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat: gpsPos.lat, lon: gpsPos.lon })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.error) { errEl.textContent = data.error; btn.disabled = false; btn.textContent = 'Submit My Position'; return; }
+      renderResultCP(data);
+    })
+    .catch(function () { errEl.textContent = 'Network error. Check connection and retry.'; btn.disabled = false; btn.textContent = 'Submit My Position'; });
+  }
+
+  /* ─── Results ─── */
+  function renderResultLD(data) {
+    var root = getRoot();
+    root.innerHTML = '';
+    var card = document.createElement('div');
+    card.className = 'card result-card';
+
+    var locLabel = { fairway: '🟩 Fairway', rough: '🌿 Rough', oob: '🚫 Out of Bounds', lost: '❓ Lost Ball' }[data.location_type] || data.location_type;
+    var scoreColor = (data.location_type === 'oob' || data.location_type === 'lost') ? 'var(--danger)' : 'var(--jord-fairway)';
+
+    card.innerHTML = '<div style="font-size:48px;margin-bottom:12px">🏌️</div>'
+      + '<div class="result-score" style="color:' + scoreColor + '">' + (data.final_yards != null ? data.final_yards : '—') + '</div>'
+      + '<div class="result-unit">yards</div>'
+      + '<div class="result-loc mt-3"><span class="badge badge-primary">' + locLabel + '</span></div>'
+      + (data.penalty_yards > 0 ? '<div class="result-meta">(' + data.raw_yards + ' raw − ' + data.penalty_yards + ' penalty)</div>' : '')
+      + '<hr class="divider mt-5 mb-4">'
+      + '<div class="text-muted" style="font-size:14px"><strong>' + data.player + '</strong> · ' + data.team + '</div>'
+      + '<div class="row gap-3 mt-5" style="justify-content:center">'
+      + '<a class="btn btn-primary" href="/leaderboard/' + (ballData.event_id || '') + '" target="_blank">📺 Live Leaderboard</a>'
+      + '<a class="btn btn-ghost" href="/dashboard/' + (ballData.event_id || '') + '/' + ballData.drop_code + '" target="_blank">📊 My Results</a>'
+      + '</div>';
+    root.appendChild(card);
+  }
+
+  function renderResultCP(data) {
+    var root = getRoot();
+    root.innerHTML = '';
+    var card = document.createElement('div');
+    card.className = 'card result-card';
+
+    var isLeader = data.is_current_leader;
+    card.innerHTML = '<div style="font-size:48px;margin-bottom:12px">' + (isLeader ? '🏆' : '📍') + '</div>'
+      + '<div class="result-score" style="color:var(--jord-sky)">' + data.distance_ft + '</div>'
+      + '<div class="result-unit">feet from pin</div>'
+      + (isLeader ? '<div class="badge badge-accent mt-3 pulse">🥇 Current Leader!</div>' : '')
+      + ((!isLeader && data.current_leader) ? '<div class="result-meta mt-3">Leader: <strong>' + data.current_leader.team + '</strong> at ' + data.current_leader.distance_ft + ' ft</div>' : '')
+      + '<hr class="divider mt-5 mb-4">'
+      + '<div class="text-muted" style="font-size:14px"><strong>' + data.player + '</strong> · ' + data.team + '</div>'
+      + '<div class="row gap-3 mt-5" style="justify-content:center">'
+      + '<a class="btn btn-primary" href="/leaderboard/' + (ballData.event_id || '') + '" target="_blank">📺 Live Leaderboard</a>'
+      + '<a class="btn btn-ghost" href="/dashboard/' + (ballData.event_id || '') + '/' + ballData.drop_code + '" target="_blank">📊 My Results</a>'
+      + '</div>';
+    root.appendChild(card);
+  }
+
+  /* ─── Code entry (no code in URL) ─── */
+  function renderCodeEntry() {
+    var root = getRoot();
+    root.innerHTML = '';
+
+    var card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = '<div class="text-center mb-4"><img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077" alt="JORD Golf" style="height:56px;width:auto;margin:0 auto var(--s-3);display:block">'
+      + '<div class="brand-name">JORD GOLF</div><div class="brand-sub">Ball Scan</div></div>';
+
+    var qrArea = document.createElement('div');
+    qrArea.id = 'qr-area';
+    card.appendChild(qrArea);
+
+    var scanner = new JORD.QRScanner(qrArea, function (raw) {
+      var code = JORD.extractDropCode(raw);
+      if (code) { scanner.stop(); loadBall(code); }
+    });
+    scanner.start().catch(function (e) {
+      qrArea.innerHTML = '<p class="text-muted text-center" style="font-size:13px">Camera unavailable — enter code below.</p>';
+    });
+
+    var manualField = document.createElement('div');
+    manualField.className = 'field mt-4';
+    manualField.innerHTML = '<label>Or enter drop code</label>';
+    var manualInput = document.createElement('input');
+    manualInput.className = 'input input-code';
+    manualInput.placeholder = 'ABC123';
+    manualInput.maxLength = 12;
+    manualInput.addEventListener('input', function () {
+      manualInput.value = manualInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    });
+    manualField.appendChild(manualInput);
+
+    var goBtn = document.createElement('button');
+    goBtn.className = 'btn btn-primary btn-block mt-3';
+    goBtn.textContent = 'Look Up Ball →';
+    goBtn.addEventListener('click', function () {
+      var code = manualInput.value.trim();
+      if (!code || code.length < 4) { JORD.warn('Enter at least 4 characters.'); return; }
+      if (scanner) { scanner.stop(); }
+      loadBall(code);
+    });
+
+    card.appendChild(manualField);
+    card.appendChild(goBtn);
+    root.appendChild(card);
+  }
+
+  /* ─── Helpers ─── */
+  function enableSubmit() {
+    var btn = document.getElementById('submit-btn');
+    if (!btn) return;
+    var ldOk = ballData && ballData.has_longest_drive ? !!locType : true;
+    btn.disabled = !(gpsPos && ldOk);
+  }
+
+  function buildErrorEl(msg) {
+    var d = document.createElement('div');
+    d.className = 'empty';
+    d.innerHTML = '<div class="empty-icon">⚠️</div><div class="empty-title">Problem</div><p>' + msg + '</p>';
+    return d;
+  }
+
+  function renderError(msg) {
+    getRoot().innerHTML = '';
+    getRoot().appendChild(buildErrorEl(msg));
+  }
+
+  function getRoot() {
+    var r = document.getElementById('root');
+    if (!r) { r = document.createElement('div'); r.id = 'root'; r.className = 'scan-wrap'; document.body.appendChild(r); }
+    return r;
+  }
+})();
+</script>
+</body>
+</html>

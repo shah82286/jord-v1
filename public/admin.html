@@ -1,0 +1,1025 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Admin · JORD Golf Tournament System</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
+<link href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.css" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  /* Page-specific */
+  .gate-wrap { max-width: 420px; margin: 80px auto; }
+  .event-grid { display: grid; gap: var(--s-3); grid-template-columns: 1fr; }
+  .event-card { display: grid; grid-template-columns: 1fr auto; gap: var(--s-3); align-items: center; cursor: pointer; padding: var(--s-4) var(--s-5); transition: box-shadow var(--t-fast); }
+  .event-card:hover { box-shadow: var(--shadow-md); }
+  .event-meta { display: flex; gap: var(--s-3); flex-wrap: wrap; align-items: center; margin-top: 6px; color: var(--ink-2); font-size: 13px; }
+  .editor-grid { display: grid; grid-template-columns: 320px 1fr; gap: var(--s-5); }
+  .editor-nav .nav-item { display: flex; align-items: center; gap: var(--s-2); padding: 12px 14px; border-radius: var(--r-md); color: var(--ink); font-weight: 500; cursor: pointer; }
+  .editor-nav .nav-item:hover { background: var(--surface-2); }
+  .editor-nav .nav-item.is-active { background: var(--primary); color: var(--primary-ink); }
+  .editor-nav .nav-icon { width: 20px; text-align: center; }
+  .panel { display: none; }
+  .panel.is-active { display: block; }
+  .map-tools { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-bottom: var(--s-3); }
+  .map-legend { display: flex; flex-wrap: wrap; gap: var(--s-3); font-size: 12px; color: var(--ink-2); margin-top: var(--s-2); }
+  .map-legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+  .legend-tee::before { background: #C9A24A; }
+  .legend-fairway::before { background: rgba(15,61,46,0.5); }
+  .legend-green::before { background: rgba(74,144,164,0.5); }
+  .legend-pin::before { background: #C0392B; border-radius: 50% !important; }
+  .pool-input { font-family: var(--font-mono); min-height: 180px; resize: vertical; }
+  .ball-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s-2); margin-top: var(--s-3); }
+  .ball-tag { padding: 6px 10px; border-radius: var(--r-sm); font-family: var(--font-mono); font-size: 12px; text-align: center; background: var(--surface-2); border: 1px solid var(--border); }
+  .ball-tag.is-assigned { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
+  .tee-list { display: flex; flex-direction: column; gap: var(--s-2); }
+  .tee-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: var(--surface-2); border-radius: var(--r-sm); }
+  .pill-link { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--primary); font-size: 12px; font-weight: 600; }
+  @media (max-width: 800px) {
+    .editor-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ── Ended lock ── */
+  .ended-banner {
+    background: rgba(201,162,74,0.1); border: 1px solid var(--accent);
+    border-radius: var(--r-md); padding: 14px 18px;
+    display: flex; justify-content: space-between; align-items: center; gap: var(--s-3);
+    margin-bottom: var(--s-3);
+  }
+  .editor-grid.is-locked .panel button:not(.lock-exempt),
+  .editor-grid.is-locked .panel input:not(.lock-exempt),
+  .editor-grid.is-locked .panel select:not(.lock-exempt),
+  .editor-grid.is-locked .panel textarea:not(.lock-exempt),
+  .editor-grid.is-locked .map-tools button:not(.lock-exempt) {
+    opacity: 0.4; pointer-events: none;
+  }
+
+  /* ── Draw tool color tabs ── */
+  .draw-kind-btn { border-left: 3px solid transparent; }
+  .draw-kind-btn.dk-fairway { border-color: #0F3D2E; }
+  .draw-kind-btn.dk-rough   { border-color: #B38D30; }
+  .draw-kind-btn.dk-oob     { border-color: #C0392B; }
+  .draw-kind-btn.dk-green   { border-color: #4CAF50; }
+  .draw-kind-btn.is-drawing { box-shadow: inset 0 0 0 2px currentColor; }
+
+  /* ── Map legend extras ── */
+  .legend-rough::before { background: rgba(179,141,48,0.55); }
+  .legend-oob::before   { background: rgba(192,57,43,0.55); }
+
+  /* ── Tee row lat/lon ── */
+  .tee-coords { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
+  .tee-coords label { font-size: 11px; color: var(--ink-2); min-width: 24px; }
+  .tee-coord-input { padding: 3px 8px !important; font-size: 11px !important;
+    font-family: var(--font-mono) !important; width: 110px !important; }
+</style>
+</head>
+<body>
+
+<!-- ─── PASSWORD GATE ─── -->
+<section id="gate" class="gate-wrap">
+  <div class="card">
+    <div class="text-center mb-4">
+      <img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077"
+           alt="JORD Golf" style="height:62px;width:auto;margin:0 auto var(--s-3);display:block">
+      <div class="brand-name">JORD GOLF</div>
+      <div class="brand-sub">Tournament Admin Console</div>
+    </div>
+    <form id="gate-form" class="col gap-3">
+      <div class="field">
+        <label for="pwd">Admin password</label>
+        <input id="pwd" type="password" class="input input-lg" autocomplete="current-password" required>
+        <div class="hint">Default <code>jord2026</code> — change in <code>.env</code></div>
+      </div>
+      <button class="btn btn-primary btn-lg btn-block" type="submit">Enter</button>
+    </form>
+  </div>
+</section>
+
+<!-- ─── APP (post-login) ─── -->
+<main id="app" class="hidden">
+  <div class="container mt-4 mb-6">
+
+    <!-- ── Events list view ── -->
+    <section id="view-list">
+      <div class="row row-between mb-4">
+        <div>
+          <div class="hero-eyebrow">Tournaments</div>
+          <h1 class="mt-2">Your Events</h1>
+        </div>
+        <button class="btn btn-primary" id="btn-new-event">＋ New event</button>
+      </div>
+      <div id="events-empty" class="empty hidden">
+        <div class="empty-icon">⛳</div>
+        <div class="empty-title">No events yet</div>
+        <p>Create your first tournament to get started.</p>
+        <button class="btn btn-primary mt-3" onclick="document.getElementById('btn-new-event').click()">＋ Create event</button>
+      </div>
+      <div id="events-grid" class="event-grid"></div>
+    </section>
+
+    <!-- ── Event editor view ── -->
+    <section id="view-editor" class="hidden">
+      <div class="row row-between mb-3">
+        <div class="col gap-1">
+          <a href="#" id="btn-back" class="pill-link">← Back to all events</a>
+          <h1 id="event-name">Event</h1>
+          <div class="event-meta">
+            <span id="event-status" class="badge">setup</span>
+            <span id="event-when"></span>
+            <span id="event-venue"></span>
+          </div>
+        </div>
+        <div class="row gap-2">
+          <button class="btn btn-ghost" id="btn-view-leaderboard">📺 Leaderboard</button>
+          <button class="btn btn-ghost" id="btn-view-monitor">🎛 Monitor</button>
+          <button class="btn btn-ghost" id="btn-export">⬇ Export CSV</button>
+          <button class="btn btn-danger" id="btn-end-event">End tournament</button>
+        </div>
+      </div>
+
+      <div class="editor-grid">
+        <nav class="editor-nav col gap-1">
+          <div class="nav-item is-active" data-panel="settings"><span class="nav-icon">⚙️</span> Settings</div>
+          <div class="nav-item" data-panel="map"><span class="nav-icon">🗺</span> Course map</div>
+          <div class="nav-item" data-panel="balls"><span class="nav-icon">🏐</span> Ball pool</div>
+          <div class="nav-item" data-panel="players"><span class="nav-icon">👥</span> Players & teams</div>
+          <div class="nav-item" data-panel="alerts"><span class="nav-icon">🚨</span> Alerts</div>
+        </nav>
+
+        <div>
+          <!-- Settings panel -->
+          <div class="panel is-active card" data-panel="settings">
+            <h3 class="card-title">Tournament settings</h3>
+            <p class="card-sub">Format, scoring rules, and timing.</p>
+            <form id="form-settings" class="col gap-3">
+              <div class="field-grid">
+                <div class="field">
+                  <label>Name</label>
+                  <input class="input" name="name" required title="The display name for this tournament event" placeholder="e.g. Charity Classic 2026">
+                </div>
+                <div class="field">
+                  <label>Venue</label>
+                  <input class="input" name="venue" id="venue-input" placeholder="Start typing course name…" autocomplete="off" title="Golf course or event location. Start typing to search.">
+                  <div id="venue-suggestions" style="position:relative"></div>
+                </div>
+                <div class="field">
+                  <label>Starts</label>
+                  <input class="input" type="datetime-local" name="starts_at" required title="Tournament start date and time">
+                </div>
+                <div class="field">
+                  <label>Ends</label>
+                  <input class="input" type="datetime-local" name="ends_at" required title="Tournament end date and time">
+                </div>
+              </div>
+
+              <hr class="divider">
+              <h4>Contests</h4>
+              <div class="row gap-4 row-wrap">
+                <label class="switch" title="Track how far each team drives. GPS captures ball landing distance from the tee box."><input type="checkbox" name="has_longest_drive"><span class="switch-track"></span><span class="switch-label">Team Longest Drive</span></label>
+                <label class="switch" title="Track which team lands closest to the flagstick. GPS captures distance from pin."><input type="checkbox" name="has_closest_pin"><span class="switch-track"></span><span class="switch-label">Closest to the Pin</span></label>
+                <label class="switch" title="Add each team's Longest Drive + Closest to Pin scores together for one combined leaderboard."><input type="checkbox" name="combined_scoring"><span class="switch-track"></span><span class="switch-label">Combined scoring</span></label>
+              </div>
+
+              <hr class="divider">
+              <h4>Longest Drive — penalty rules</h4>
+              <div class="row gap-4 row-wrap">
+                <label class="switch" title="If enabled, shots that land in the rough are still counted — but with a yardage deduction. If disabled, rough shots score zero."><input type="checkbox" name="allow_rough"><span class="switch-track"></span><span class="switch-label">Allow rough scoring</span></label>
+                <label class="switch" title="If enabled, out-of-bounds and lost balls are still counted — but with a yardage deduction. If disabled, OOB/lost shots score zero."><input type="checkbox" name="allow_oob"><span class="switch-track"></span><span class="switch-label">Allow OOB / lost</span></label>
+              </div>
+              <div class="field-grid">
+                <div class="field">
+                  <label>Rough penalty mode</label>
+                  <select class="select" name="rough_penalty_mode" title="Perpendicular: penalty = exact distance from ball to the nearest fairway edge. Fixed: subtract a set number of yards regardless of position.">
+                    <option value="perpendicular">Perpendicular</option>
+                    <option value="fixed">Fixed yards</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>Rough fixed yards</label>
+                  <input class="input" type="number" name="rough_fixed_yards" min="0" title="Yards subtracted from raw distance when ball lands in rough (Fixed mode only). e.g. enter 10 to subtract 10 yards.">
+                </div>
+                <div class="field">
+                  <label>OOB penalty mode</label>
+                  <select class="select" name="oob_penalty_mode" title="Half hole: penalty = 50% of the total hole distance (e.g. 150 yds on a 300 yd hole). Fixed: subtract a set number of yards.">
+                    <option value="half_hole">Half hole (50%)</option>
+                    <option value="fixed">Fixed yards</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label>OOB fixed yards</label>
+                  <input class="input" type="number" name="oob_fixed_yards" min="0" title="Yards subtracted from raw distance for OOB or lost balls (Fixed mode only).">
+                </div>
+                <div class="field">
+                  <label>Hole distance (yards)</label>
+                  <input class="input" type="number" name="hole_distance_yards" min="0" value="300" title="Measure the straight-line distance from the tee box to the pin in yards. Used to calculate the 'half hole' OOB penalty. Walk it off or use a rangefinder on the day.">
+                  <div class="hint">Measure tee-to-pin with a rangefinder. Used for OOB penalty calculation.</div>
+                </div>
+              </div>
+
+              <div class="row gap-3 mt-3">
+                <button class="btn btn-primary" type="submit" title="Save all tournament settings">Save settings</button>
+                <button class="btn btn-ghost" type="button" id="btn-activate" title="Change status to Active — this opens the tournament for live scanning">Activate tournament</button>
+              </div>
+            </form>
+          </div>
+
+          <!-- Map panel -->
+          <div class="panel card" data-panel="map">
+            <h3 class="card-title">Course map</h3>
+            <p class="card-sub">Place tee boxes and pin, then trace the fairway and green outlines. Drag any marker to reposition it.</p>
+            <div class="map-tools">
+              <button class="btn btn-ghost" id="tool-tee" title="Places a new tee box marker at the map center. Drag it to the exact tee location.">＋ Tee box</button>
+              <button class="btn btn-ghost draw-kind-btn dk-fairway" id="tool-fairway" title="Draw fairway polygon (dark green). Click points, double-click to close.">🟢 Fairway</button>
+              <button class="btn btn-ghost draw-kind-btn dk-rough"   id="tool-rough"   title="Draw rough polygon (amber). Click points, double-click to close.">🟡 Rough</button>
+              <button class="btn btn-ghost draw-kind-btn dk-oob"     id="tool-oob"     title="Draw out-of-bounds polygon (red). Click points, double-click to close.">🔴 OOB</button>
+              <button class="btn btn-ghost draw-kind-btn dk-green"   id="tool-green"   title="Draw green polygon (light green). Click points, double-click to close.">🟩 Green</button>
+              <button class="btn btn-ghost" id="tool-pin" title="Click once to activate, then click anywhere on the map to drop the pin (Closest to Pin target).">📍 Pin</button>
+              <button class="btn btn-ghost" id="tool-clear" title="Removes all drawn polygons. Tee markers and pin are not affected.">✖ Clear</button>
+              <span style="border-left:1px solid var(--border);margin:0 4px;height:28px;align-self:center"></span>
+              <select class="select" id="tool-trace-kind" style="width:auto;font-size:12px;padding:5px 8px" title="Choose which zone to GPS-trace — then press Start Trace and walk the boundary with your phone">
+                <option value="fairway">Fairway</option>
+                <option value="rough">Rough</option>
+                <option value="oob">OOB</option>
+                <option value="green">Green</option>
+              </select>
+              <button class="btn btn-ghost" id="tool-trace-start" title="Walk the boundary with your phone — GPS records waypoints automatically. Click Stop when done.">📡 GPS Trace</button>
+              <button class="btn btn-danger" id="tool-trace-stop" style="display:none" title="Stop GPS trace and save as polygon">⏹ Stop Trace</button>
+              <input class="input" id="search-place" placeholder="Search course…" style="flex:1;min-width:160px" title="Type a course name or address and press Enter to fly the map there.">
+            </div>
+            <div id="map" class="map-container"></div>
+            <div class="map-legend">
+              <span class="legend-tee">Tee box</span>
+              <span class="legend-fairway">Fairway</span>
+              <span class="legend-rough">Rough</span>
+              <span class="legend-oob">OOB</span>
+              <span class="legend-green">Green</span>
+              <span class="legend-pin">Pin</span>
+            </div>
+
+            <h4 class="mt-5 mb-2">Tee boxes</h4>
+            <div id="tee-list" class="tee-list"></div>
+
+            <div class="row gap-3 mt-4">
+              <button class="btn btn-primary" id="btn-save-map">Save map</button>
+            </div>
+          </div>
+
+          <!-- Ball pool panel -->
+          <div class="panel card" data-panel="balls">
+            <h3 class="card-title">Ball pool</h3>
+            <p class="card-sub">Add the JORD drop codes for this tournament. Each player registers their assigned code on-course. Unassigned codes can be removed; assigned codes are locked.</p>
+            <div class="stat-grid mb-3">
+              <div class="stat" title="Total number of drop codes added to this tournament pool"><div class="stat-label">Total</div><div class="stat-value" id="stat-balls-total">0</div></div>
+              <div class="stat" title="Codes that have been claimed by a registered player"><div class="stat-label">Assigned</div><div class="stat-value" id="stat-balls-assigned">0</div></div>
+              <div class="stat" title="Codes still available — not yet claimed by a player"><div class="stat-label">Available</div><div class="stat-value" id="stat-balls-available">0</div></div>
+            </div>
+            <div class="field">
+              <label>Add codes</label>
+              <textarea class="input pool-input" id="pool-input" placeholder="ABC123&#10;XYZ789&#10;or paste comma-separated..." title="Paste drop codes here — one per line or comma-separated. Click 'Add to pool' to save."></textarea>
+            </div>
+            <div class="row gap-2" style="flex-wrap:wrap">
+              <button class="btn btn-primary" id="btn-add-balls" title="Add the codes typed above to this tournament's ball pool">Add to pool</button>
+              <label class="btn btn-ghost" id="btn-import-csv-label" title="Upload a CSV file. The first column (or any column named 'code' or 'drop_code') will be imported as drop codes." style="cursor:pointer">
+                📥 Import CSV
+                <input type="file" id="import-csv-file" accept=".csv,.txt" style="display:none">
+              </label>
+              <a class="btn btn-ghost" id="btn-register-link" title="Open the player self-registration page for this tournament. Share this link with players.">📱 Registration page</a>
+            </div>
+
+            <h4 class="mt-5 mb-2">Pool contents <span class="small" style="font-weight:400"> — click ✕ to remove an unassigned code</span></h4>
+            <div id="ball-grid" class="ball-grid"></div>
+          </div>
+
+          <!-- Players panel -->
+          <div class="panel card" data-panel="players">
+            <h3 class="card-title">Players & teams</h3>
+            <p class="card-sub">Snapshot of all registered teams and their players.</p>
+            <div id="teams-empty" class="empty hidden">
+              <div class="empty-icon">👥</div>
+              <div class="empty-title">No teams yet</div>
+              <p>Send players to <a id="register-deeplink">/register/…</a> to start registering.</p>
+            </div>
+            <table class="table" id="teams-table">
+              <thead><tr><th>Team</th><th>Players</th><th>Codes</th><th>LD total</th><th>CP best</th><th></th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+
+          <!-- Alerts panel -->
+          <div class="panel card" data-panel="alerts">
+            <h3 class="card-title">Open alerts</h3>
+            <p class="card-sub">Players asking for a course rep.</p>
+            <div id="alerts-list"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+<script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.js"></script>
+<script src="/js/jord.js"></script>
+<script>
+(async function () {
+  const $ = JORD.$, $$ = JORD.$$, el = JORD.el;
+
+  // ── Gate ──
+  const gate = $('#gate'), app = $('#app');
+  function showGate() { gate.classList.remove('hidden'); app.classList.add('hidden'); }
+  function showApp() { gate.classList.add('hidden'); app.classList.remove('hidden'); init(); }
+
+  $('#gate-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    JORD.setToken($('#pwd').value);
+    try { await JORD.api('/api/events'); showApp(); }
+    catch { JORD.error('Wrong password'); JORD.clearToken(); }
+  });
+
+  if (JORD.getToken()) {
+    try { await JORD.api('/api/events'); showApp(); } catch { showGate(); }
+  } else { showGate(); }
+
+  // ── Topbar ──
+  JORD.renderTopbar('Tournament Admin', el('button', { class: 'btn btn-ghost', on: { click: () => { JORD.clearToken(); location.reload(); } } }, 'Sign out'));
+
+  // ── State ──
+  let events = [];
+  let currentEvent = null;
+  let map = null, draw = null, mapMarkers = { tees: [], pin: null };
+  let mapboxToken = '';
+
+  async function init() {
+    try { const cfg = await JORD.api('/api/config'); mapboxToken = cfg.mapbox_token || ''; } catch {}
+    await loadEvents();
+  }
+
+  // ── Events list ──
+  async function loadEvents() {
+    events = await JORD.api('/api/events');
+    renderEvents();
+  }
+  function renderEvents() {
+    const grid = $('#events-grid'), empty = $('#events-empty');
+    grid.innerHTML = '';
+    if (!events.length) { empty.classList.remove('hidden'); return; }
+    empty.classList.add('hidden');
+    for (const ev of events) {
+      const card = el('div', { class: 'card event-card', on: { click: () => openEvent(ev.id) } },
+        el('div', null,
+          el('h3', null, ev.name),
+          el('div', { class: 'event-meta' },
+            el('span', { class: 'badge ' + (ev.status === 'active' ? 'badge-primary' : ev.status === 'ended' ? 'badge-accent' : '') }, ev.status),
+            el('span', null, ev.venue || '—'),
+            el('span', null, JORD.fmt.date(ev.starts_at) + ' → ' + JORD.fmt.date(ev.ends_at)),
+            el('span', null, `${ev.team_count || 0} teams`),
+            el('span', null, `${ev.ball_count || 0} balls`),
+          )
+        ),
+        el('div', { class: 'row gap-2' },
+          el('a', { class: 'btn btn-ghost', href: `/leaderboard/${ev.id}`, target: '_blank', title: 'View live leaderboard in a new tab', on: { click: (e) => e.stopPropagation() } }, '📺'),
+          el('button', {
+            class: 'btn btn-ghost', title: 'Delete this event and all its data (cannot be undone)',
+            style: { color: 'var(--danger)' },
+            on: { click: async (e) => {
+              e.stopPropagation();
+              if (!await JORD.confirm(`Delete "${ev.name}"? This removes all teams, balls, and scores permanently.`, { okText: 'Delete', danger: true })) return;
+              await JORD.api('/api/events/' + ev.id, { method: 'DELETE' });
+              JORD.success('Event deleted');
+              loadEvents();
+            }}
+          }, '🗑'),
+          el('span', { class: 'btn btn-ghost', html: '→' })
+        )
+      );
+      grid.appendChild(card);
+    }
+  }
+
+  $('#btn-new-event').addEventListener('click', async () => {
+    const name = prompt('Tournament name?');
+    if (!name) return;
+    const now = new Date().toISOString().slice(0, 16);
+    const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 16);
+    const ev = await JORD.api('/api/events', { method: 'POST', body: {
+      name, starts_at: now, ends_at: tomorrow, has_longest_drive: 1
+    }});
+    JORD.success('Event created');
+    await loadEvents();
+    openEvent(ev.id);
+  });
+
+  // ── Open event editor ──
+  async function openEvent(id) {
+    currentEvent = await JORD.api('/api/events/' + id);
+    $('#view-list').classList.add('hidden');
+    $('#view-editor').classList.remove('hidden');
+    fillSettings();
+    fillHeader();
+    showPanel('settings');
+    loadBalls();
+    renderTees();
+  }
+  function backToList() {
+    currentEvent = null;
+    $('#view-list').classList.remove('hidden');
+    $('#view-editor').classList.add('hidden');
+    if (map) { map.remove(); map = null; }
+    loadEvents();
+  }
+  $('#btn-back').addEventListener('click', (e) => { e.preventDefault(); backToList(); });
+
+  function fillHeader() {
+    $('#event-name').textContent = currentEvent.name;
+    $('#event-status').textContent = currentEvent.status;
+    $('#event-status').className = 'badge ' + (currentEvent.status === 'active' ? 'badge-primary' : currentEvent.status === 'ended' ? 'badge-accent' : '');
+    $('#event-when').textContent = JORD.fmt.datetime(currentEvent.starts_at) + ' → ' + JORD.fmt.datetime(currentEvent.ends_at);
+    $('#event-venue').textContent = currentEvent.venue || '';
+    $('#btn-view-leaderboard').onclick = () => window.open(`/leaderboard/${currentEvent.id}`);
+    $('#btn-view-monitor').onclick = () => window.open(`/monitor/${currentEvent.id}`);
+    $('#btn-export').onclick = () => window.open(`/api/events/${currentEvent.id}/export.csv?token=${encodeURIComponent(JORD.getToken())}`);
+
+    const isEnded = currentEvent.status === 'ended';
+    const endBtn = $('#btn-end-event');
+    endBtn.textContent = isEnded ? '🔓 Re-open tournament' : 'End tournament';
+    endBtn.className   = isEnded ? 'btn btn-ghost' : 'btn btn-danger';
+    endBtn.title       = isEnded
+      ? 'Re-activate this tournament so you can make edits, then close it again when done'
+      : 'End the tournament — balls are converted to drop mode and players are notified';
+    endBtn.onclick = isEnded
+      ? async () => {
+          if (!await JORD.confirm('Re-open this tournament? Status will change back to Active.', { okText: 'Re-open' })) return;
+          currentEvent = await JORD.api(`/api/events/${currentEvent.id}/reopen`, { method: 'POST' });
+          JORD.success('Tournament re-opened');
+          fillHeader();
+        }
+      : async () => {
+          if (!await JORD.confirm('End tournament? Used balls will convert to drop mode and players will be notified.', { okText: 'End it', danger: true })) return;
+          await JORD.api(`/api/events/${currentEvent.id}/end`, { method: 'POST' });
+          JORD.success('Tournament ended');
+          backToList();
+        };
+
+    $('#btn-register-link').href = `/register/${currentEvent.id}`;
+    $('#btn-register-link').target = '_blank';
+    $('#register-deeplink').href = `/register/${currentEvent.id}`;
+    $('#register-deeplink').textContent = `/register/${currentEvent.id}`;
+
+    applyEndedLock();
+  }
+
+  // ── Ended-tournament lock ──
+  let adminOverride = false;
+
+  function applyEndedLock() {
+    const isEnded = currentEvent.status === 'ended';
+    const editorGrid = $('.editor-grid');
+    const existing = $('#ended-banner');
+    if (existing) existing.remove();
+    adminOverride = false;
+
+    if (isEnded) {
+      const banner = el('div', { id: 'ended-banner', class: 'ended-banner' },
+        el('div', null,
+          el('strong', null, '🔒 Tournament Ended'),
+          el('div', { class: 'small mt-1', style: { color: 'var(--ink-2)' } },
+            'All editing is locked. Re-open the tournament or use Admin Override to make temporary changes.')
+        ),
+        el('button', { class: 'btn btn-ghost', id: 'btn-admin-override',
+          on: { click: toggleAdminOverride } }, 'Admin Override')
+      );
+      editorGrid.parentNode.insertBefore(banner, editorGrid);
+      editorGrid.classList.add('is-locked');
+    } else {
+      editorGrid.classList.remove('is-locked');
+    }
+  }
+
+  function toggleAdminOverride() {
+    adminOverride = !adminOverride;
+    const editorGrid = $('.editor-grid');
+    const btn = $('#btn-admin-override');
+    if (adminOverride) {
+      editorGrid.classList.remove('is-locked');
+      btn.textContent = '🔒 Lock again';
+      btn.className = 'btn btn-accent';
+      JORD.toast('Admin override active — editing an ended tournament', 'warn');
+    } else {
+      editorGrid.classList.add('is-locked');
+      btn.textContent = 'Admin Override';
+      btn.className = 'btn btn-ghost';
+    }
+  }
+
+  // ── Tab navigation ──
+  function showPanel(name) {
+    $$('.editor-nav .nav-item').forEach(n => n.classList.toggle('is-active', n.dataset.panel === name));
+    $$('.panel').forEach(p => p.classList.toggle('is-active', p.dataset.panel === name));
+    if (name === 'map') initMap();
+    if (name === 'players') loadTeams();
+    if (name === 'alerts') loadAlerts();
+    if (name === 'balls') loadBalls();
+  }
+  $$('.editor-nav .nav-item').forEach(n => n.addEventListener('click', () => showPanel(n.dataset.panel)));
+
+  // ── Venue autocomplete (uses Mapbox Places) ──
+  let venueDebounce = null;
+  document.getElementById('venue-input').addEventListener('input', (e) => {
+    clearTimeout(venueDebounce);
+    const q = e.target.value.trim();
+    const sugBox = document.getElementById('venue-suggestions');
+    if (q.length < 3) { sugBox.innerHTML = ''; return; }
+    venueDebounce = setTimeout(async () => {
+      if (!mapboxToken) return;
+      try {
+        const r = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${mapboxToken}&types=poi,address&limit=5`).then(r => r.json());
+        sugBox.innerHTML = '';
+        if (!r.features?.length) return;
+        const list = document.createElement('div');
+        list.style.cssText = 'position:absolute;left:0;right:0;z-index:99;background:var(--surface);border:1px solid var(--border-2);border-radius:var(--r-md);box-shadow:var(--shadow-md);overflow:hidden';
+        for (const f of r.features) {
+          const item = document.createElement('div');
+          item.style.cssText = 'padding:10px 14px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border)';
+          item.textContent = f.place_name;
+          item.addEventListener('mousedown', (ev) => {
+            ev.preventDefault();
+            document.getElementById('venue-input').value = f.place_name;
+            sugBox.innerHTML = '';
+            // Fly map if open
+            if (map) map.flyTo({ center: f.center, zoom: 15 });
+          });
+          item.addEventListener('mouseover', () => item.style.background = 'var(--surface-2)');
+          item.addEventListener('mouseout',  () => item.style.background = '');
+          list.appendChild(item);
+        }
+        sugBox.appendChild(list);
+      } catch {}
+    }, 350);
+  });
+  document.getElementById('venue-input').addEventListener('blur', () => {
+    setTimeout(() => { document.getElementById('venue-suggestions').innerHTML = ''; }, 200);
+  });
+
+  // ── Settings form ──
+  function fillSettings() {
+    const f = $('#form-settings');
+    for (const k of ['name', 'venue']) f[k].value = currentEvent[k] || '';
+    f.starts_at.value = currentEvent.starts_at ? currentEvent.starts_at.slice(0, 16) : '';
+    f.ends_at.value   = currentEvent.ends_at   ? currentEvent.ends_at.slice(0, 16) : '';
+    for (const k of ['has_longest_drive', 'has_closest_pin', 'combined_scoring', 'allow_rough', 'allow_oob']) {
+      f[k].checked = !!currentEvent[k];
+    }
+    f.rough_penalty_mode.value = currentEvent.rough_penalty_mode || 'perpendicular';
+    f.oob_penalty_mode.value   = currentEvent.oob_penalty_mode   || 'half_hole';
+    for (const k of ['rough_fixed_yards', 'oob_fixed_yards', 'hole_distance_yards']) f[k].value = currentEvent[k] || 0;
+  }
+  $('#form-settings').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const f = e.target;
+    const body = {};
+    ['name', 'venue', 'starts_at', 'ends_at', 'rough_penalty_mode', 'oob_penalty_mode'].forEach(k => body[k] = f[k].value || null);
+    ['rough_fixed_yards', 'oob_fixed_yards', 'hole_distance_yards'].forEach(k => body[k] = parseFloat(f[k].value) || 0);
+    ['has_longest_drive', 'has_closest_pin', 'combined_scoring', 'allow_rough', 'allow_oob'].forEach(k => body[k] = f[k].checked ? 1 : 0);
+    currentEvent = await JORD.api('/api/events/' + currentEvent.id, { method: 'PATCH', body });
+    JORD.success('Settings saved');
+    fillHeader();
+  });
+  $('#btn-activate').addEventListener('click', async () => {
+    currentEvent = await JORD.api('/api/events/' + currentEvent.id, { method: 'PATCH', body: { status: 'active' } });
+    JORD.success('Tournament activated');
+    fillHeader();
+  });
+
+  // ── Map ──
+  function initMap() {
+    if (map) { map.resize(); return; }
+    if (!mapboxToken) {
+      $('#map').innerHTML = '<div class="empty"><div class="empty-icon">🗺</div><div class="empty-title">Mapbox token missing</div><p>Add MAPBOX_TOKEN to your .env file and restart.</p></div>';
+      return;
+    }
+    mapboxgl.accessToken = mapboxToken;
+
+    const tees = currentEvent.tee_boxes || [];
+    const center = tees.length ? [tees[0].lon, tees[0].lat]
+      : (currentEvent.pin_lon ? [currentEvent.pin_lon, currentEvent.pin_lat] : [-84.3953, 33.5031]);
+
+    // Color-coded draw styles
+    const kindColor = ['match', ['get', 'user_kind'],
+      'fairway', '#0F3D2E', 'rough', '#B38D30', 'oob', '#C0392B', 'green', '#4CAF50', '#6272C1'];
+    const drawStyles = [
+      { id: 'gl-draw-polygon-fill-inactive', type: 'fill',
+        filter: ['all', ['==', 'active', 'false'], ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
+        paint: { 'fill-color': kindColor, 'fill-outline-color': kindColor, 'fill-opacity': 0.3 } },
+      { id: 'gl-draw-polygon-fill-active', type: 'fill',
+        filter: ['all', ['==', 'active', 'true'], ['==', '$type', 'Polygon']],
+        paint: { 'fill-color': '#fbb03b', 'fill-outline-color': '#fbb03b', 'fill-opacity': 0.12 } },
+      { id: 'gl-draw-polygon-stroke-inactive', type: 'line',
+        filter: ['all', ['==', 'active', 'false'], ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': kindColor, 'line-width': 2, 'line-opacity': 0.8 } },
+      { id: 'gl-draw-polygon-stroke-active', type: 'line',
+        filter: ['all', ['==', 'active', 'true'], ['==', '$type', 'Polygon']],
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#fbb03b', 'line-dasharray': [0.2, 2], 'line-width': 2 } },
+      { id: 'gl-draw-polygon-midpoint', type: 'circle',
+        filter: ['all', ['==', '$type', 'Point'], ['==', 'meta', 'midpoint']],
+        paint: { 'circle-radius': 3, 'circle-color': '#fbb03b' } },
+      { id: 'gl-draw-polygon-and-line-vertex-halo-active', type: 'circle',
+        filter: ['all', ['==', 'meta', 'vertex'], ['==', '$type', 'Point'], ['!=', 'mode', 'static']],
+        paint: { 'circle-radius': 5, 'circle-color': '#FFF' } },
+      { id: 'gl-draw-polygon-and-line-vertex-active', type: 'circle',
+        filter: ['all', ['==', 'meta', 'vertex'], ['==', '$type', 'Point'], ['!=', 'mode', 'static']],
+        paint: { 'circle-radius': 3, 'circle-color': '#fbb03b' } }
+    ];
+
+    map = new mapboxgl.Map({
+      container: 'map',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12',
+      center, zoom: tees.length ? 17 : 12
+    });
+
+    draw = new MapboxDraw({
+      displayControlsDefault: false,
+      controls: { polygon: true, trash: true },
+      defaultMode: 'simple_select',
+      styles: drawStyles
+    });
+    map.addControl(draw, 'top-left');
+    map.addControl(new mapboxgl.NavigationControl());
+
+    // Track current polygon kind when drawing
+    let currentDrawKind = 'fairway';
+
+    map.on('draw.create', (e) => {
+      for (const f of e.features) {
+        draw.setFeatureProperty(f.id, 'kind', currentDrawKind);
+        const feat = draw.get(f.id);
+        if (feat) draw.add(feat);
+      }
+    });
+
+    function loadPolygon(geojsonStr, kind) {
+      if (!geojsonStr) return;
+      try {
+        draw.add({ type: 'Feature', geometry: JSON.parse(geojsonStr), properties: { kind } });
+      } catch {}
+    }
+
+    map.on('load', () => {
+      loadPolygon(currentEvent.fairway_polygon, 'fairway');
+      loadPolygon(currentEvent.rough_polygon,   'rough');
+      loadPolygon(currentEvent.oob_polygon,     'oob');
+      loadPolygon(currentEvent.green_polygon,   'green');
+
+      // Add GPS trace source/layer
+      map.addSource('gps-trace', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } } });
+      map.addLayer({ id: 'gps-trace-layer', type: 'line', source: 'gps-trace',
+        paint: { 'line-color': '#fbb03b', 'line-width': 3, 'line-dasharray': [2, 1] } });
+
+      drawTeeMarkers();
+      drawPinMarker();
+    });
+
+    let pinPickerActive = false;
+
+    function setDrawKind(kind) {
+      currentDrawKind = kind;
+      ['fairway', 'rough', 'oob', 'green'].forEach(k => {
+        const btn = $(`#tool-${k}`);
+        if (btn) btn.classList.toggle('is-drawing', k === kind);
+      });
+    }
+
+    $('#tool-tee').onclick = async () => {
+      const c = map.getCenter();
+      const name = prompt('Tee box name (e.g. Men\'s, Women\'s)?', 'Main');
+      if (!name) return;
+      const teeBox = await JORD.api(`/api/events/${currentEvent.id}/tee-boxes`, { method: 'POST', body: { name, color: 'white', lat: c.lat, lon: c.lng, hole_type: 'longest_drive' }});
+      currentEvent.tee_boxes = currentEvent.tee_boxes || [];
+      currentEvent.tee_boxes.push(teeBox);
+      drawTeeMarkers(); renderTees();
+      JORD.success('Tee box added');
+    };
+
+    $('#tool-fairway').onclick = () => { setDrawKind('fairway'); draw.changeMode('draw_polygon'); };
+    $('#tool-rough').onclick   = () => { setDrawKind('rough');   draw.changeMode('draw_polygon'); };
+    $('#tool-oob').onclick     = () => { setDrawKind('oob');     draw.changeMode('draw_polygon'); };
+    $('#tool-green').onclick   = () => { setDrawKind('green');   draw.changeMode('draw_polygon'); };
+
+    $('#tool-pin').onclick = () => { pinPickerActive = true; map.getCanvas().style.cursor = 'crosshair'; JORD.toast('Click the map to place the pin', 'warn'); };
+    $('#tool-clear').onclick = () => draw.deleteAll();
+
+    map.on('click', (e) => {
+      if (pinPickerActive) {
+        currentEvent.pin_lat = e.lngLat.lat;
+        currentEvent.pin_lon = e.lngLat.lng;
+        drawPinMarker();
+        pinPickerActive = false;
+        map.getCanvas().style.cursor = '';
+        JORD.success('Pin placed — remember to Save map');
+      }
+    });
+
+    $('#btn-save-map').onclick = async () => {
+      const all = draw.getAll();
+      const byKind = { fairway: null, rough: null, oob: null, green: null };
+      for (const f of all.features) {
+        if (f.geometry.type !== 'Polygon') continue;
+        const kind = f.properties.kind || f.properties.user_kind || 'fairway';
+        if (kind in byKind) byKind[kind] = JSON.stringify(f.geometry);
+      }
+      const body = {
+        fairway_polygon: byKind.fairway,
+        rough_polygon:   byKind.rough,
+        oob_polygon:     byKind.oob,
+        green_polygon:   byKind.green,
+        pin_lat: currentEvent.pin_lat || null,
+        pin_lon: currentEvent.pin_lon || null
+      };
+      currentEvent = Object.assign(currentEvent, await JORD.api('/api/events/' + currentEvent.id, { method: 'PATCH', body }));
+      JORD.success('Map saved');
+    };
+
+    $('#search-place').addEventListener('keydown', async (e) => {
+      if (e.key !== 'Enter') return;
+      const q = e.target.value.trim(); if (!q) return;
+      const r = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${mapboxToken}&limit=1`).then(r => r.json());
+      if (r.features?.[0]) { map.flyTo({ center: r.features[0].center, zoom: 16 }); }
+      else JORD.warn('No results');
+    });
+
+    // ── GPS Trace ──
+    let traceWatchId = null;
+    let tracePoints = [];
+
+    $('#tool-trace-start').onclick = () => {
+      if (traceWatchId !== null) { JORD.warn('Already tracing — click Stop Trace first'); return; }
+      if (!navigator.geolocation) { JORD.error('GPS not available on this device'); return; }
+      const kind = $('#tool-trace-kind').value;
+      tracePoints = [];
+      JORD.toast(`GPS trace started for ${kind} — walk the boundary, then click Stop Trace`, 'warn');
+      $('#tool-trace-stop').style.display = '';
+      $('#tool-trace-start').style.display = 'none';
+      map.getSource('gps-trace').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
+
+      traceWatchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          tracePoints.push([pos.coords.longitude, pos.coords.latitude]);
+          map.getSource('gps-trace').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: tracePoints } });
+          map.setCenter([pos.coords.longitude, pos.coords.latitude]);
+        },
+        (err) => JORD.warn('GPS error: ' + err.message),
+        { enableHighAccuracy: true, maximumAge: 0 }
+      );
+    };
+
+    $('#tool-trace-stop').onclick = () => {
+      if (traceWatchId === null) return;
+      navigator.geolocation.clearWatch(traceWatchId);
+      traceWatchId = null;
+      $('#tool-trace-stop').style.display = 'none';
+      $('#tool-trace-start').style.display = '';
+
+      if (tracePoints.length < 3) {
+        JORD.warn('Not enough GPS points — walk more of the boundary before stopping');
+        map.getSource('gps-trace').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
+        return;
+      }
+      const kind = $('#tool-trace-kind').value;
+      const closedPts = [...tracePoints, tracePoints[0]];
+      const feat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closedPts] }, properties: { kind } };
+      draw.add(feat);
+      map.getSource('gps-trace').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
+      tracePoints = [];
+      JORD.success(`${kind} boundary traced (${closedPts.length - 1} points) — click Save map to save`);
+    };
+  }
+
+  function drawTeeMarkers() {
+    mapMarkers.tees.forEach(m => m.remove());
+    mapMarkers.tees = [];
+    for (const t of (currentEvent.tee_boxes || [])) {
+      const elDiv = document.createElement('div');
+      elDiv.style.cssText = 'background:#C9A24A;color:#1a1a1a;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:grid;place-items:center;font-size:14px;font-weight:700;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,0.3);';
+      elDiv.textContent = 'T';
+      elDiv.title = t.name + ' — drag to reposition';
+      const m = new mapboxgl.Marker({ element: elDiv, draggable: true })
+        .setLngLat([t.lon, t.lat])
+        .setPopup(new mapboxgl.Popup().setHTML(`<strong>${t.name}</strong><br>${t.hole_type}<br><em>Drag to move</em>`))
+        .addTo(map);
+
+      m.on('dragend', async () => {
+        const { lat, lng } = m.getLngLat();
+        try {
+          await JORD.api(`/api/tee-boxes/${t.id}`, { method: 'PATCH', body: { lat, lon: lng } });
+          const tb = (currentEvent.tee_boxes || []).find(x => x.id === t.id);
+          if (tb) { tb.lat = lat; tb.lon = lng; }
+          renderTees();
+          JORD.success(`Tee box "${t.name}" moved`);
+        } catch (e) { JORD.error('Could not save tee box position'); }
+      });
+
+      mapMarkers.tees.push(m);
+    }
+  }
+  function drawPinMarker() {
+    if (mapMarkers.pin) mapMarkers.pin.remove();
+    if (!currentEvent.pin_lat) return;
+    const elDiv = document.createElement('div');
+    elDiv.style.cssText = 'background:#C0392B;color:white;border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:grid;place-items:center;font-size:14px;font-weight:700;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,0.3);';
+    elDiv.textContent = '⚑';
+    elDiv.title = 'Pin — drag to reposition, then Save map';
+    mapMarkers.pin = new mapboxgl.Marker({ element: elDiv, draggable: true })
+      .setLngLat([currentEvent.pin_lon, currentEvent.pin_lat])
+      .addTo(map);
+    mapMarkers.pin.on('dragend', () => {
+      const { lat, lng } = mapMarkers.pin.getLngLat();
+      currentEvent.pin_lat = lat;
+      currentEvent.pin_lon = lng;
+      JORD.toast('Pin moved — click Save map to confirm', 'warn');
+    });
+  }
+  function renderTees() {
+    const list = $('#tee-list');
+    list.innerHTML = '';
+    for (const t of (currentEvent.tee_boxes || [])) {
+      const latIn = el('input', { class: 'input tee-coord-input', type: 'number', step: 'any',
+        value: t.lat.toFixed(6), title: 'Latitude — edit and click Update or press Enter' });
+      const lonIn = el('input', { class: 'input tee-coord-input', type: 'number', step: 'any',
+        value: t.lon.toFixed(6), title: 'Longitude — edit and click Update or press Enter' });
+
+      const saveCoords = async () => {
+        const lat = parseFloat(latIn.value), lon = parseFloat(lonIn.value);
+        if (isNaN(lat) || isNaN(lon)) return JORD.warn('Invalid coordinates');
+        try {
+          await JORD.api(`/api/tee-boxes/${t.id}`, { method: 'PATCH', body: { lat, lon } });
+          t.lat = lat; t.lon = lon;
+          if (map) drawTeeMarkers();
+          JORD.success(`"${t.name}" location updated`);
+        } catch { JORD.error('Could not save location'); }
+      };
+
+      latIn.addEventListener('keydown', e => { if (e.key === 'Enter') saveCoords(); });
+      lonIn.addEventListener('keydown',  e => { if (e.key === 'Enter') saveCoords(); });
+
+      const row = el('div', { class: 'tee-row', style: { flexDirection: 'column', alignItems: 'flex-start', gap: '6px' } },
+        el('div', { style: { display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' } },
+          el('div', null,
+            el('strong', null, t.name),
+            el('small', { style: { color: 'var(--ink-2)', marginLeft: '8px' } }, t.hole_type)
+          ),
+          el('button', { class: 'btn btn-ghost', style: { fontSize: '12px', padding: '4px 8px' }, on: { click: async () => {
+            if (!await JORD.confirm('Delete this tee box?')) return;
+            await JORD.api('/api/tee-boxes/' + t.id, { method: 'DELETE' });
+            currentEvent.tee_boxes = currentEvent.tee_boxes.filter(x => x.id !== t.id);
+            drawTeeMarkers(); renderTees();
+          } } }, 'Delete')
+        ),
+        el('div', { class: 'tee-coords' },
+          el('label', null, 'lat'), latIn,
+          el('label', null, 'lon'), lonIn,
+          el('button', { class: 'btn btn-ghost', style: { fontSize: '11px', padding: '3px 8px' }, on: { click: saveCoords } }, 'Update')
+        )
+      );
+      list.appendChild(row);
+    }
+  }
+
+  // ── Balls ──
+  async function loadBalls() {
+    if (!currentEvent) return;
+    const r = await JORD.api('/api/events/' + currentEvent.id + '/balls');
+    $('#stat-balls-total').textContent = r.total;
+    $('#stat-balls-assigned').textContent = r.assigned;
+    $('#stat-balls-available').textContent = r.available;
+    const grid = $('#ball-grid');
+    grid.innerHTML = '';
+    for (const b of r.balls) {
+      const assigned = !!b.team_id;
+      const tag = el('div', {
+        class: 'ball-tag' + (assigned ? ' is-assigned' : ''),
+        title: assigned
+          ? `Assigned to: ${b.team_name || 'unknown team'} — ${b.first_name || ''} ${b.last_name || ''}`.trim()
+          : 'Unassigned — click ✕ to remove from pool'
+      },
+        b.drop_code,
+        b.team_name ? el('div', { class: 'small', style: { marginTop: '2px' } }, JORD.fmt.short(b.team_name, 16)) : null,
+        !assigned ? el('span', {
+          style: { marginLeft: '6px', cursor: 'pointer', opacity: '0.6', fontSize: '12px' },
+          title: 'Remove this code from the pool',
+          on: { click: async (e) => {
+            e.stopPropagation();
+            if (!await JORD.confirm(`Remove code ${b.drop_code} from the pool?`)) return;
+            try {
+              await JORD.api(`/api/events/${currentEvent.id}/balls/${b.drop_code}`, { method: 'DELETE' });
+              JORD.success(`${b.drop_code} removed`);
+              loadBalls();
+            } catch (err) { JORD.error(err.message); }
+          }}
+        }, '✕') : null
+      );
+      grid.appendChild(tag);
+    }
+  }
+  $('#btn-add-balls').addEventListener('click', async () => {
+    const raw = $('#pool-input').value;
+    const codes = raw.split(/[,\s]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+    if (!codes.length) return JORD.warn('Paste in some codes first');
+    const r = await JORD.api(`/api/events/${currentEvent.id}/balls`, { method: 'POST', body: { codes } });
+    JORD.success(`${r.added} added (${r.dupes} dupes skipped)`);
+    $('#pool-input').value = '';
+    loadBalls();
+  });
+
+  // ── Import CSV ──
+  $('#import-csv-file').addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      const lines = text.split(/[\r\n]+/).filter(Boolean);
+
+      // Detect header row — look for columns named code / drop_code / ball_code
+      let codeColIdx = 0;
+      if (lines.length > 1) {
+        const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/"/g, ''));
+        const ci = headers.findIndex(h => ['code','drop_code','ball_code','ballcode','id'].includes(h));
+        if (ci >= 0) { codeColIdx = ci; lines.shift(); } // skip header row
+      }
+
+      const codes = [];
+      for (const line of lines) {
+        const cols = line.split(',');
+        const raw = (cols[codeColIdx] || cols[0] || '').trim().toUpperCase().replace(/"/g, '').replace(/[^A-Z0-9]/g, '');
+        if (raw.length >= 4) codes.push(raw);
+      }
+
+      if (!codes.length) { JORD.warn('No valid codes found in file. Codes must be at least 4 characters.'); return; }
+      $('#pool-input').value = codes.join('\n');
+      JORD.toast(`${codes.length} codes loaded — review then click "Add to pool"`, 'success');
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  });
+
+  // ── Teams ──
+  async function loadTeams() {
+    const lb = await JORD.api('/api/leaderboard/' + currentEvent.id);
+    const tbody = $('#teams-table tbody');
+    tbody.innerHTML = '';
+    const merged = new Map();
+    for (const t of (lb.ld || [])) merged.set(t.id, { team_name: t.team_name, ld: t, balls: t.balls });
+    for (const t of (lb.cp || [])) {
+      const row = merged.get(t.id) || { team_name: t.team_name, balls: t.balls };
+      row.cp = t; merged.set(t.id, row);
+    }
+    if (!merged.size) { $('#teams-empty').classList.remove('hidden'); $('#teams-table').classList.add('hidden'); return; }
+    $('#teams-empty').classList.add('hidden');
+    $('#teams-table').classList.remove('hidden');
+    for (const [id, t] of merged) {
+      const playerNames = (t.balls || []).map(b => b.player_name).join(', ');
+      const codes = (t.balls || []).map(b => b.drop_code).join(' ');
+      const tr = el('tr', null,
+        el('td', null, el('strong', null, t.team_name)),
+        el('td', null, playerNames || '—'),
+        el('td', { class: 'text-mono', style: { fontSize: '12px' } }, codes),
+        el('td', null, t.ld ? JORD.fmt.yards(t.ld.total_yards) : '—'),
+        el('td', null, t.cp && t.cp.best_ft != null ? JORD.fmt.feet(t.cp.best_ft) : '—'),
+        el('td', null, '')
+      );
+      tbody.appendChild(tr);
+    }
+  }
+
+  // ── Alerts ──
+  async function loadAlerts() {
+    const lb = await JORD.api('/api/leaderboard/' + currentEvent.id);
+    const list = $('#alerts-list');
+    list.innerHTML = '';
+    const alerts = lb.alerts || [];
+    if (!alerts.length) { list.innerHTML = '<div class="empty"><div class="empty-icon">✅</div><div class="empty-title">No open alerts</div></div>'; return; }
+    for (const a of alerts) {
+      const row = el('div', { class: 'card card-tight card-accent mb-2' },
+        el('div', { class: 'row row-between' },
+          el('div', null,
+            el('strong', null, a.message || 'Player needs help'),
+            el('div', { class: 'small mt-1' }, [a.team_name, a.player_name, a.drop_code].filter(Boolean).join(' · ')),
+            el('div', { class: 'small' }, JORD.fmt.datetime(a.created_at))
+          ),
+          el('button', { class: 'btn btn-primary', on: { click: async () => {
+            await JORD.api('/api/alerts/' + a.id + '/resolve', { method: 'PATCH' });
+            JORD.success('Resolved'); loadAlerts();
+          } } }, 'Resolve')
+        )
+      );
+      list.appendChild(row);
+    }
+  }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Player Registration · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  body { background: var(--bg); }
+  .reg-wrap { max-width: 540px; margin: 0 auto; padding: var(--s-4) var(--s-4) var(--s-8); }
+
+  .step-bar { display: flex; align-items: center; gap: 6px; margin-bottom: var(--s-5); }
+  .step-pip {
+    width: 28px; height: 6px; border-radius: 3px;
+    background: var(--border-2); transition: background var(--t-med);
+  }
+  .step-pip.done { background: var(--primary); }
+  .step-pip.active { background: var(--accent); }
+
+  .player-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 14px; border-radius: var(--r-pill);
+    background: var(--primary); color: var(--primary-ink);
+    font-size: 13px; font-weight: 700; margin-bottom: var(--s-3);
+  }
+
+  .code-row { display: flex; gap: var(--s-2); align-items: flex-end; }
+  .code-row .field { flex: 1; margin-bottom: 0; }
+
+  .qr-toggle { font-size: 13px; color: var(--primary); cursor: pointer; margin-top: 6px; display: inline-block; }
+  .qr-area { margin-top: var(--s-3); display: none; }
+  .qr-area.is-open { display: block; }
+
+  .players-done {
+    display: flex; flex-direction: column; gap: var(--s-2); margin-bottom: var(--s-4);
+  }
+  .player-chip {
+    display: flex; align-items: center; gap: var(--s-3);
+    padding: 10px 14px; background: var(--surface-2); border-radius: var(--r-md);
+    border: 1px solid var(--border); font-size: 14px;
+  }
+  .player-chip .code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
+
+  .add-more {
+    display: flex; align-items: center; gap: 8px;
+    padding: 12px 16px; border: 2px dashed var(--border-2); border-radius: var(--r-md);
+    font-size: 14px; font-weight: 600; color: var(--ink-2); cursor: pointer;
+    background: none; width: 100%; text-align: left;
+    transition: border-color var(--t-fast), color var(--t-fast);
+  }
+  .add-more:hover { border-color: var(--primary); color: var(--primary); }
+  .add-more:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  .success-card { text-align: center; padding: var(--s-6); }
+  .success-icon { font-size: 56px; margin-bottom: var(--s-3); }
+  .code-list { display: flex; flex-wrap: wrap; gap: var(--s-2); justify-content: center; margin-top: var(--s-3); }
+  .code-pill {
+    font-family: var(--font-mono); font-size: 13px; font-weight: 700;
+    padding: 6px 12px; background: var(--primary); color: var(--primary-ink);
+    border-radius: var(--r-sm);
+  }
+</style>
+</head>
+<body>
+
+<script src="/js/jord.js"></script>
+<script>
+(function () {
+  var eid = JORD.path(1);
+  var eventInfo  = null;
+  var players    = [];   /* {code, first, last, email, phone, tee_box_id} */
+  var MAX        = 4;
+
+  /* ── Bootstrap ── */
+  document.addEventListener('DOMContentLoaded', function () {
+    JORD.renderTopbar('Player Registration');
+    if (!eid) { renderError('No event ID in URL.'); return; }
+    loadEvent();
+  });
+
+  function loadEvent() {
+    renderLoading();
+    fetch('/api/events/' + eid + '/info')
+      .then(function (r) { return r.json(); })
+      .then(function (info) {
+        if (info.error) { renderError(info.error); return; }
+        eventInfo = info;
+        if (info.status === 'ended') { renderError('This tournament has ended. Registration is closed.'); return; }
+        renderStep();
+      })
+      .catch(function () { renderError('Could not connect to server. Make sure it is running.'); });
+  }
+
+  /* ── Renders ── */
+  function getRoot() {
+    var r = document.getElementById('root');
+    if (!r) { r = document.createElement('div'); r.id = 'root'; r.className = 'reg-wrap'; document.body.appendChild(r); }
+    return r;
+  }
+
+  function renderLoading() {
+    getRoot().innerHTML = '<div class="text-center" style="padding:80px 0"><div class="spinner spinner-lg" style="margin:0 auto"></div><p class="mt-4">Loading tournament…</p></div>';
+  }
+
+  function renderError(msg) {
+    getRoot().innerHTML = '<div class="empty" style="padding:80px 24px"><div class="empty-icon">⚠️</div><div class="empty-title">Oops</div><p>' + msg + '</p><a href="/admin" class="btn btn-ghost mt-3">← Back to Admin</a></div>';
+  }
+
+  function renderStep() {
+    var root = getRoot();
+    var playerIndex = players.length + 1;
+    var isTeamStep  = false;
+
+    root.innerHTML = '';
+
+    /* Event header */
+    var evHead = document.createElement('div');
+    evHead.style.cssText = 'margin-bottom:var(--s-5)';
+    evHead.innerHTML = '<div class="hero-eyebrow">' + (eventInfo.venue || 'JORD Golf Tournament') + '</div>'
+      + '<h2 class="mt-1">' + eventInfo.name + '</h2>'
+      + '<p class="text-muted" style="margin-top:4px;font-size:14px">Register your team below. Each player needs their unique drop code.</p>';
+    root.appendChild(evHead);
+
+    /* Step bar */
+    var bar = document.createElement('div');
+    bar.className = 'step-bar';
+    for (var i = 0; i < MAX; i++) {
+      var pip = document.createElement('div');
+      pip.className = 'step-pip' + (i < players.length ? ' done' : (i === players.length ? ' active' : ''));
+      bar.appendChild(pip);
+    }
+    /* Team step pip */
+    var teamPip = document.createElement('div');
+    teamPip.className = 'step-pip';
+    teamPip.style.flex = '1';
+    bar.appendChild(teamPip);
+    root.appendChild(bar);
+
+    /* Previously added players */
+    if (players.length > 0) {
+      var doneList = document.createElement('div');
+      doneList.className = 'players-done';
+      players.forEach(function (p, i) {
+        var chip = document.createElement('div');
+        chip.className = 'player-chip';
+        chip.innerHTML = '<span style="font-size:18px">✅</span>'
+          + '<span><strong>' + p.first + ' ' + p.last + '</strong></span>'
+          + '<span class="code">' + p.code + '</span>';
+        doneList.appendChild(chip);
+      });
+      root.appendChild(doneList);
+    }
+
+    /* Add-more button */
+    if (players.length > 0 && players.length < MAX) {
+      var moreBtn = document.createElement('button');
+      moreBtn.className = 'add-more mb-4';
+      moreBtn.innerHTML = '＋ Add Player ' + (players.length + 1);
+      moreBtn.addEventListener('click', function () {
+        showPlayerForm(root, playerIndex);
+        moreBtn.style.display = 'none';
+      });
+      root.appendChild(moreBtn);
+    }
+
+    /* Player form */
+    if (players.length === 0) {
+      showPlayerForm(root, 1);
+    }
+
+    /* Team name step (available after at least 1 player) */
+    if (players.length > 0) {
+      showTeamForm(root);
+    }
+  }
+
+  function showPlayerForm(root, playerIndex) {
+    var form = document.createElement('div');
+    form.className = 'card mb-4';
+
+    /* Badge */
+    var badge = document.createElement('div');
+    badge.className = 'player-badge';
+    badge.textContent = 'Player ' + playerIndex;
+    form.appendChild(badge);
+
+    /* Drop code row */
+    var codeGroup = document.createElement('div');
+    var codeField = document.createElement('div');
+    codeField.className = 'field';
+    codeField.innerHTML = '<label>Drop Code</label>';
+    var codeInput = document.createElement('input');
+    codeInput.className = 'input input-code';
+    codeInput.placeholder = 'e.g. ABC123';
+    codeInput.maxLength = 12;
+    codeInput.autocomplete = 'off';
+    codeInput.addEventListener('input', function () {
+      codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    });
+    codeField.appendChild(codeInput);
+    codeGroup.appendChild(codeField);
+
+    /* QR toggle */
+    var qrToggle = document.createElement('span');
+    qrToggle.className = 'qr-toggle';
+    qrToggle.textContent = '📷 Scan QR code instead';
+    var qrArea = document.createElement('div');
+    qrArea.className = 'qr-area';
+    var scanner = null;
+    qrToggle.addEventListener('click', function () {
+      qrArea.classList.toggle('is-open');
+      if (qrArea.classList.contains('is-open')) {
+        qrToggle.textContent = '⌨️ Type code instead';
+        if (!scanner) {
+          scanner = new JORD.QRScanner(qrArea, function (raw) {
+            var code = JORD.extractDropCode(raw);
+            if (code) {
+              codeInput.value = code;
+              scanner.stop(); scanner = null;
+              qrArea.classList.remove('is-open');
+              qrToggle.textContent = '📷 Scan QR code instead';
+            }
+          });
+          scanner.start().catch(function (e) { JORD.error(e.message); });
+        }
+      } else {
+        qrToggle.textContent = '📷 Scan QR code instead';
+        if (scanner) { scanner.stop(); scanner = null; }
+      }
+    });
+    codeGroup.appendChild(qrToggle);
+    codeGroup.appendChild(qrArea);
+    form.appendChild(codeGroup);
+
+    /* Name fields */
+    var nameGrid = document.createElement('div');
+    nameGrid.className = 'field-grid mt-3';
+    var firstField = document.createElement('div');
+    firstField.className = 'field';
+    firstField.innerHTML = '<label>First Name</label>';
+    var firstInput = document.createElement('input');
+    firstInput.className = 'input'; firstInput.placeholder = 'First';
+    firstField.appendChild(firstInput);
+    var lastField = document.createElement('div');
+    lastField.className = 'field';
+    lastField.innerHTML = '<label>Last Name</label>';
+    var lastInput = document.createElement('input');
+    lastInput.className = 'input'; lastInput.placeholder = 'Last';
+    lastField.appendChild(lastInput);
+    nameGrid.appendChild(firstField);
+    nameGrid.appendChild(lastField);
+    form.appendChild(nameGrid);
+
+    /* Email + phone */
+    var contactGrid = document.createElement('div');
+    contactGrid.className = 'field-grid';
+    var emailField = document.createElement('div');
+    emailField.className = 'field';
+    emailField.innerHTML = '<label>Email <span style="font-weight:400;color:var(--ink-2)">(optional)</span></label>';
+    var emailInput = document.createElement('input');
+    emailInput.className = 'input'; emailInput.type = 'email'; emailInput.placeholder = 'you@example.com';
+    emailField.appendChild(emailInput);
+    var phoneField = document.createElement('div');
+    phoneField.className = 'field';
+    phoneField.innerHTML = '<label>Phone <span style="font-weight:400;color:var(--ink-2)">(optional)</span></label>';
+    var phoneInput = document.createElement('input');
+    phoneInput.className = 'input'; phoneInput.type = 'tel'; phoneInput.placeholder = '+1 555 000 0000';
+    phoneField.appendChild(phoneInput);
+    contactGrid.appendChild(emailField);
+    contactGrid.appendChild(phoneField);
+    form.appendChild(contactGrid);
+
+    /* Tee box */
+    if (eventInfo.tee_boxes && eventInfo.tee_boxes.length > 0) {
+      var teeField = document.createElement('div');
+      teeField.className = 'field';
+      teeField.innerHTML = '<label>Tee Box</label>';
+      var teeSelect = document.createElement('select');
+      teeSelect.className = 'select';
+      eventInfo.tee_boxes.forEach(function (tb) {
+        var opt = document.createElement('option');
+        opt.value = tb.id;
+        opt.textContent = tb.name + (tb.hole_type === 'closest_pin' ? ' (Closest to Pin)' : ' (Longest Drive)');
+        teeSelect.appendChild(opt);
+      });
+      teeField.appendChild(teeSelect);
+      form.appendChild(teeField);
+    }
+
+    /* Submit button */
+    var submitBtn = document.createElement('button');
+    submitBtn.className = 'btn btn-primary btn-block mt-3';
+    submitBtn.textContent = 'Save Player ' + playerIndex;
+    var errEl = document.createElement('div');
+    errEl.className = 'text-danger mt-2 small';
+
+    submitBtn.addEventListener('click', function () {
+      var code = codeInput.value.trim().toUpperCase();
+      var first = firstInput.value.trim();
+      var last  = lastInput.value.trim();
+      if (!code || code.length < 4) { errEl.textContent = 'Enter a valid drop code (at least 4 characters).'; return; }
+      if (!first || !last) { errEl.textContent = 'First and last name are required.'; return; }
+      if (players.find(function (p) { return p.code === code; })) { errEl.textContent = 'That code is already added.'; return; }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Saving…';
+      errEl.textContent = '';
+
+      fetch('/api/events/' + eid + '/register-player', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          drop_code: code,
+          first_name: first,
+          last_name: last,
+          email: emailInput.value.trim() || null,
+          phone: phoneInput.value.trim() || null,
+          tee_box_id: (eventInfo.tee_boxes && eventInfo.tee_boxes.length) ? (form.querySelector('select') ? form.querySelector('select').value : null) : null,
+          player_index: playerIndex
+        })
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) { errEl.textContent = data.error; submitBtn.disabled = false; submitBtn.textContent = 'Save Player ' + playerIndex; return; }
+        if (scanner) { scanner.stop(); scanner = null; }
+        players.push({ code: code, first: first, last: last });
+        renderStep();
+      })
+      .catch(function (e) {
+        errEl.textContent = 'Network error. Check server is running.';
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Save Player ' + playerIndex;
+      });
+    });
+
+    form.appendChild(submitBtn);
+    form.appendChild(errEl);
+    root.appendChild(form);
+  }
+
+  function showTeamForm(root) {
+    var teamCard = document.createElement('div');
+    teamCard.className = 'card';
+    teamCard.innerHTML = '<h3 class="card-title">Team Name</h3><p class="card-sub">Give your team a name. Then submit to complete registration.</p>';
+
+    var teamField = document.createElement('div');
+    teamField.className = 'field';
+    teamField.innerHTML = '<label>Team Name</label>';
+    var teamInput = document.createElement('input');
+    teamInput.className = 'input input-lg';
+    teamInput.placeholder = 'e.g. The Bogeymen';
+    teamField.appendChild(teamInput);
+    teamCard.appendChild(teamField);
+
+    var row = document.createElement('div');
+    row.className = 'row gap-3 mt-3';
+
+    var doneBtn = document.createElement('button');
+    doneBtn.className = 'btn btn-primary grow';
+    doneBtn.textContent = 'Complete Registration →';
+
+    var errEl = document.createElement('div');
+    errEl.className = 'text-danger mt-2 small';
+
+    doneBtn.addEventListener('click', function () {
+      var name = teamInput.value.trim();
+      if (!name) { errEl.textContent = 'Enter a team name.'; return; }
+
+      doneBtn.disabled = true;
+      doneBtn.textContent = 'Registering team…';
+
+      fetch('/api/events/' + eid + '/finalize-team', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ team_name: name, drop_codes: players.map(function (p) { return p.code; }) })
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) { errEl.textContent = data.error; doneBtn.disabled = false; doneBtn.textContent = 'Complete Registration →'; return; }
+        renderSuccess(name, data);
+      })
+      .catch(function () { errEl.textContent = 'Network error. Try again.'; doneBtn.disabled = false; doneBtn.textContent = 'Complete Registration →'; });
+    });
+
+    row.appendChild(doneBtn);
+    teamCard.appendChild(row);
+    teamCard.appendChild(errEl);
+    root.appendChild(teamCard);
+  }
+
+  function renderSuccess(teamName, data) {
+    var root = getRoot();
+    root.innerHTML = '';
+    var card = document.createElement('div');
+    card.className = 'card success-card';
+    card.innerHTML = '<div class="success-icon">🏆</div>'
+      + '<h2>' + teamName + '</h2>'
+      + '<p class="text-muted mt-2">You\'re registered for <strong>' + (eventInfo.name || 'the tournament') + '</strong>!</p>'
+      + '<div class="divider mt-4 mb-4"></div>'
+      + '<p style="font-size:14px;font-weight:600;margin-bottom:8px">Your drop codes:</p>'
+      + '<div class="code-list">' + players.map(function (p) { return '<div class="code-pill">' + p.code + '</div>'; }).join('') + '</div>'
+      + '<p class="text-muted mt-4" style="font-size:13px">Keep your drop codes safe — you\'ll need them on course to submit your shot.</p>'
+      + '<a href="/leaderboard/' + eid + '" class="btn btn-primary btn-block mt-5" target="_blank">📺 View Live Leaderboard</a>';
+    root.appendChild(card);
+  }
+})();
+</script>
+</body>
+</html>

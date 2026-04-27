@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>My Results · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  body { background: var(--bg); }
+  .dash-wrap { max-width: 640px; margin: 0 auto; padding: var(--s-4) var(--s-4) var(--s-8); }
+
+  .my-score-card {
+    text-align: center; padding: var(--s-6) var(--s-5);
+    background: linear-gradient(135deg, var(--jord-fairway) 0%, var(--jord-fairway-2) 100%);
+    color: white; border-radius: var(--r-xl); margin-bottom: var(--s-4);
+  }
+  .my-score-num { font-family: var(--font-display); font-size: 72px; font-weight: 700; line-height: 1; }
+  .my-score-unit { font-size: 22px; opacity: 0.8; margin-top: 4px; }
+  .my-score-label { font-size: 13px; text-transform: uppercase; letter-spacing: 0.16em; opacity: 0.7; margin-bottom: var(--s-2); }
+
+  .rank-big { font-family: var(--font-display); font-size: 48px; font-weight: 700; color: var(--accent); }
+  .rank-of  { font-size: 16px; color: var(--ink-2); }
+
+  .teammate-row {
+    display: grid; grid-template-columns: 32px 1fr auto;
+    align-items: center; gap: var(--s-3);
+    padding: 12px 0; border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .teammate-row:last-child { border-bottom: none; }
+  .player-idx { font-family: var(--font-mono); font-size: 11px; color: var(--ink-2); text-align: center; }
+  .player-score { font-family: var(--font-mono); font-weight: 700; text-align: right; }
+
+  .live-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    background: rgba(76,175,80,0.15); color: #2E7D5B;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.1em;
+  }
+  .live-dot-sm { width: 6px; height: 6px; border-radius: 50%; background: #5CB85C; animation: pulse 1.6s ease-in-out infinite; }
+</style>
+</head>
+<body>
+
+<script src="/js/jord.js"></script>
+<script>
+(function () {
+  var eid  = JORD.path(1);
+  var code = JORD.path(2);
+
+  document.addEventListener('DOMContentLoaded', function () {
+    JORD.renderTopbar('My Results');
+    if (!eid || !code) { renderError('Missing URL parameters. URL should be /dashboard/EVENT_ID/DROP_CODE'); return; }
+    load();
+  });
+
+  var unsub = null;
+
+  function load() {
+    getRoot().innerHTML = '<div class="text-center" style="padding:60px 0"><div class="spinner spinner-lg" style="margin:0 auto"></div><p class="mt-4">Loading results…</p></div>';
+
+    fetch('/api/dashboard/' + eid + '/' + code)
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) { renderError(data.error); return; }
+        render(data);
+        /* Subscribe to live updates */
+        if (unsub) unsub();
+        unsub = JORD.subscribe(eid, function () { load(); });
+      })
+      .catch(function () { renderError('Cannot connect to server.'); });
+  }
+
+  function render(data) {
+    var root = getRoot();
+    root.innerHTML = '';
+
+    var ball    = data.ball || {};
+    var myLD    = data.my_ld_team;
+    var myCP    = data.my_cp_team;
+    var ldLB    = data.ld_leaderboard || [];
+    var cpLB    = data.cp_leaderboard || [];
+
+    /* ── Event header ── */
+    var evHead = document.createElement('div');
+    evHead.style.marginBottom = 'var(--s-4)';
+    evHead.innerHTML = '<div class="hero-eyebrow">' + (ball.venue || 'JORD Golf Tournament') + '</div>'
+      + '<h2 class="mt-1">' + (ball.event_name || 'Tournament') + '</h2>'
+      + '<div style="display:flex;align-items:center;gap:10px;margin-top:6px">'
+      + '<div class="live-chip"><div class="live-dot-sm"></div>Live</div>'
+      + '<span style="font-family:var(--font-mono);font-size:13px;color:var(--ink-2)">' + code + '</span>'
+      + '</div>';
+    root.appendChild(evHead);
+
+    /* ── LD result card ── */
+    if (ball.has_longest_drive && myLD) {
+      var myBallLD = (myLD.balls || []).find(function (b) { return b.drop_code === code; });
+      var ldCard = document.createElement('div');
+      ldCard.className = 'my-score-card';
+
+      var scoreNum  = myBallLD && myBallLD.final_yards != null ? myBallLD.final_yards : '—';
+      var rawPart   = (myBallLD && myBallLD.raw_yards && myBallLD.penalty_yards > 0)
+        ? '<div style="opacity:.7;font-size:14px;margin-top:6px">' + myBallLD.raw_yards + ' raw − ' + myBallLD.penalty_yards + ' penalty</div>'
+        : '';
+      var locBadge = myBallLD && myBallLD.location_type
+        ? '<div style="margin-top:10px;opacity:.8;font-size:13px">' + ({fairway:'🟩 Fairway',rough:'🌿 Rough',oob:'🚫 OOB',lost:'❓ Lost'}[myBallLD.location_type]||myBallLD.location_type) + '</div>'
+        : '';
+
+      ldCard.innerHTML = '<div class="my-score-label">Your Longest Drive</div>'
+        + '<div class="my-score-num">' + scoreNum + '</div>'
+        + '<div class="my-score-unit">yards</div>'
+        + rawPart + locBadge;
+      root.appendChild(ldCard);
+
+      /* Team rank */
+      var rankCard = buildRankCard('🏌️ Longest Drive — Team Standing', myLD, ldLB);
+      root.appendChild(rankCard);
+
+      /* Teammates */
+      var tmCard = buildTeammatesCard(myLD, 'ld');
+      root.appendChild(tmCard);
+    }
+
+    /* ── CP result card ── */
+    if (ball.has_closest_pin && myCP) {
+      var myBallCP = (myCP.balls || []).find(function (b) { return b.drop_code === code; });
+      var cpCard = document.createElement('div');
+      cpCard.className = 'my-score-card';
+      cpCard.style.background = 'linear-gradient(135deg, var(--jord-sky) 0%, #3a7a8a 100%)';
+
+      var distNum = myBallCP && myBallCP.distance_ft != null ? myBallCP.distance_ft : '—';
+      cpCard.innerHTML = '<div class="my-score-label">Your Closest to Pin</div>'
+        + '<div class="my-score-num">' + distNum + '</div>'
+        + '<div class="my-score-unit">feet from pin</div>';
+      root.appendChild(cpCard);
+
+      var rankCardCP = buildRankCard('📍 Closest to Pin — Team Standing', myCP, cpLB);
+      root.appendChild(rankCardCP);
+
+      var tmCardCP = buildTeammatesCard(myCP, 'cp');
+      root.appendChild(tmCardCP);
+    }
+
+    if (!ball.has_longest_drive && !ball.has_closest_pin) {
+      var noContest = document.createElement('div');
+      noContest.className = 'empty';
+      noContest.innerHTML = '<div class="empty-icon">⛳</div><div class="empty-title">No contests active</div><p>Ask the tournament organizer for details.</p>';
+      root.appendChild(noContest);
+    }
+
+    /* ── Leaderboard link ── */
+    var footer = document.createElement('div');
+    footer.className = 'row gap-3 mt-5';
+    footer.innerHTML = '<a class="btn btn-primary grow" href="/leaderboard/' + eid + '" target="_blank">📺 Full Live Leaderboard</a>';
+    root.appendChild(footer);
+  }
+
+  function buildRankCard(title, myTeam, lb) {
+    var card = document.createElement('div');
+    card.className = 'card mb-4';
+
+    var rank    = myTeam.rank || '—';
+    var total   = lb.length || '?';
+    var isFirst = rank === 1;
+
+    card.innerHTML = '<div class="card-title">' + title + '</div>'
+      + '<div style="display:flex;align-items:center;justify-content:space-between">'
+      + '<div>'
+      + '<div class="rank-big">' + (isFirst ? '🏆' : '#' + rank) + '</div>'
+      + '<div class="rank-of">of ' + total + ' teams</div>'
+      + '</div>'
+      + '<div style="text-align:right">'
+      + '<div style="font-family:var(--font-display);font-size:26px;font-weight:700">' + myTeam.team_name + '</div>'
+      + '</div>'
+      + '</div>';
+    return card;
+  }
+
+  function buildTeammatesCard(myTeam, mode) {
+    var card = document.createElement('div');
+    card.className = 'card mb-4';
+    card.innerHTML = '<div class="card-title" style="font-size:17px;margin-bottom:12px">Team Members</div>';
+
+    (myTeam.balls || []).forEach(function (b) {
+      var row = document.createElement('div');
+      row.className = 'teammate-row';
+
+      var idxEl = document.createElement('div');
+      idxEl.className = 'player-idx';
+      idxEl.textContent = b.player_index || '';
+
+      var nameEl = document.createElement('div');
+      nameEl.innerHTML = '<div style="font-weight:600">' + (b.player_name || b.drop_code) + '</div>'
+        + '<div style="font-family:var(--font-mono);font-size:11px;color:var(--ink-2)">' + b.drop_code + '</div>';
+      if (b.drop_code === code) nameEl.innerHTML += ' <span class="badge badge-primary" style="font-size:10px;padding:2px 7px">You</span>';
+
+      var scoreEl = document.createElement('div');
+      scoreEl.className = 'player-score';
+      if (mode === 'ld') {
+        scoreEl.textContent = b.final_yards != null ? b.final_yards + ' yd' : '—';
+        if (b.location_type) {
+          var locEl = document.createElement('div');
+          locEl.style.cssText = 'font-size:11px;color:var(--ink-2);font-weight:400;font-family:var(--font-body)';
+          locEl.textContent = b.location_type;
+          scoreEl.appendChild(locEl);
+        }
+      } else {
+        scoreEl.textContent = b.distance_ft != null ? b.distance_ft + ' ft' : '—';
+      }
+
+      row.appendChild(idxEl);
+      row.appendChild(nameEl);
+      row.appendChild(scoreEl);
+      card.appendChild(row);
+    });
+
+    return card;
+  }
+
+  function renderError(msg) {
+    getRoot().innerHTML = '<div class="empty" style="padding:80px 24px"><div class="empty-icon">⚠️</div><div class="empty-title">Problem</div><p>' + msg + '</p></div>';
+  }
+
+  function getRoot() {
+    var r = document.getElementById('root');
+    if (!r) { r = document.createElement('div'); r.id = 'root'; r.className = 'dash-wrap'; document.body.appendChild(r); }
+    return r;
+  }
+})();
+</script>
+</body>
+</html>

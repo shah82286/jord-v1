@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Live Leaderboard · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  html, body { height: 100%; overflow: hidden; }
+  body { display: flex; flex-direction: column; }
+
+  .lb-topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 28px; background: var(--surface);
+    border-bottom: 1px solid var(--border); flex-shrink: 0;
+  }
+  .live-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 14px; border-radius: 999px;
+    background: rgba(76,175,80,0.18); color: #5CB85C;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    transition: background 0.4s, color 0.4s;
+  }
+  .live-badge.is-ended {
+    background: rgba(201,162,74,0.18); color: #C9A24A;
+  }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #5CB85C; animation: pulse 1.6s ease-in-out infinite; }
+
+  .lb-wrap { flex: 1; overflow-y: auto; padding: 28px 32px; }
+  .lb-inner { max-width: 960px; margin: 0 auto; }
+
+  .lb-tab-bar { display: flex; gap: 8px; margin-bottom: 24px; }
+
+  .rank-cell { width: 68px; flex-shrink: 0; text-align: center; }
+  .rank-num  { font-family: var(--font-display); font-size: 40px; font-weight: 700; color: var(--ink-2); line-height: 1; }
+  .rank-trophy { font-size: 38px; line-height: 1; }
+  .score-big  { font-family: var(--font-display); font-size: 32px; font-weight: 700; white-space: nowrap; }
+  .score-unit { font-size: 14px; color: var(--ink-2); margin-left: 4px; }
+  .lb-row { transition: transform var(--t-med), box-shadow var(--t-med); }
+  .lb-row:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+
+  .lb-empty { text-align: center; padding: 100px 32px; color: var(--ink-2); }
+  .lb-empty-icon { font-size: 64px; margin-bottom: 20px; opacity: 0.6; }
+
+  .lb-footer {
+    padding: 10px 28px; border-top: 1px solid var(--border);
+    font-size: 12px; color: var(--ink-2);
+    display: flex; justify-content: space-between; align-items: center;
+    flex-shrink: 0;
+  }
+
+  /* TV Mode */
+  .is-tv .lb-wrap { padding: 40px 56px; }
+  .is-tv .lb-inner { max-width: 100%; }
+  .is-tv .lb-row { padding: 22px 28px !important; margin-bottom: 14px !important; }
+  .is-tv .rank-num { font-size: 60px; }
+  .is-tv .rank-trophy { font-size: 56px; }
+  .is-tv .lb-name { font-size: 34px !important; }
+  .is-tv .score-big { font-size: 48px; }
+  .is-tv .lb-meta { font-size: 14px !important; }
+  .is-tv .lb-topbar { padding: 18px 36px; }
+  .is-tv .brand-name { font-size: 28px; }
+  .is-tv .lb-tab-bar { margin-bottom: 32px; }
+
+  @media (max-width: 600px) {
+    .lb-topbar { padding: 10px 16px; }
+    .lb-wrap { padding: 16px; }
+  }
+</style>
+</head>
+<body class="theme-dark" id="pg">
+
+<!-- ── Topbar ── -->
+<div class="lb-topbar">
+  <div class="brand">
+    <img src="https://jordgolf.com/cdn/shop/files/logo-inverted_70x.svg?v=1738687297"
+         alt="JORD Golf" style="height:42px;width:auto">
+    <div>
+      <div class="brand-name" id="ev-name">JORD GOLF</div>
+      <div class="brand-sub" id="ev-venue">LIVE TOURNAMENT</div>
+    </div>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div class="live-badge"><div class="live-dot"></div>Live</div>
+    <div class="tabs" id="contest-tabs" style="display:none">
+      <button class="tab is-active" data-mode="ld">🏌️ Longest Drive</button>
+      <button class="tab" data-mode="cp">📍 Closest to Pin</button>
+    </div>
+    <button class="btn btn-ghost" id="btn-tv" style="font-size:13px;padding:9px 14px">⛶ TV Mode</button>
+    <button class="btn btn-ghost" id="btn-fs" style="font-size:13px;padding:9px 14px" title="Fullscreen">⤢</button>
+  </div>
+</div>
+
+<!-- ── Leaderboard ── -->
+<div class="lb-wrap">
+  <div class="lb-inner" id="lb-inner">
+    <div class="lb-empty">
+      <div class="lb-empty-icon">⛳</div>
+      <h2>Connecting to live feed…</h2>
+      <p>Scores appear here as players scan on course.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── Footer ── -->
+<footer class="lb-footer">
+  <span>JORD Golf Tournament System · The New Traditional</span>
+  <span id="last-update"></span>
+</footer>
+
+<script src="/js/jord.js"></script>
+<script>
+(function () {
+  var eid = JORD.path(1);
+  if (!eid) {
+    document.getElementById('lb-inner').innerHTML = '<div class="lb-empty"><div class="lb-empty-icon">⚠️</div><h2>Missing event ID</h2><p>URL should be /leaderboard/EVENT_ID</p></div>';
+    return;
+  }
+
+  var mode = 'ld';
+  var snap = null;
+
+  JORD.subscribe(eid, function (d) {
+    snap = d;
+    var ev = d.event || {};
+    document.getElementById('ev-name').textContent   = ev.name   || 'JORD GOLF';
+    document.getElementById('ev-venue').textContent  = ev.venue  || 'LIVE TOURNAMENT';
+    document.title = (ev.name || 'JORD Golf') + ' — Live Leaderboard';
+
+    var both = ev.has_longest_drive && ev.has_closest_pin;
+    var tabs = document.getElementById('contest-tabs');
+    tabs.style.display = both ? 'flex' : 'none';
+    if (!ev.has_longest_drive && ev.has_closest_pin) mode = 'cp';
+
+    // Update live/ended badge
+    var badge = document.querySelector('.live-badge');
+    if (ev.status === 'ended') {
+      badge.className = 'live-badge is-ended';
+      badge.innerHTML = '<span style="font-size:13px">⛳</span> Tournament Ended';
+    } else {
+      badge.className = 'live-badge';
+      badge.innerHTML = '<div class="live-dot"></div>Live';
+    }
+
+    render();
+    document.getElementById('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  });
+
+  function render() {
+    if (!snap) return;
+    var rows  = (mode === 'ld' ? snap.ld : snap.cp) || [];
+    var inner = document.getElementById('lb-inner');
+
+    if (!rows.length) {
+      inner.innerHTML = '<div class="lb-empty"><div class="lb-empty-icon">⛳</div><h2>No scores yet</h2><p>Waiting for players to scan on course.</p></div>';
+      return;
+    }
+
+    inner.innerHTML = '';
+    rows.forEach(function (team, idx) {
+      var lead = idx === 0;
+      var card = document.createElement('div');
+      card.className = 'lb-row' + (lead ? ' is-leader' : '');
+      card.style.cssText = 'margin-bottom:10px;cursor:pointer';
+
+      /* Rank cell */
+      var rankCell = document.createElement('div');
+      rankCell.className = 'rank-cell';
+      var rankEl = document.createElement('div');
+      rankEl.className = lead ? 'rank-trophy' : 'rank-num';
+      rankEl.textContent = lead ? '🏆' : team.rank;
+      rankCell.appendChild(rankEl);
+
+      /* Team info */
+      var teamBlock = document.createElement('div');
+      teamBlock.className = 'lb-team';
+
+      var nameEl = document.createElement('div');
+      nameEl.className = 'lb-name';
+      nameEl.style.fontSize = '22px';
+      nameEl.textContent = team.team_name;
+
+      var metaEl = document.createElement('div');
+      metaEl.className = 'lb-meta';
+      metaEl.style.fontSize = '12px';
+      if (mode === 'ld') {
+        var parts = [(team.scanned_count || 0) + '/' + (team.total_balls || 0) + ' scanned'];
+        if (team.fairway_count) parts.push(team.fairway_count + ' fairway');
+        if (team.rough_count)   parts.push(team.rough_count   + ' rough');
+        if (team.oob_count)     parts.push(team.oob_count     + ' OOB');
+        metaEl.textContent = parts.join(' · ');
+      } else {
+        metaEl.textContent = (team.scanned || 0) + '/' + (team.total || 0) + ' scanned';
+      }
+      teamBlock.appendChild(nameEl);
+      teamBlock.appendChild(metaEl);
+
+      /* Score */
+      var scoreBlock = document.createElement('div');
+      scoreBlock.style.cssText = 'text-align:right;white-space:nowrap';
+      var scoreBig  = document.createElement('span');
+      scoreBig.className = 'score-big';
+      var scoreUnit = document.createElement('span');
+      scoreUnit.className = 'score-unit';
+      if (mode === 'ld') {
+        scoreBig.textContent  = team.total_yards != null ? team.total_yards : '—';
+        scoreUnit.textContent = 'yd';
+      } else {
+        scoreBig.textContent  = team.best_ft != null ? team.best_ft : '—';
+        scoreUnit.textContent = 'ft';
+      }
+      scoreBlock.appendChild(scoreBig);
+      scoreBlock.appendChild(scoreUnit);
+
+      /* Expandable balls */
+      var ballsDiv = document.createElement('div');
+      ballsDiv.className = 'lb-balls';
+      (team.balls || []).forEach(function (b) {
+        var br = document.createElement('div');
+        br.className = 'lb-ball';
+        if (mode === 'ld') {
+          br.style.gridTemplateColumns = '28px 1fr 90px 80px';
+          br.innerHTML = '<span style="font-family:var(--font-mono);font-size:11px;opacity:.45">' + (b.player_index||'') + '</span>'
+            + '<span class="lb-ball-name">' + (b.player_name || b.drop_code) + '</span>'
+            + '<span class="lb-ball-loc">'  + (b.location_type || (b.scanned ? '—' : 'not scanned')) + '</span>'
+            + '<span class="lb-ball-score">'+ (b.final_yards != null ? b.final_yards + ' yd' : '—') + '</span>';
+        } else {
+          br.style.gridTemplateColumns = '28px 1fr 100px';
+          br.innerHTML = '<span style="font-family:var(--font-mono);font-size:11px;opacity:.45">' + (b.player_index||'') + '</span>'
+            + '<span class="lb-ball-name">'  + (b.player_name || b.drop_code) + '</span>'
+            + '<span class="lb-ball-score">' + (b.distance_ft != null ? b.distance_ft + ' ft' : '—') + '</span>';
+        }
+        ballsDiv.appendChild(br);
+      });
+
+      card.appendChild(rankCell);
+      card.appendChild(teamBlock);
+      card.appendChild(scoreBlock);
+      card.appendChild(ballsDiv);
+      card.addEventListener('click', function () { card.classList.toggle('is-open'); });
+      inner.appendChild(card);
+    });
+  }
+
+  /* Tab switching */
+  document.getElementById('contest-tabs').addEventListener('click', function (e) {
+    var t = e.target.closest('.tab');
+    if (!t || !t.dataset.mode) return;
+    mode = t.dataset.mode;
+    document.querySelectorAll('#contest-tabs .tab').forEach(function (x) {
+      x.classList.toggle('is-active', x.dataset.mode === mode);
+    });
+    render();
+  });
+
+  /* TV mode */
+  document.getElementById('btn-tv').addEventListener('click', function () {
+    document.getElementById('pg').classList.toggle('is-tv');
+    var on = document.getElementById('pg').classList.contains('is-tv');
+    document.getElementById('btn-tv').textContent = on ? '✕ Exit TV' : '⛶ TV Mode';
+  });
+
+  /* Fullscreen */
+  document.getElementById('btn-fs').addEventListener('click', function () {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(function(){});
+    else document.exitFullscreen();
+  });
+})();
+</script>
+</body>
+</html>

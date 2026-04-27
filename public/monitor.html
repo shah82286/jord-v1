@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Monitor · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  body { background: var(--bg); }
+  .mon-wrap { max-width: 1200px; margin: 0 auto; padding: var(--s-4) var(--s-4) var(--s-8); }
+
+  /* Gate */
+  .gate-wrap { max-width: 400px; margin: 80px auto; }
+
+  /* Stats bar */
+  .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: var(--s-3); margin-bottom: var(--s-4); }
+
+  /* Map */
+  .map-box { width: 100%; height: 500px; border-radius: var(--r-lg); border: 1px solid var(--border); overflow: hidden; background: #1a1a1a; margin-bottom: var(--s-4); }
+
+  /* Monitor grid */
+  .mon-grid { display: grid; grid-template-columns: 1fr 380px; gap: var(--s-5); }
+  @media (max-width: 900px) { .mon-grid { grid-template-columns: 1fr; } }
+
+  /* Alerts */
+  .alert-item { padding: var(--s-4); border-radius: var(--r-md); border: 1px solid var(--border); margin-bottom: var(--s-2); display: flex; gap: var(--s-3); align-items: flex-start; background: var(--surface); }
+  .alert-item .alert-icon { font-size: 22px; flex-shrink: 0; }
+  .alert-info { flex: 1; }
+  .alert-info strong { font-size: 14px; }
+  .alert-info .small { font-size: 12px; color: var(--ink-2); margin-top: 3px; }
+
+  /* Correction form */
+  .correction-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); }
+
+  /* Dot legend */
+  .legend { display: flex; flex-wrap: wrap; gap: var(--s-3); font-size: 12px; color: var(--ink-2); margin-top: 8px; }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+  /* Live badge */
+  .live-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px; border-radius: 999px;
+    background: rgba(76,175,80,0.15); color: #2E7D5B;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
+  }
+  .live-dot2 { width: 7px; height: 7px; border-radius: 50%; background: #5CB85C; animation: pulse 1.6s ease-in-out infinite; }
+</style>
+</head>
+<body>
+
+<div id="gate-section">
+  <div class="gate-wrap">
+    <div class="card">
+      <div class="text-center mb-4">
+        <img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077"
+             alt="JORD Golf" style="height:56px;width:auto;margin:0 auto var(--s-3);display:block">
+        <div class="brand-name">JORD GOLF</div>
+        <div class="brand-sub">Tournament Monitor</div>
+      </div>
+      <form id="gate-form" class="col gap-3">
+        <div class="field">
+          <label for="pwd">Admin password</label>
+          <input id="pwd" type="password" class="input input-lg" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-primary btn-lg btn-block" type="submit">Enter Monitor</button>
+      </form>
+      <div id="gate-err" class="text-danger mt-2 small text-center"></div>
+    </div>
+  </div>
+</div>
+
+<div id="mon-section" style="display:none">
+  <!-- content rendered by JS -->
+</div>
+
+<script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+<script src="/js/jord.js"></script>
+<script>
+(function () {
+  var eid = JORD.path(1);
+  if (!eid) { document.getElementById('gate-section').innerHTML = '<div class="empty" style="padding:80px 24px"><div class="empty-icon">⚠️</div><div class="empty-title">No event ID</div><p>URL should be /monitor/EVENT_ID</p></div>'; return; }
+
+  var map = null;
+  var mapboxToken = '';
+  var markers = {};
+  var snap = null;
+
+  /* ── Gate ── */
+  document.getElementById('gate-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var pwd = document.getElementById('pwd').value;
+    JORD.setToken(pwd);
+    JORD.api('/api/events/' + eid)
+      .then(function () { enterMonitor(); })
+      .catch(function () {
+        JORD.clearToken();
+        document.getElementById('gate-err').textContent = 'Wrong password.';
+      });
+  });
+
+  if (JORD.getToken()) {
+    JORD.api('/api/events/' + eid).then(function () { enterMonitor(); }).catch(function () { JORD.clearToken(); });
+  }
+
+  function enterMonitor() {
+    document.getElementById('gate-section').style.display = 'none';
+    var mon = document.getElementById('mon-section');
+    mon.style.display = 'block';
+    buildUI(mon);
+    loadConfig();
+
+    JORD.subscribe(eid, function (d) {
+      snap = d;
+      updateStats(d);
+      updateAlerts(d.alerts || []);
+      updateMapDots(d);
+      document.getElementById('last-upd').textContent = 'Updated ' + new Date().toLocaleTimeString();
+    });
+  }
+
+  /* ── UI skeleton ── */
+  function buildUI(container) {
+    JORD.renderTopbar('Tournament Monitor',
+      JORD.el('div', { class: 'row gap-2' },
+        JORD.el('div', { class: 'live-pill' }, JORD.el('div', { class: 'live-dot2' }), 'Live'),
+        JORD.el('span', { id: 'last-upd', style: { fontSize: '12px', color: 'var(--ink-2)' } }, ''),
+        JORD.el('button', { class: 'btn btn-ghost', on: { click: function () { JORD.clearToken(); location.reload(); } } }, 'Sign out')
+      )
+    );
+
+    var wrap = document.createElement('div');
+    wrap.className = 'mon-wrap';
+
+    /* Event title */
+    var heading = document.createElement('div');
+    heading.style.marginBottom = 'var(--s-4)';
+    heading.innerHTML = '<div class="hero-eyebrow">Monitor</div><h2 id="mon-title" class="mt-1">Loading…</h2>';
+    wrap.appendChild(heading);
+
+    /* Stats bar */
+    var stats = document.createElement('div');
+    stats.className = 'stats-bar';
+    stats.id = 'stats-bar';
+    ['scanned', 'total', 'alerts', 'teams'].forEach(function (k) {
+      var s = document.createElement('div');
+      s.className = 'stat';
+      s.id = 'stat-' + k;
+      s.innerHTML = '<div class="stat-label">' + k.charAt(0).toUpperCase() + k.slice(1) + '</div><div class="stat-value">—</div>';
+      stats.appendChild(s);
+    });
+    wrap.appendChild(stats);
+
+    /* Two-col grid */
+    var grid = document.createElement('div');
+    grid.className = 'mon-grid';
+
+    /* Left: map + leaderboard */
+    var left = document.createElement('div');
+
+    /* Map */
+    var mapCard = document.createElement('div');
+    mapCard.className = 'card mb-4';
+    mapCard.innerHTML = '<h3 class="card-title">Course Map — Ball Positions</h3>'
+      + '<div id="mon-map" class="map-box"></div>'
+      + '<div class="legend">'
+      + '<div class="legend-item"><div class="dot" style="background:#4CAF50"></div>Fairway</div>'
+      + '<div class="legend-item"><div class="dot" style="background:#FFC107"></div>Rough</div>'
+      + '<div class="legend-item"><div class="dot" style="background:#C0392B"></div>OOB / Lost</div>'
+      + '<div class="legend-item"><div class="dot" style="background:#9E9E9E"></div>Not scanned</div>'
+      + '</div>';
+    left.appendChild(mapCard);
+
+    /* Mini leaderboard */
+    var lbCard = document.createElement('div');
+    lbCard.className = 'card';
+    lbCard.innerHTML = '<h3 class="card-title">Current Standings</h3><div id="mon-lb"></div>';
+    left.appendChild(lbCard);
+    grid.appendChild(left);
+
+    /* Right panel */
+    var right = document.createElement('div');
+
+    /* Alerts */
+    var alertCard = document.createElement('div');
+    alertCard.className = 'card mb-4';
+    alertCard.innerHTML = '<h3 class="card-title">🚨 Rep Alerts</h3><div id="alert-list"></div>';
+    right.appendChild(alertCard);
+
+    /* Admin correction */
+    var corrCard = buildCorrectionCard();
+    right.appendChild(corrCard);
+
+    grid.appendChild(right);
+    wrap.appendChild(grid);
+    container.appendChild(wrap);
+  }
+
+  /* ── Load config (Mapbox token) ── */
+  function loadConfig() {
+    fetch('/api/config')
+      .then(function (r) { return r.json(); })
+      .then(function (cfg) {
+        mapboxToken = cfg.mapbox_token || '';
+        initMap();
+      });
+  }
+
+  /* ── Map ── */
+  function initMap() {
+    if (!mapboxToken) {
+      document.getElementById('mon-map').innerHTML = '<div class="empty"><div class="empty-icon">🗺</div><div class="empty-title">Mapbox token missing</div><p>Add MAPBOX_TOKEN to .env</p></div>';
+      return;
+    }
+    mapboxgl.accessToken = mapboxToken;
+    map = new mapboxgl.Map({
+      container: 'mon-map',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12',
+      center: [-84.3953, 33.5031],
+      zoom: 14
+    });
+    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+  }
+
+  var dotColors = { fairway: '#4CAF50', rough: '#FFC107', oob: '#C0392B', lost: '#C0392B' };
+
+  function updateMapDots(d) {
+    if (!map) return;
+    var allBalls = [];
+    ((d.ld || []).concat(d.cp || [])).forEach(function (team) {
+      (team.balls || []).forEach(function (b) { allBalls.push({ team: team.team_name, ball: b }); });
+    });
+
+    /* Remove old markers */
+    Object.values(markers).forEach(function (m) { m.remove(); });
+    markers = {};
+
+    allBalls.forEach(function (item) {
+      var b = item.ball;
+      var lat = b.lat || b.lon ? b.lat : null;
+      var lon = b.lat || b.lon ? b.lon : null;
+      if (!lat || !lon) return;
+
+      var color = dotColors[b.location_type] || '#9E9E9E';
+      var el = document.createElement('div');
+      el.style.cssText = 'width:14px;height:14px;border-radius:50%;background:' + color + ';border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer';
+      el.title = (b.player_name || b.drop_code) + ' — ' + item.team;
+
+      var popup = new mapboxgl.Popup({ offset: 12 }).setHTML(
+        '<strong>' + (b.player_name || b.drop_code) + '</strong><br>'
+        + item.team + '<br>'
+        + (b.location_type ? b.location_type : 'not scanned') + '<br>'
+        + (b.final_yards != null ? b.final_yards + ' yd' : b.distance_ft != null ? b.distance_ft + ' ft' : '')
+      );
+
+      var marker = new mapboxgl.Marker(el).setLngLat([lon, lat]).setPopup(popup).addTo(map);
+      markers[b.drop_code] = marker;
+    });
+
+    /* Auto-fit if markers exist */
+    var coords = Object.keys(markers).map(function (k) { return markers[k].getLngLat(); });
+    if (coords.length > 1) {
+      var bounds = coords.reduce(function (b, c) { return b.extend(c); }, new mapboxgl.LngLatBounds(coords[0], coords[0]));
+      map.fitBounds(bounds, { padding: 60, maxZoom: 17 });
+    }
+  }
+
+  /* ── Stats ── */
+  function updateStats(d) {
+    var ev = d.event || {};
+    var title = document.getElementById('mon-title');
+    if (title) title.textContent = ev.name || 'Tournament';
+
+    var allBalls = [];
+    (d.ld || []).forEach(function (t) { (t.balls || []).forEach(function (b) { allBalls.push(b); }); });
+
+    var scanned = allBalls.filter(function (b) { return b.scanned; }).length;
+    var teams   = (d.ld || d.cp || []).length;
+
+    setStat('scanned', scanned + ' / ' + allBalls.length);
+    setStat('total',   allBalls.length);
+    setStat('alerts',  (d.alerts || []).length);
+    setStat('teams',   (d.ld || d.cp || []).length);
+
+    /* Mini leaderboard */
+    var lb = document.getElementById('mon-lb');
+    if (!lb) return;
+    lb.innerHTML = '';
+    var rows = d.ld || d.cp || [];
+    if (!rows.length) { lb.innerHTML = '<p class="text-muted small">No teams yet.</p>'; return; }
+    var tbl = document.createElement('table');
+    tbl.className = 'table';
+    tbl.innerHTML = '<thead><tr><th>#</th><th>Team</th><th>Score</th><th>Scanned</th></tr></thead>';
+    var tbody = document.createElement('tbody');
+    rows.slice(0, 10).forEach(function (t) {
+      var tr = document.createElement('tr');
+      var score = d.ld ? (t.total_yards != null ? t.total_yards + ' yd' : '—') : (t.best_ft != null ? t.best_ft + ' ft' : '—');
+      var scannedCnt = d.ld ? (t.scanned_count + '/' + t.total_balls) : (t.scanned + '/' + t.total);
+      tr.innerHTML = '<td><strong>' + t.rank + '</strong></td><td>' + t.team_name + '</td><td style="font-family:var(--font-mono);font-weight:700">' + score + '</td><td style="color:var(--ink-2)">' + scannedCnt + '</td>';
+      tbody.appendChild(tr);
+    });
+    tbl.appendChild(tbody);
+    lb.appendChild(tbl);
+  }
+
+  function setStat(id, val) {
+    var el = document.querySelector('#stat-' + id + ' .stat-value');
+    if (el) el.textContent = val;
+  }
+
+  /* ── Alerts ── */
+  function updateAlerts(alerts) {
+    var list = document.getElementById('alert-list');
+    if (!list) return;
+    list.innerHTML = '';
+    if (!alerts.length) {
+      list.innerHTML = '<div class="empty" style="padding:24px"><div class="empty-icon" style="font-size:28px">✅</div><div class="empty-title" style="font-size:16px">No open alerts</div></div>';
+      return;
+    }
+    alerts.forEach(function (a) {
+      var item = document.createElement('div');
+      item.className = 'alert-item';
+      item.innerHTML = '<div class="alert-icon">🚨</div>'
+        + '<div class="alert-info">'
+        + '<strong>' + (a.message || 'Player needs help') + '</strong>'
+        + '<div class="small">' + [a.team_name, a.player_name, a.drop_code].filter(Boolean).join(' · ') + '</div>'
+        + '<div class="small">' + JORD.fmt.datetime(a.created_at) + '</div>'
+        + '</div>';
+      var resolveBtn = document.createElement('button');
+      resolveBtn.className = 'btn btn-ghost';
+      resolveBtn.style.cssText = 'font-size:12px;padding:6px 10px;flex-shrink:0';
+      resolveBtn.textContent = 'Resolve';
+      resolveBtn.addEventListener('click', function () {
+        JORD.api('/api/alerts/' + a.id + '/resolve', { method: 'PATCH' })
+          .then(function () { JORD.success('Alert resolved'); })
+          .catch(function () { JORD.error('Failed to resolve'); });
+      });
+      item.appendChild(resolveBtn);
+      list.appendChild(item);
+    });
+  }
+
+  /* ── Correction card ── */
+  function buildCorrectionCard() {
+    var card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = '<h3 class="card-title">Admin Correction</h3>'
+      + '<p class="card-sub">Override a ball result.</p>';
+
+    var gameField = document.createElement('div');
+    gameField.className = 'field';
+    gameField.innerHTML = '<label>Contest</label>';
+    var gameSelect = document.createElement('select');
+    gameSelect.className = 'select';
+    gameSelect.innerHTML = '<option value="ld">Longest Drive</option><option value="cp">Closest to Pin</option>';
+    gameField.appendChild(gameSelect);
+
+    var codeField = document.createElement('div');
+    codeField.className = 'field';
+    codeField.innerHTML = '<label>Drop Code</label>';
+    var codeInput = document.createElement('input');
+    codeInput.className = 'input input-code'; codeInput.placeholder = 'ABC123';
+    codeInput.addEventListener('input', function () { codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
+    codeField.appendChild(codeInput);
+
+    var scoreField = document.createElement('div');
+    scoreField.className = 'field';
+    scoreField.innerHTML = '<label>Final Score <span style="font-weight:400;color:var(--ink-2)">(yards / feet)</span></label>';
+    var scoreInput = document.createElement('input');
+    scoreInput.className = 'input'; scoreInput.type = 'number'; scoreInput.placeholder = '0';
+    scoreField.appendChild(scoreInput);
+
+    var penField = document.createElement('div');
+    penField.className = 'field';
+    penField.innerHTML = '<label>Penalty yards (LD only)</label>';
+    var penInput = document.createElement('input');
+    penInput.className = 'input'; penInput.type = 'number'; penInput.placeholder = '0'; penInput.value = '0';
+    penField.appendChild(penInput);
+
+    var locField = document.createElement('div');
+    locField.className = 'field';
+    locField.innerHTML = '<label>Location type</label>';
+    var locSelect = document.createElement('select');
+    locSelect.className = 'select';
+    locSelect.innerHTML = '<option value="fairway">Fairway</option><option value="rough">Rough</option><option value="oob">OOB</option><option value="lost">Lost</option><option value="manual">Manual</option>';
+    locField.appendChild(locSelect);
+
+    var reasonField = document.createElement('div');
+    reasonField.className = 'field';
+    reasonField.innerHTML = '<label>Reason</label>';
+    var reasonInput = document.createElement('input');
+    reasonInput.className = 'input'; reasonInput.placeholder = 'e.g. GPS drift corrected by marshal';
+    reasonField.appendChild(reasonInput);
+
+    var submitBtn = document.createElement('button');
+    submitBtn.className = 'btn btn-accent btn-block mt-3';
+    submitBtn.textContent = 'Apply Correction';
+    var errEl = document.createElement('div');
+    errEl.className = 'text-danger mt-2 small';
+
+    submitBtn.addEventListener('click', function () {
+      var code = codeInput.value.trim().toUpperCase();
+      if (!code || !scoreInput.value) { errEl.textContent = 'Enter code and score.'; return; }
+      submitBtn.disabled = true; submitBtn.textContent = 'Applying…';
+
+      JORD.api('/api/admin/correct', {
+        method: 'POST',
+        body: {
+          drop_code: code, event_id: eid, game: gameSelect.value,
+          final_yards: parseFloat(scoreInput.value) || 0,
+          penalty_yards: parseFloat(penInput.value) || 0,
+          location_type: locSelect.value,
+          reason: reasonInput.value
+        }
+      })
+      .then(function () {
+        JORD.success('✅ Code ' + code + ' updated successfully');
+        codeInput.value = ''; scoreInput.value = ''; penInput.value = '0'; reasonInput.value = '';
+        errEl.textContent = '';
+        submitBtn.disabled = false; submitBtn.textContent = 'Apply Correction';
+      })
+      .catch(function (e) {
+        errEl.textContent = e.message || 'Error';
+        submitBtn.disabled = false; submitBtn.textContent = 'Apply Correction';
+      });
+    });
+
+    card.appendChild(gameField);
+    card.appendChild(codeField);
+    card.appendChild(scoreField);
+    card.appendChild(penField);
+    card.appendChild(locField);
+    card.appendChild(reasonField);
+    card.appendChild(submitBtn);
+    card.appendChild(errEl);
+    return card;
+  }
+})();
+</script>
+</body>
+</html>
