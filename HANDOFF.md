@@ -96,30 +96,50 @@ Key `events` columns (recent additions auto-migrate on startup):
 
 ### Known Issues / Next Up
 
-#### 🔴 PRIORITY: Penalty scoring display bug (picked up next session)
-The user reported: **"100 − 20 does not equal 100 — it should be 80."**
+#### 🔴 PRIORITY: Penalty scoring display bug — fix at start of next session
 
-We reviewed the full scoring flow but stopped before fixing because we needed one clarifying answer first. **At the start of the next session, ask the user:**
+**Confirmed by user:** The big team score on the leaderboard should show **80** when raw=100 and penalty=20. Each player's final (penalty-applied) score contributes to the team total (sum of 4 players). Every place a distance is shown must display the **final post-penalty number**, not the raw number.
 
-> "When you look at the main leaderboard, does the big score number say **100** (and you expect 80), or does it say **80** but the −20 badge below it is confusing you?"
+---
 
-That answer determines which of these bugs to fix:
+**Full scoring architecture (verified by code review):**
 
-**Option A — Big number is wrong (100, should be 80)**
-- `ld_final_yards` may be stored as raw (not penalty-applied). Fix: verify the scan save logic in `server.js` around line 797–802, and the DB values.
+LD scan (`server.js` lines 771–802):
+- `rawYards` = GPS haversine from tee → ball
+- `penaltyYards` = 0 for fairway; perpendicular/fixed for rough; half-hole/fixed for OOB
+- `finalYards = max(0, rawYards − penaltyYards)` → stored as `ld_final_yards`
+- All three saved: `ld_raw_yards`, `ld_penalty_yards`, `ld_final_yards`
 
-**Option B — Big number is correct (80) but badge is confusing**
-- The red badge `−20 yd penalty` below the score reads like the deduction is still coming. Fix: change badge label to `"20 yd penalty already deducted"` or remove it and fold the breakdown into the per-player rows only.
+Leaderboard SQL (`server.js` line 275): `SUM(b.ld_final_yards) AS total_yards` — this is the post-penalty team total.
 
-**Also confirmed needs fixing regardless:**
-- The **admin Players tab** shows zero scoring info per player — no yards, no penalty, no location. Needs a score column added to each player row.
-- The penalty badge is visible in **all score displays across the platform** (leaderboard, admin, monitor map popups). Once the correct fix for Option A or B is confirmed, all of these need to reflect the final (post-penalty) number consistently.
+Admin correction form (`monitor.html` line 481–524): label says "Distance Drove (raw yards)"; sends `final_yards` in body (confusing name); server correctly treats it as raw and computes `scored = raw − penalty`.
 
-**How the scoring math actually works (verified by code review):**
-- Scan: `rawYards` (GPS haversine) → `penaltyYards` (per location/rules) → `finalYards = raw − penalty` → saved to `ld_raw_yards`, `ld_penalty_yards`, `ld_final_yards`
-- Leaderboard SQL: `SUM(ld_final_yards) AS total_yards` — should be post-penalty
-- Admin correction form: "Distance Drove" field = RAW yards; penalty entered separately; server computes `scored = raw − penalty` and saves correctly
-- CTP penalty is **added** (larger distance = worse); `cp_distance_ft = raw_ft + penalty_ft`
+CTP: penalty is **added** (larger = worse): `cp_distance_ft = raw_ft + penalty_ft`.
+
+---
+
+**Where scores are displayed and what needs fixing:**
+
+| Location | What it shows today | Issue |
+|---|---|---|
+| Leaderboard team big number | `total_yards = SUM(ld_final_yards)` | Should be 80 — verify data is correct in DB |
+| Leaderboard penalty badge | `−20 yd penalty` below the score | Reads like a FURTHER deduction. Should say "20 yd penalty applied" or just remove badge and show breakdown in per-player rows only |
+| Leaderboard per-player row | `final_yards` with badge `raw − penalty = final` | Fine if final is right; confirm it matches |
+| Scan result (player phone) | `final_yards` as big number, `(raw − penalty)` as note | ✓ Appears correct |
+| Admin Players tab | **No score shown at all** | Add score column: final_yards, location, penalty badge per player |
+| Monitor map popup | `final_yards` | Should be correct; verify |
+
+---
+
+**Fix plan for next session (do in this order):**
+
+1. **Verify DB is storing the right value** — open the test page or write a quick `/api/debug/balls/:eventId` route to dump raw/penalty/final for all balls, confirm `ld_final_yards` IS 80 and not 100.
+
+2. **Fix the leaderboard penalty badge** — change from `−20 yd penalty` (implying a future deduction) to something that makes clear it's already applied. Options: remove badge entirely and just show breakdown inside the per-player rows; OR change to `20 yd penalty included`. File: `public/leaderboard.html` line 322.
+
+3. **Add per-player score column to admin Players tab** — `renderTeamCard()` in `public/admin.html` around line 1550. Add final_yards, location badge, and penalty note to each player row.
+
+4. **Audit all other display points** — monitor map popup (`public/monitor.html` line 362), scan page result card (`public/scan.html` line 691). Confirm all show `final_yards` (post-penalty) not `raw_yards`.
 
 ---
 
