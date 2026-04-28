@@ -318,8 +318,8 @@
       /* Show penalty note — clarify it is already deducted from the total shown */
       if (mode === 'ld' && team.total_penalty > 0) {
         var penNote = document.createElement('div');
-        penNote.style.cssText = 'font-size:11px;color:#ef4444;font-weight:600;margin-top:2px';
-        penNote.textContent = team.total_penalty + ' yd penalty deducted';
+        penNote.style.cssText = 'margin-top:4px';
+        penNote.innerHTML = '<span style="color:#fff;background:#b91c1c;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;display:inline-block;letter-spacing:.01em">−' + team.total_penalty + ' yd penalty</span>';
         scoreBlock.appendChild(penNote);
       }
 

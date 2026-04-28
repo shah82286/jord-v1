@@ -35,9 +35,25 @@
   .legend-green::before { background: #3B82F6; }
   .legend-pin::before { background: #C0392B; border-radius: 50% !important; }
   .pool-input { font-family: var(--font-mono); min-height: 180px; resize: vertical; }
-  .ball-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s-2); margin-top: var(--s-3); }
-  .ball-tag { padding: 6px 10px; border-radius: var(--r-sm); font-family: var(--font-mono); font-size: 12px; text-align: center; background: var(--surface-2); border: 1px solid var(--border); }
-  .ball-tag.is-assigned { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
+
+  /* Ball pool table */
+  .ball-row { display:grid; grid-template-columns:110px 1fr 1fr 36px; gap:8px; align-items:center; padding:10px 12px; border-bottom:1px solid var(--border); font-size:13px; }
+  .ball-row:last-child { border-bottom:none; }
+  .ball-row:hover { background:var(--surface-2); }
+
+  /* Players — expandable team cards */
+  .team-card { border:1px solid var(--border); border-radius:var(--r-md); overflow:hidden; margin-bottom:var(--s-2); }
+  .team-card-header { display:flex; align-items:center; gap:10px; padding:12px 14px; cursor:pointer; background:var(--surface); transition:background var(--t-fast); user-select:none; }
+  .team-card-header:hover { background:var(--surface-2); }
+  .team-card-body { display:none; border-top:1px solid var(--border); }
+  .team-card.is-open .team-card-body { display:block; }
+  .team-card.is-open .expand-arrow { transform:rotate(90deg); }
+  .expand-arrow { display:inline-block; transition:transform .18s; font-size:11px; color:var(--ink-2); flex-shrink:0; }
+  .player-row { display:grid; grid-template-columns:24px 1fr 90px 1fr auto; gap:8px; align-items:center; padding:10px 12px; border-bottom:1px solid var(--border); font-size:13px; }
+  .player-row:last-child { border-bottom:none; }
+  .player-edit-wrap { padding:var(--s-3) var(--s-4); border-top:1px dashed var(--border); background:var(--surface-2); display:none; }
+  .player-edit-wrap.is-open { display:block; }
+  .player-edit-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--s-2); }
   .tee-list { display: flex; flex-direction: column; gap: var(--s-2); }
   .tee-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: var(--surface-2); border-radius: var(--r-sm); }
   .pill-link { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--primary); font-size: 12px; font-weight: 600; }
@@ -69,11 +85,16 @@
     /* Hole dist section */
     #hole-dist-section { padding: 8px 10px; }
 
-    /* Ball grid smaller */
-    .ball-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
-
     /* Card padding tighter */
     .panel.card { padding: var(--s-4); }
+
+    /* Ball pool — hide team column on small screens */
+    .ball-row, #ball-list-header { grid-template-columns: 90px 1fr 32px !important; }
+    .ball-row .ball-team-col, #ball-list-header .ball-team-col { display: none; }
+    /* Players — hide email/code columns on small screens */
+    .player-row { grid-template-columns: 20px 1fr auto; }
+    .player-row .player-code-col, .player-row .player-email-col { display: none; }
+    .player-edit-grid { grid-template-columns: 1fr; }
   }
 
   /* ── Ended lock ── */
@@ -377,25 +398,31 @@
               <button class="btn btn-ghost" id="btn-print-qr" title="Generate printable QR codes for each ball code and the registration page">🖨 Print QR Codes</button>
             </div>
 
-            <h4 class="mt-5 mb-2">Pool contents <span class="small" style="font-weight:400"> — click ✕ to remove an unassigned code</span></h4>
-            <div id="ball-grid" class="ball-grid"></div>
+            <div style="display:flex;align-items:center;gap:var(--s-2);margin-top:var(--s-5);margin-bottom:var(--s-2);flex-wrap:wrap">
+              <h4 style="margin:0;flex:1">Pool contents</h4>
+              <input id="ball-search" class="input" type="search" placeholder="Search code, player or team…" style="max-width:220px;font-size:13px;padding:7px 10px">
+            </div>
+            <div style="border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden">
+              <div style="display:grid;grid-template-columns:110px 1fr 1fr 36px;gap:8px;padding:8px 12px;background:var(--surface-2);font-size:11px;font-weight:700;color:var(--ink-2);text-transform:uppercase;letter-spacing:.05em" id="ball-list-header">
+                <span>Code</span><span>Player</span><span class="ball-team-col">Team</span><span></span>
+              </div>
+              <div id="ball-grid"></div>
+            </div>
           </div>
 
           <!-- Players panel -->
           <div class="panel card" data-panel="players">
             <h3 class="card-title">Players & teams</h3>
-            <p class="card-sub">Snapshot of all registered teams and their players.</p>
+            <p class="card-sub">Click a team to expand and see players. Click Edit to update a player's name, email, or phone.</p>
+            <div class="row gap-2 mb-3">
+              <input id="players-search" class="input" type="search" placeholder="Search by team name, player name or ball code…" style="flex:1;font-size:13px">
+            </div>
             <div id="teams-empty" class="empty hidden">
               <div class="empty-icon">👥</div>
               <div class="empty-title">No teams yet</div>
               <p>Send players to <a id="register-deeplink">/register/…</a> to start registering.</p>
             </div>
-            <div class="table-scroll">
-              <table class="table" id="teams-table">
-                <thead><tr><th>Team</th><th>Players</th><th>Codes</th><th>LD total</th><th>CP best</th><th></th></tr></thead>
-                <tbody></tbody>
-              </table>
-            </div>
+            <div id="teams-list"></div>
           </div>
 
           <!-- Alerts panel -->
@@ -1312,33 +1339,62 @@
     $('#stat-balls-total').textContent = r.total;
     $('#stat-balls-assigned').textContent = r.assigned;
     $('#stat-balls-available').textContent = r.available;
-    const grid = $('#ball-grid');
-    grid.innerHTML = '';
-    for (const b of r.balls) {
-      const assigned = !!b.team_id;
-      const tag = el('div', {
-        class: 'ball-tag' + (assigned ? ' is-assigned' : ''),
-        title: assigned
-          ? `Assigned to: ${b.team_name || 'unknown team'} — ${b.first_name || ''} ${b.last_name || ''}`.trim()
-          : 'Unassigned — click ✕ to remove from pool'
-      },
-        b.drop_code,
-        b.team_name ? el('div', { class: 'small', style: { marginTop: '2px' } }, JORD.fmt.short(b.team_name, 16)) : null,
-        !assigned ? el('span', {
-          style: { marginLeft: '6px', cursor: 'pointer', opacity: '0.6', fontSize: '12px' },
-          title: 'Remove this code from the pool',
-          on: { click: async (e) => {
-            e.stopPropagation();
-            if (!await JORD.confirm(`Remove code ${b.drop_code} from the pool?`)) return;
-            try {
-              await JORD.api(`/api/events/${currentEvent.id}/balls/${b.drop_code}`, { method: 'DELETE' });
-              JORD.success(`${b.drop_code} removed`);
-              loadBalls();
-            } catch (err) { JORD.error(err.message); }
-          }}
-        }, '✕') : null
-      );
-      grid.appendChild(tag);
+
+    var allBalls = r.balls;
+    var searchInput = $('#ball-search');
+
+    function renderBallRows(balls) {
+      var grid = $('#ball-grid');
+      grid.innerHTML = '';
+      if (!balls.length) {
+        grid.innerHTML = '<div style="padding:20px;text-align:center;color:var(--ink-2);font-size:13px">' + (allBalls.length ? 'No codes match your search.' : 'No codes added yet.') + '</div>';
+        return;
+      }
+      for (var i = 0; i < balls.length; i++) {
+        (function(b) {
+          var assigned = !!b.team_id;
+          var playerName = [b.first_name, b.last_name].filter(Boolean).join(' ');
+          var row = el('div', { class: 'ball-row' },
+            el('span', { style: { fontFamily: 'var(--font-mono)', fontWeight: '700', fontSize: '13px' } }, b.drop_code),
+            (playerName
+              ? el('span', null, playerName)
+              : el('span', { style: { color: 'var(--ink-3)', fontStyle: 'italic' } }, 'unassigned')),
+            el('span', { class: 'ball-team-col', style: { color: 'var(--ink-2)' } }, b.team_name || '—'),
+            el('button', {
+              style: { background: 'none', border: 'none', cursor: 'pointer', color: assigned ? 'var(--danger, #C0392B)' : 'var(--ink-2)', fontSize: '15px', padding: '2px 6px', borderRadius: 'var(--r-sm)', lineHeight: '1' },
+              title: assigned ? 'Remove — will also unregister ' + (playerName || 'this player') : 'Remove from pool',
+              on: { click: async function(e) {
+                e.stopPropagation();
+                var msg = assigned
+                  ? '⚠️ "' + b.drop_code + '" is assigned to ' + (playerName || 'a player') + (b.team_name ? ' on team "' + b.team_name + '"' : '') + '.\n\nRemoving it will erase their registration. Continue?'
+                  : 'Remove ' + b.drop_code + ' from the pool?';
+                if (!await JORD.confirm(msg)) return;
+                try {
+                  await JORD.api('/api/events/' + currentEvent.id + '/balls/' + b.drop_code + '?force=1', { method: 'DELETE' });
+                  JORD.success(b.drop_code + ' removed');
+                  loadBalls();
+                } catch (err) { JORD.error(err.message); }
+              }}
+            }, '✕')
+          );
+          grid.appendChild(row);
+        })(allBalls[i]);
+      }
+    }
+
+    renderBallRows(allBalls);
+
+    if (searchInput) {
+      searchInput.oninput = function() {
+        var q = searchInput.value.trim().toLowerCase();
+        if (!q) { renderBallRows(allBalls); return; }
+        renderBallRows(allBalls.filter(function(b) {
+          return b.drop_code.toLowerCase().includes(q)
+            || (b.first_name || '').toLowerCase().includes(q)
+            || (b.last_name  || '').toLowerCase().includes(q)
+            || (b.team_name  || '').toLowerCase().includes(q);
+        }));
+      };
     }
   }
   $('#btn-add-balls').addEventListener('click', async () => {
@@ -1443,29 +1499,139 @@
   // ── Teams ──
   async function loadTeams() {
     const lb = await JORD.api('/api/leaderboard/' + currentEvent.id);
-    const tbody = $('#teams-table tbody');
-    tbody.innerHTML = '';
+    const list = $('#teams-list');
+    const search = $('#players-search');
     const merged = new Map();
-    for (const t of (lb.ld || [])) merged.set(t.id, { team_name: t.team_name, ld: t, balls: t.balls });
+    for (const t of (lb.ld || [])) merged.set(t.id, { id: t.id, team_name: t.team_name, ld: t, balls: t.balls });
     for (const t of (lb.cp || [])) {
-      const row = merged.get(t.id) || { team_name: t.team_name, balls: t.balls };
+      const row = merged.get(t.id) || { id: t.id, team_name: t.team_name, balls: t.balls };
       row.cp = t; merged.set(t.id, row);
     }
-    if (!merged.size) { $('#teams-empty').classList.remove('hidden'); $('#teams-table').classList.add('hidden'); return; }
+    if (!merged.size) {
+      $('#teams-empty').classList.remove('hidden');
+      list.innerHTML = '';
+      return;
+    }
     $('#teams-empty').classList.add('hidden');
-    $('#teams-table').classList.remove('hidden');
-    for (const [id, t] of merged) {
-      const playerNames = (t.balls || []).map(b => b.player_name).join(', ');
-      const codes = (t.balls || []).map(b => b.drop_code).join(' ');
-      const tr = el('tr', null,
-        el('td', null, el('strong', null, t.team_name)),
-        el('td', null, playerNames || '—'),
-        el('td', { class: 'text-mono', style: { fontSize: '12px' } }, codes),
-        el('td', null, t.ld ? JORD.fmt.yards(t.ld.total_yards) : '—'),
-        el('td', null, t.cp && t.cp.best_ft != null ? JORD.fmt.feet(t.cp.best_ft) : '—'),
-        el('td', null, '')
+
+    const allTeams = Array.from(merged.values());
+
+    function renderTeamCard(t) {
+      const card = el('div', { class: 'team-card' });
+      const balls = t.balls || [];
+      const ldScore = t.ld && t.ld.total_yards > 0 ? t.ld.total_yards + ' yd' : '—';
+      const cpScore = t.cp && t.cp.best_ft != null ? t.cp.best_ft + ' ft' : null;
+
+      // Header
+      const arrow = el('span', { class: 'expand-arrow' }, '▶');
+      const header = el('div', { class: 'team-card-header' },
+        arrow,
+        el('strong', { style: { flex: '1', fontSize: '15px' } }, t.team_name),
+        el('span', { style: { fontSize: '12px', color: 'var(--ink-2)' } }, balls.length + ' player' + (balls.length !== 1 ? 's' : '')),
+        el('span', { style: { fontFamily: 'var(--font-mono)', fontSize: '13px', marginLeft: 'var(--s-2)' } }, ldScore),
+        cpScore ? el('span', { style: { fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--ink-2)', marginLeft: 'var(--s-1)' } }, '· ' + cpScore) : null
       );
-      tbody.appendChild(tr);
+      header.addEventListener('click', () => card.classList.toggle('is-open'));
+      card.appendChild(header);
+
+      // Body
+      const body = el('div', { class: 'team-card-body' });
+
+      // Column header row
+      const colHeader = el('div', { class: 'player-row', style: { background: 'var(--surface-2)', fontSize: '11px', fontWeight: '700', color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: '.05em' } },
+        el('span', null, '#'),
+        el('span', null, 'Name'),
+        el('span', { class: 'player-code-col' }, 'Code'),
+        el('span', { class: 'player-email-col' }, 'Email / Phone'),
+        el('span', null, '')
+      );
+      body.appendChild(colHeader);
+
+      for (const b of balls) {
+        const playerWrap = el('div', null);
+
+        const editWrap = el('div', { class: 'player-edit-wrap' });
+
+        const infoRow = el('div', { class: 'player-row' },
+          el('span', { style: { color: 'var(--ink-2)', fontSize: '12px' } }, b.player_index ?? '—'),
+          (b.player_name && b.player_name.trim()
+            ? el('span', { style: { fontWeight: '500' } }, b.player_name)
+            : el('span', { style: { color: 'var(--ink-3)', fontStyle: 'italic' } }, 'unregistered')),
+          el('span', { class: 'player-code-col', style: { fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--ink-2)' } }, b.drop_code),
+          el('span', { class: 'player-email-col', style: { fontSize: '12px', color: 'var(--ink-2)' } }, [b.email, b.phone].filter(Boolean).join(' · ') || '—'),
+          el('button', { class: 'btn btn-ghost', style: { fontSize: '11px', padding: '4px 10px' },
+            on: { click: () => {
+              editWrap.classList.toggle('is-open');
+              if (editWrap.classList.contains('is-open')) buildEditForm(editWrap, b);
+            }}
+          }, 'Edit')
+        );
+
+        playerWrap.appendChild(infoRow);
+        playerWrap.appendChild(editWrap);
+        body.appendChild(playerWrap);
+      }
+
+      card.appendChild(body);
+      return card;
+    }
+
+    function buildEditForm(wrap, b) {
+      wrap.innerHTML = '';
+      const fnInput = el('input', { class: 'input', placeholder: 'First name', value: b.first_name || '' });
+      const lnInput = el('input', { class: 'input', placeholder: 'Last name',  value: b.last_name  || '' });
+      const emInput = el('input', { class: 'input', type: 'email', placeholder: 'Email', value: b.email || '' });
+      const phInput = el('input', { class: 'input', type: 'tel',   placeholder: 'Phone', value: b.phone || '' });
+
+      const note = el('div', { style: { fontSize: '12px', color: 'var(--ink-2)', marginBottom: 'var(--s-2)' } }, 'Editing ball ' + b.drop_code);
+      const grid = el('div', { class: 'player-edit-grid' },
+        el('div', { class: 'field', style: { margin: '0' } }, el('label', null, 'First name'), fnInput),
+        el('div', { class: 'field', style: { margin: '0' } }, el('label', null, 'Last name'),  lnInput),
+        el('div', { class: 'field', style: { margin: '0' } }, el('label', null, 'Email'),      emInput),
+        el('div', { class: 'field', style: { margin: '0' } }, el('label', null, 'Phone'),      phInput)
+      );
+
+      const saveBtn = el('button', { class: 'btn btn-primary', on: { click: async () => {
+        saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+        try {
+          await JORD.api('/api/events/' + currentEvent.id + '/balls/' + b.drop_code + '/player', {
+            method: 'PATCH',
+            body: { first_name: fnInput.value.trim(), last_name: lnInput.value.trim(), email: emInput.value.trim() || null, phone: phInput.value.trim() || null }
+          });
+          JORD.success('Player info updated');
+          loadTeams();
+        } catch (err) { JORD.error(err.message); saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
+      }} }, 'Save');
+      const cancelBtn = el('button', { class: 'btn btn-ghost', on: { click: () => wrap.classList.remove('is-open') } }, 'Cancel');
+
+      wrap.appendChild(note);
+      wrap.appendChild(grid);
+      wrap.appendChild(el('div', { class: 'row gap-2 mt-2' }, saveBtn, cancelBtn));
+    }
+
+    function renderTeams(teams) {
+      list.innerHTML = '';
+      if (!teams.length) {
+        list.innerHTML = '<div style="padding:24px;text-align:center;color:var(--ink-2);font-size:13px">No teams match your search.</div>';
+        return;
+      }
+      for (const t of teams) list.appendChild(renderTeamCard(t));
+    }
+
+    renderTeams(allTeams);
+
+    if (search) {
+      search.oninput = () => {
+        const q = search.value.trim().toLowerCase();
+        if (!q) { renderTeams(allTeams); return; }
+        renderTeams(allTeams.filter(t =>
+          t.team_name.toLowerCase().includes(q) ||
+          (t.balls || []).some(b =>
+            (b.player_name || '').toLowerCase().includes(q) ||
+            b.drop_code.toLowerCase().includes(q)
+          )
+        ));
+      };
     }
   }
 

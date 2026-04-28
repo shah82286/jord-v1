@@ -619,13 +619,33 @@ app.post('/api/events/:eventId/balls', requireAuth, (req, res) => {
   res.json({ added, dupes, message: `${added} codes added to tournament pool` });
 });
 
-// Remove a single ball from the pool (unassigned only)
+// Remove a ball from the pool. Add ?force=1 to also remove assigned balls.
 app.delete('/api/events/:eventId/balls/:code', requireAuth, (req, res) => {
+  const code  = req.params.code.toUpperCase();
+  const force = req.query.force === '1' || req.query.force === 'true';
+  const ball  = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(code, req.params.eventId);
+  if (!ball) return res.status(404).json({ error: 'Ball not found' });
+  if (ball.team_id && !force) return res.status(400).json({ error: 'Ball is assigned. Pass ?force=1 to remove anyway.' });
+  db.prepare('DELETE FROM balls WHERE drop_code=? AND event_id=?').run(code, req.params.eventId);
+  broadcast(req.params.eventId);
+  res.json({ success: true });
+});
+
+// Edit player info on a ball (name, email, phone)
+app.patch('/api/events/:eventId/balls/:code/player', requireAuth, (req, res) => {
   const code = req.params.code.toUpperCase();
+  const { first_name, last_name, email, phone } = req.body;
   const ball = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(code, req.params.eventId);
   if (!ball) return res.status(404).json({ error: 'Ball not found' });
-  if (ball.team_id) return res.status(400).json({ error: 'Cannot remove a ball already assigned to a player' });
-  db.prepare('DELETE FROM balls WHERE drop_code=? AND event_id=?').run(code, req.params.eventId);
+  db.prepare('UPDATE balls SET first_name=?, last_name=?, email=?, phone=? WHERE drop_code=? AND event_id=?')
+    .run(
+      first_name !== undefined ? String(first_name || '').trim() : ball.first_name,
+      last_name  !== undefined ? String(last_name  || '').trim() : ball.last_name,
+      email !== undefined ? (email || null)  : ball.email,
+      phone !== undefined ? (phone || null)  : ball.phone,
+      code, req.params.eventId
+    );
+  broadcast(req.params.eventId);
   res.json({ success: true });
 });
 
