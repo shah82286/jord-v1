@@ -461,17 +461,55 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
 @keyframes pulse { 0%,100%{ transform:scale(1); opacity:1 } 50%{ transform:scale(1.04); opacity:.85 } }
 .pulse { animation: pulse 1.6s ease-in-out infinite; }
 
+/* ─── Prevent horizontal overflow site-wide ─────────────────────────────── */
+html { overflow-x: hidden; }
+body { overflow-x: hidden; }
+
 /* ─── Responsive ─────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
   .hide-mobile { display: none !important; }
+
+  /* Leaderboard rows */
   .lb-row { grid-template-columns: 44px 1fr auto; }
   .lb-rank { font-size: 26px; }
   .lb-name { font-size: 18px; }
   .lb-score { font-size: 22px; }
+  .lb-ball { grid-template-columns: 26px 1fr 70px; font-size: 13px; }
+
+  /* Topbar */
   .topbar-inner { padding: var(--s-2) var(--s-3); }
   .brand-name { font-size: 18px; }
+
+  /* Hero */
   .hero { padding: var(--s-5) 0 var(--s-4); }
+
+  /* Buttons — 44px minimum touch target */
+  .btn { min-height: 44px; }
+
+  /* Forms */
+  .field-grid { grid-template-columns: 1fr; }
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+  .stat-value { font-size: 28px; }
+
+  /* Container padding */
+  .container { padding: 0 var(--s-3); }
+
+  /* Tables — horizontal scroll */
+  .table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }
+  .table { min-width: 480px; }
+  .table th, .table td { padding: 10px; font-size: 13px; }
+
+  /* Toast — full-width at bottom on mobile */
+  #toast-stack { top: auto; bottom: 12px; left: 12px; right: 12px; max-width: none; }
+
+  /* Modals — bottom sheet */
+  .modal-backdrop { align-items: flex-end; padding: 0; }
+  .modal { border-radius: var(--r-lg) var(--r-lg) 0 0; max-height: 88vh; }
+
+  /* Map */
+  .map-container { height: 300px; border-radius: var(--r-md); }
 }
+
 @media (min-width: 721px) {
   .hide-desktop { display: none !important; }
 }

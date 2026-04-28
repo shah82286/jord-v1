@@ -60,6 +60,8 @@ db.exec(`
     -- Pin location (closest to pin)
     pin_lat             REAL,
     pin_lon             REAL,
+    -- Contact
+    admin_phone         TEXT,
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -157,6 +159,13 @@ db.exec(`
 // Add rough/oob polygon columns to existing DBs that predate this feature
 try { db.exec("ALTER TABLE events ADD COLUMN rough_polygon TEXT"); } catch {}
 try { db.exec("ALTER TABLE events ADD COLUMN oob_polygon TEXT");   } catch {}
+try { db.exec("ALTER TABLE events ADD COLUMN admin_phone TEXT");   } catch {}
+
+// CTP-specific hole columns (separate from LD hole)
+try { db.exec("ALTER TABLE events ADD COLUMN ctp_pin_lat REAL"); } catch {}
+try { db.exec("ALTER TABLE events ADD COLUMN ctp_pin_lon REAL"); } catch {}
+try { db.exec("ALTER TABLE events ADD COLUMN ctp_green_polygon TEXT"); } catch {}
+try { db.exec("ALTER TABLE events ADD COLUMN ctp_hole_distance_yards REAL DEFAULT 0"); } catch {}
 
 // ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
 app.use(cors({ origin: '*' }));
@@ -358,8 +367,9 @@ function broadcast(eventId) {
   const clients = sseClients.get(eventId);
   if (!clients?.size) return;
   const event = db.prepare('SELECT * FROM events WHERE id=?').get(eventId);
+  const tee_boxes = db.prepare('SELECT * FROM tee_boxes WHERE event_id=?').all(eventId);
   const payload = JSON.stringify({
-    event,
+    event: { ...event, tee_boxes },
     ld:  event.has_longest_drive ? getLDLeaderboard(eventId) : [],
     cp:  event.has_closest_pin   ? getCPLeaderboard(eventId) : [],
     alerts: db.prepare(`SELECT * FROM rep_alerts WHERE event_id=? AND resolved=0 ORDER BY created_at DESC`).all(eventId)
@@ -438,6 +448,26 @@ app.get('/api/events/:id', requireAuth, (req, res) => {
   res.json({ ...ev, tee_boxes });
 });
 
+// Public event info — no auth — used by demo scan mode on scan page
+app.get('/api/events/:id/public', (req, res) => {
+  const ev = db.prepare('SELECT * FROM events WHERE id=?').get(req.params.id);
+  if (!ev) return res.status(404).json({ error: 'Not found' });
+  const tee_boxes = db.prepare('SELECT * FROM tee_boxes WHERE event_id=?').all(req.params.id);
+  const { id, name, venue, status, has_longest_drive, has_closest_pin,
+          allow_rough, rough_penalty_mode, rough_fixed_yards,
+          allow_oob, oob_penalty_mode, oob_fixed_yards, hole_distance_yards,
+          fairway_polygon, rough_polygon, oob_polygon, green_polygon,
+          pin_lat, pin_lon, admin_phone } = ev;
+  res.json({ id, name, venue, status, has_longest_drive, has_closest_pin,
+             allow_rough, rough_penalty_mode, rough_fixed_yards: rough_fixed_yards || 0,
+             allow_oob, oob_penalty_mode, oob_fixed_yards: oob_fixed_yards || 0,
+             hole_distance_yards: hole_distance_yards || 300,
+             fairway_polygon: fairway_polygon || null, rough_polygon: rough_polygon || null,
+             oob_polygon: oob_polygon || null, green_polygon: green_polygon || null,
+             pin_lat: pin_lat || null, pin_lon: pin_lon || null,
+             admin_phone: admin_phone || null, tee_boxes });
+});
+
 app.post('/api/events', requireAuth, (req, res) => {
   const { name, venue, starts_at, ends_at, has_longest_drive, has_closest_pin,
           combined_scoring, allow_rough, rough_penalty_mode, rough_fixed_yards,
@@ -461,7 +491,9 @@ app.patch('/api/events/:id', requireAuth, (req, res) => {
     'combined_scoring','allow_rough','rough_penalty_mode','rough_fixed_yards','allow_oob',
     'oob_penalty_mode','oob_fixed_yards','hole_distance_yards',
     'fairway_polygon','rough_polygon','oob_polygon','green_polygon',
-    'pin_lat','pin_lon'];
+    'pin_lat','pin_lon',
+    'ctp_green_polygon','ctp_pin_lat','ctp_pin_lon','ctp_hole_distance_yards',
+    'admin_phone'];
   const updates = Object.entries(req.body).filter(([k]) => allowed.includes(k));
   if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
   db.prepare(`UPDATE events SET ${updates.map(([k])=>`${k}=?`).join(',')} WHERE id=?`)
@@ -649,7 +681,8 @@ app.get('/api/ball/:code', (req, res) => {
     SELECT b.*, t.team_name, e.name AS event_name, e.venue, e.status AS event_status,
            e.has_longest_drive, e.has_closest_pin, e.allow_rough, e.allow_oob,
            e.fairway_polygon, e.green_polygon, e.pin_lat, e.pin_lon,
-           e.hole_distance_yards, e.oob_penalty_mode, e.rough_penalty_mode
+           e.hole_distance_yards, e.oob_penalty_mode, e.rough_penalty_mode,
+           e.admin_phone
     FROM balls b
     JOIN events e ON e.id=b.event_id
     LEFT JOIN teams t ON t.id=b.team_id
@@ -686,9 +719,10 @@ app.post('/api/scan/ld/:code', (req, res) => {
   if (!location_type) return res.status(400).json({ error: 'location_type required' });
 
   const ball = db.prepare(`
-    SELECT b.*, e.tee_lat, e.tee_lon, e.allow_rough, e.allow_oob,
+    SELECT b.*, e.allow_rough, e.allow_oob,
            e.hole_distance_yards, e.oob_penalty_mode, e.rough_penalty_mode,
-           e.rough_fixed_yards, e.oob_fixed_yards, e.fairway_polygon, e.id AS event_id
+           e.rough_fixed_yards, e.oob_fixed_yards,
+           e.fairway_polygon, e.rough_polygon, e.oob_polygon, e.id AS event_id
     FROM balls b
     JOIN events e ON e.id=b.event_id
     LEFT JOIN tee_boxes tb ON tb.id=b.tee_box_id
@@ -749,7 +783,15 @@ app.post('/api/scan/ld/:code', (req, res) => {
     raw_yards: Math.round(rawYards),
     penalty_yards: Math.round(penaltyYards),
     final_yards: Math.round(finalYards),
-    location_type
+    location_type,
+    tee_lat: teeBox.lat,
+    tee_lon: teeBox.lon,
+    ball_lat: parseFloat(lat),
+    ball_lon: parseFloat(lon),
+    event_id: ball.event_id,
+    fairway_polygon: ball.fairway_polygon || null,
+    rough_polygon: ball.rough_polygon || null,
+    oob_polygon: ball.oob_polygon || null
   });
 });
 
@@ -760,7 +802,11 @@ app.post('/api/scan/cp/:code', (req, res) => {
   if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
   const ball = db.prepare(`
-    SELECT b.*, e.pin_lat, e.pin_lon, e.id AS event_id, e.green_polygon
+    SELECT b.*,
+      COALESCE(e.ctp_pin_lat, e.pin_lat) AS pin_lat,
+      COALESCE(e.ctp_pin_lon, e.pin_lon) AS pin_lon,
+      COALESCE(e.ctp_green_polygon, e.green_polygon) AS green_polygon,
+      e.id AS event_id
     FROM balls b JOIN events e ON e.id=b.event_id
     WHERE b.drop_code=? ORDER BY b.added_at DESC LIMIT 1
   `).get(code);
@@ -881,7 +927,8 @@ app.get('/api/leaderboard/:eventId/stream', (req, res) => {
   sseClients.get(eventId).add(res);
 
   const event = db.prepare('SELECT * FROM events WHERE id=?').get(eventId);
-  const payload = { event,
+  const tee_boxes = db.prepare('SELECT * FROM tee_boxes WHERE event_id=?').all(eventId);
+  const payload = { event: { ...event, tee_boxes },
     ld: event?.has_longest_drive ? getLDLeaderboard(eventId) : [],
     cp: event?.has_closest_pin   ? getCPLeaderboard(eventId) : [],
     alerts: db.prepare('SELECT * FROM rep_alerts WHERE event_id=? AND resolved=0').all(eventId)
@@ -925,6 +972,39 @@ app.get('/api/config', (req, res) => {
   res.json({ mapbox_token: MAPBOX_TOKEN, version: '1.0.0', build_date: '2026-04-26' });
 });
 
+// ─── SERVER INFO (local IP for phone testing) ────────────────────────────────
+app.get('/api/server-info', (req, res) => {
+  const os = require('os');
+  const ifaces = os.networkInterfaces();
+  let localIP = 'localhost';
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) { localIP = iface.address; break; }
+    }
+    if (localIP !== 'localhost') break;
+  }
+  res.json({ localIP, port: PORT, appUrl: APP_URL });
+});
+
+// ─── QR CODE IMAGE (server-generated PNG) ────────────────────────────────────
+const QRCodeLib = require('qrcode');
+app.get('/api/qr', async (req, res) => {
+  const { data, size = '220' } = req.query;
+  if (!data) return res.status(400).send('Missing data param');
+  try {
+    const buf = await QRCodeLib.toBuffer(decodeURIComponent(data), {
+      width: Math.min(600, Math.max(80, parseInt(size) || 220)),
+      margin: 2,
+      color: { dark: '#0F3D2E', light: '#ffffff' }
+    });
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'public, max-age=60');
+    res.send(buf);
+  } catch (e) {
+    res.status(500).send('QR generation failed: ' + e.message);
+  }
+});
+
 // ─── CSV EXPORT ──────────────────────────────────────────────────────────────
 app.get('/api/events/:eventId/export.csv', requireAuth, (req, res) => {
   const balls = db.prepare(`
@@ -955,7 +1035,8 @@ app.get('/api/events/:eventId/export.csv', requireAuth, (req, res) => {
 // ─── PAGES ───────────────────────────────────────────────────────────────────
 const pages = { '/admin': 'admin.html', '/register/:id': 'register.html',
   '/scan/:code': 'scan.html', '/leaderboard/:id': 'leaderboard.html',
-  '/dashboard/:eid/:code': 'dashboard.html', '/monitor/:id': 'monitor.html' };
+  '/dashboard/:eid/:code': 'dashboard.html', '/monitor/:id': 'monitor.html',
+  '/test': 'test.html' };
 Object.entries(pages).forEach(([route, file]) => {
   app.get(route, (_, res) => res.sendFile(path.join(__dirname, 'public', file)));
 });

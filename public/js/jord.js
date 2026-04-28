@@ -9,9 +9,9 @@
   const APP = {};
 
   /* ─── Auth token (admin) ─────────────────────────────────────────── */
-  APP.getToken = () => sessionStorage.getItem(TOKEN_KEY) || '';
-  APP.setToken = (t) => sessionStorage.setItem(TOKEN_KEY, t || '');
-  APP.clearToken = () => sessionStorage.removeItem(TOKEN_KEY);
+  APP.getToken = () => localStorage.getItem(TOKEN_KEY) || '';
+  APP.setToken = (t) => localStorage.setItem(TOKEN_KEY, t || '');
+  APP.clearToken = () => localStorage.removeItem(TOKEN_KEY);
 
   /* ─── API client ─────────────────────────────────────────────────── */
   APP.api = async function api(path, opts = {}) {

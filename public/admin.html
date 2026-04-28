@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-<link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
 <link href="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.css" rel="stylesheet">
 <link rel="stylesheet" href="/css/jord.css">
 <style>
@@ -26,10 +26,13 @@
   .panel.is-active { display: block; }
   .map-tools { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-bottom: var(--s-3); }
   .map-legend { display: flex; flex-wrap: wrap; gap: var(--s-3); font-size: 12px; color: var(--ink-2); margin-top: var(--s-2); }
-  .map-legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 6px; vertical-align: middle; border-radius: 2px; }
+  .map-legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .map-legend span::before { content: ''; display: inline-block; width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
   .legend-tee::before { background: #C9A24A; }
-  .legend-fairway::before { background: rgba(15,61,46,0.5); }
-  .legend-green::before { background: rgba(74,144,164,0.5); }
+  .legend-fairway::before { background: #22C55E; }
+  .legend-rough::before { background: #EAB308; }
+  .legend-oob::before   { background: #DC2626; }
+  .legend-green::before { background: #3B82F6; }
   .legend-pin::before { background: #C0392B; border-radius: 50% !important; }
   .pool-input { font-family: var(--font-mono); min-height: 180px; resize: vertical; }
   .ball-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--s-2); margin-top: var(--s-3); }
@@ -40,6 +43,37 @@
   .pill-link { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--primary); font-size: 12px; font-weight: 600; }
   @media (max-width: 800px) {
     .editor-grid { grid-template-columns: 1fr; }
+    .editor-nav { display: flex; flex-direction: row; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: var(--s-1); padding-bottom: var(--s-2); }
+    .editor-nav .nav-item { flex-shrink: 0; white-space: nowrap; }
+  }
+  @media (max-width: 640px) {
+    /* Event header — stack name and buttons */
+    #view-editor > .row.row-between { flex-direction: column; align-items: flex-start; gap: var(--s-3); }
+    #view-editor > .row.row-between > .row { flex-wrap: wrap; gap: var(--s-2); }
+    #view-editor > .row.row-between > .row .btn { font-size: 12px; padding: 8px 12px; min-height: 36px; }
+
+    /* Map tools — smaller, touch-friendly */
+    .map-tools { gap: 6px; }
+    .map-tools .btn, .map-tools select { font-size: 12px; padding: 8px 10px; min-height: 36px; }
+    .draw-kind-btn { font-size: 12px; }
+    .map-hole-tab { padding: 7px 12px; font-size: 12px; }
+    #search-place { min-width: 100px; }
+
+    /* Tee coord inputs — prevent overflow */
+    .tee-coords { flex-wrap: wrap; }
+    .tee-coord-input { width: 100px !important; font-size: 12px !important; }
+
+    /* Pin coords box — stack vertically */
+    .pin-coords-box { flex-direction: column; gap: var(--s-2); }
+
+    /* Hole dist section */
+    #hole-dist-section { padding: 8px 10px; }
+
+    /* Ball grid smaller */
+    .ball-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
+
+    /* Card padding tighter */
+    .panel.card { padding: var(--s-4); }
   }
 
   /* ── Ended lock ── */
@@ -59,15 +93,22 @@
 
   /* ── Draw tool color tabs ── */
   .draw-kind-btn { border-left: 3px solid transparent; }
-  .draw-kind-btn.dk-fairway { border-color: #0F3D2E; }
-  .draw-kind-btn.dk-rough   { border-color: #B38D30; }
-  .draw-kind-btn.dk-oob     { border-color: #C0392B; }
-  .draw-kind-btn.dk-green   { border-color: #4CAF50; }
+  .draw-kind-btn.dk-fairway { border-color: #22C55E; }
+  .draw-kind-btn.dk-rough   { border-color: #EAB308; }
+  .draw-kind-btn.dk-oob     { border-color: #DC2626; }
+  .draw-kind-btn.dk-green   { border-color: #3B82F6; }
   .draw-kind-btn.is-drawing { box-shadow: inset 0 0 0 2px currentColor; }
 
-  /* ── Map legend extras ── */
-  .legend-rough::before { background: rgba(179,141,48,0.55); }
-  .legend-oob::before   { background: rgba(192,57,43,0.55); }
+  /* ── Pin coords display ── */
+  .pin-coords-box { background: var(--surface-2); border-radius: var(--r-sm); padding: 10px 14px; margin-top: var(--s-2); font-size: 13px; display: flex; gap: var(--s-5); align-items: center; flex-wrap: wrap; }
+  .pin-coords-box .coord-label { font-size: 11px; color: var(--ink-2); margin-bottom: 2px; }
+  .pin-coords-box .coord-val { font-family: var(--font-mono); font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
+
+  /* ── Map hole tabs ── */
+  .map-hole-tabs { display: flex; gap: var(--s-2); margin-bottom: var(--s-3); }
+  .map-hole-tab { padding: 8px 18px; border-radius: var(--r-md); font-weight: 600; font-size: 14px; cursor: pointer; background: var(--surface-2); border: 1px solid var(--border); color: var(--ink-2); transition: all var(--t-fast); }
+  .map-hole-tab.is-active { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
+  .map-hole-dist { background: var(--surface-2); border-radius: var(--r-sm); padding: 10px 14px; margin-top: var(--s-3); font-size: 13px; display: flex; gap: var(--s-4); align-items: center; flex-wrap: wrap; }
 
   /* ── Tee row lat/lon ── */
   .tee-coords { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 6px; }
@@ -166,6 +207,11 @@
                   <div id="venue-suggestions" style="position:relative"></div>
                 </div>
                 <div class="field">
+                  <label>Admin phone (players see a "Call Admin" button)</label>
+                  <input class="input" type="tel" name="admin_phone" placeholder="+1 555 000 0000" title="Players can tap this number on the scan result screen if they have a question. Optional.">
+                  <div class="hint">Optional. If set, a "Call Admin" button appears after players submit their shot.</div>
+                </div>
+                <div class="field">
                   <label>Starts</label>
                   <input class="input" type="datetime-local" name="starts_at" required title="Tournament start date and time">
                 </div>
@@ -229,38 +275,69 @@
           <!-- Map panel -->
           <div class="panel card" data-panel="map">
             <h3 class="card-title">Course map</h3>
-            <p class="card-sub">Place tee boxes and pin, then trace the fairway and green outlines. Drag any marker to reposition it.</p>
+            <p class="card-sub">Set up each hole's tee box, pin, and zone boundaries. Click and drag on the map to draw zones, then drag vertex nodes to fine-tune.</p>
+
+            <!-- Hole tabs — shown when both contests are enabled -->
+            <div class="map-hole-tabs" id="hole-tabs" style="display:none">
+              <button class="map-hole-tab is-active" data-hole="ld">🏌️ Longest Drive Hole</button>
+              <button class="map-hole-tab" data-hole="ctp">📍 Closest to Pin Hole</button>
+            </div>
+
             <div class="map-tools">
-              <button class="btn btn-ghost" id="tool-tee" title="Places a new tee box marker at the map center. Drag it to the exact tee location.">＋ Tee box</button>
-              <button class="btn btn-ghost draw-kind-btn dk-fairway" id="tool-fairway" title="Draw fairway polygon (dark green). Click points, double-click to close.">🟢 Fairway</button>
-              <button class="btn btn-ghost draw-kind-btn dk-rough"   id="tool-rough"   title="Draw rough polygon (amber). Click points, double-click to close.">🟡 Rough</button>
-              <button class="btn btn-ghost draw-kind-btn dk-oob"     id="tool-oob"     title="Draw out-of-bounds polygon (red). Click points, double-click to close.">🔴 OOB</button>
-              <button class="btn btn-ghost draw-kind-btn dk-green"   id="tool-green"   title="Draw green polygon (light green). Click points, double-click to close.">🟩 Green</button>
-              <button class="btn btn-ghost" id="tool-pin" title="Click once to activate, then click anywhere on the map to drop the pin (Closest to Pin target).">📍 Pin</button>
-              <button class="btn btn-ghost" id="tool-clear" title="Removes all drawn polygons. Tee markers and pin are not affected.">✖ Clear</button>
+              <button class="btn btn-ghost" id="tool-tee" title="Add a tee box for this hole at the map center. Drag it to position.">＋ Tee box</button>
+              <button class="btn btn-ghost draw-kind-btn dk-fairway ld-only" id="tool-fairway" title="Click and drag to draw the fairway boundary.">🟢 Fairway</button>
+              <button class="btn btn-ghost draw-kind-btn dk-rough   ld-only" id="tool-rough"   title="Click and drag to draw the rough boundary.">🟡 Rough</button>
+              <button class="btn btn-ghost draw-kind-btn dk-oob     ld-only" id="tool-oob"     title="Click and drag to draw out-of-bounds boundary.">🔴 OOB</button>
+              <button class="btn btn-ghost draw-kind-btn dk-green"            id="tool-green"   title="Click and drag to draw the green boundary.">🔵 Green</button>
+              <button class="btn btn-ghost" id="tool-pin" title="Click to activate, then click the map to place the pin for this hole.">📍 Set Pin</button>
+              <button class="btn btn-ghost" id="tool-grab-pin" title="Place your phone at the hole flag, then press this to capture the exact pin location via GPS.">📡 Grab GPS Pin</button>
+              <button class="btn btn-ghost" id="tool-clear" title="Click a zone to select it, then press Clear to remove just that zone. With nothing selected, clears all zones for this hole.">✖ Clear</button>
               <span style="border-left:1px solid var(--border);margin:0 4px;height:28px;align-self:center"></span>
-              <select class="select" id="tool-trace-kind" style="width:auto;font-size:12px;padding:5px 8px" title="Choose which zone to GPS-trace — then press Start Trace and walk the boundary with your phone">
+              <select class="select ld-only" id="tool-trace-kind" style="width:auto;font-size:12px;padding:5px 8px" title="Zone to GPS-trace while walking the boundary">
                 <option value="fairway">Fairway</option>
                 <option value="rough">Rough</option>
                 <option value="oob">OOB</option>
                 <option value="green">Green</option>
               </select>
-              <button class="btn btn-ghost" id="tool-trace-start" title="Walk the boundary with your phone — GPS records waypoints automatically. Click Stop when done.">📡 GPS Trace</button>
+              <button class="btn btn-ghost ld-only" id="tool-trace-start" title="Walk the boundary with your phone — GPS records waypoints automatically.">📡 GPS Trace</button>
               <button class="btn btn-danger" id="tool-trace-stop" style="display:none" title="Stop GPS trace and save as polygon">⏹ Stop Trace</button>
+              <span id="gps-accuracy-badge" style="display:none;font-size:11px;font-family:var(--font-mono);padding:4px 8px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--border);white-space:nowrap"></span>
               <input class="input" id="search-place" placeholder="Search course…" style="flex:1;min-width:160px" title="Type a course name or address and press Enter to fly the map there.">
             </div>
             <div id="map" class="map-container"></div>
             <div class="map-legend">
               <span class="legend-tee">Tee box</span>
-              <span class="legend-fairway">Fairway</span>
-              <span class="legend-rough">Rough</span>
-              <span class="legend-oob">OOB</span>
+              <span class="legend-fairway ld-only">Fairway</span>
+              <span class="legend-rough ld-only">Rough</span>
+              <span class="legend-oob ld-only">OOB</span>
               <span class="legend-green">Green</span>
               <span class="legend-pin">Pin</span>
             </div>
 
-            <h4 class="mt-5 mb-2">Tee boxes</h4>
+            <h4 class="mt-5 mb-2">Tee boxes <small id="tee-list-label" style="font-weight:400;color:var(--ink-2)"></small></h4>
             <div id="tee-list" class="tee-list"></div>
+
+            <div id="hole-dist-section" style="background:var(--surface-2);border-radius:var(--r-sm);padding:10px 14px;margin-top:var(--s-3);font-size:13px">
+              <div style="font-size:11px;color:var(--ink-2);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Tee-to-pin distances</div>
+              <div id="tee-distances" style="display:flex;flex-direction:column;gap:4px"></div>
+              <div style="display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);padding-top:8px;margin-top:8px">
+                <label style="font-size:11px;color:var(--ink-2);white-space:nowrap">Manual override</label>
+                <input class="input tee-coord-input" id="manual-hole-dist" type="number" min="0" placeholder="e.g. 300" style="width:90px !important">
+                <span style="font-size:11px;color:var(--ink-2)">yd</span>
+              </div>
+            </div>
+
+            <div class="pin-coords-box" id="pin-coords-section">
+              <div>
+                <div class="coord-label">Pin latitude</div>
+                <div class="coord-val" id="pin-lat-display">—</div>
+              </div>
+              <div>
+                <div class="coord-label">Pin longitude</div>
+                <div class="coord-val" id="pin-lon-display">—</div>
+              </div>
+              <div style="font-size:11px;color:var(--ink-2);align-self:flex-end;padding-bottom:2px" id="pin-coords-hole-label"></div>
+            </div>
 
             <div class="row gap-3 mt-4">
               <button class="btn btn-primary" id="btn-save-map">Save map</button>
@@ -287,6 +364,7 @@
                 <input type="file" id="import-csv-file" accept=".csv,.txt" style="display:none">
               </label>
               <a class="btn btn-ghost" id="btn-register-link" title="Open the player self-registration page for this tournament. Share this link with players.">📱 Registration page</a>
+              <button class="btn btn-ghost" id="btn-print-qr" title="Generate printable QR codes for each ball code and the registration page">🖨 Print QR Codes</button>
             </div>
 
             <h4 class="mt-5 mb-2">Pool contents <span class="small" style="font-weight:400"> — click ✕ to remove an unassigned code</span></h4>
@@ -302,10 +380,12 @@
               <div class="empty-title">No teams yet</div>
               <p>Send players to <a id="register-deeplink">/register/…</a> to start registering.</p>
             </div>
-            <table class="table" id="teams-table">
-              <thead><tr><th>Team</th><th>Players</th><th>Codes</th><th>LD total</th><th>CP best</th><th></th></tr></thead>
-              <tbody></tbody>
-            </table>
+            <div class="table-scroll">
+              <table class="table" id="teams-table">
+                <thead><tr><th>Team</th><th>Players</th><th>Codes</th><th>LD total</th><th>CP best</th><th></th></tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
           </div>
 
           <!-- Alerts panel -->
@@ -320,7 +400,7 @@
   </div>
 </main>
 
-<script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+<script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
 <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.js"></script>
 <script src="/js/jord.js"></script>
 <script>
@@ -349,7 +429,8 @@
   // ── State ──
   let events = [];
   let currentEvent = null;
-  let map = null, draw = null, mapMarkers = { tees: [], pin: null };
+  let map = null, draw = null, mapMarkers = { tees: [], pin: null, ctpPin: null };
+  let currentHoleTab = 'ld';
   let mapboxToken = '';
 
   async function init() {
@@ -415,6 +496,7 @@
   // ── Open event editor ──
   async function openEvent(id) {
     currentEvent = await JORD.api('/api/events/' + id);
+    currentHoleTab = (currentEvent.has_closest_pin && !currentEvent.has_longest_drive) ? 'ctp' : 'ld';
     $('#view-list').classList.add('hidden');
     $('#view-editor').classList.remove('hidden');
     fillSettings();
@@ -518,7 +600,7 @@
   function showPanel(name) {
     $$('.editor-nav .nav-item').forEach(n => n.classList.toggle('is-active', n.dataset.panel === name));
     $$('.panel').forEach(p => p.classList.toggle('is-active', p.dataset.panel === name));
-    if (name === 'map') initMap();
+    if (name === 'map') requestAnimationFrame(initMap);
     if (name === 'players') loadTeams();
     if (name === 'alerts') loadAlerts();
     if (name === 'balls') loadBalls();
@@ -566,7 +648,7 @@
   // ── Settings form ──
   function fillSettings() {
     const f = $('#form-settings');
-    for (const k of ['name', 'venue']) f[k].value = currentEvent[k] || '';
+    for (const k of ['name', 'venue', 'admin_phone']) f[k].value = currentEvent[k] || '';
     f.starts_at.value = currentEvent.starts_at ? currentEvent.starts_at.slice(0, 16) : '';
     f.ends_at.value   = currentEvent.ends_at   ? currentEvent.ends_at.slice(0, 16) : '';
     for (const k of ['has_longest_drive', 'has_closest_pin', 'combined_scoring', 'allow_rough', 'allow_oob']) {
@@ -580,7 +662,7 @@
     e.preventDefault();
     const f = e.target;
     const body = {};
-    ['name', 'venue', 'starts_at', 'ends_at', 'rough_penalty_mode', 'oob_penalty_mode'].forEach(k => body[k] = f[k].value || null);
+    ['name', 'venue', 'starts_at', 'ends_at', 'rough_penalty_mode', 'oob_penalty_mode', 'admin_phone'].forEach(k => body[k] = f[k].value || null);
     ['rough_fixed_yards', 'oob_fixed_yards', 'hole_distance_yards'].forEach(k => body[k] = parseFloat(f[k].value) || 0);
     ['has_longest_drive', 'has_closest_pin', 'combined_scoring', 'allow_rough', 'allow_oob'].forEach(k => body[k] = f[k].checked ? 1 : 0);
     currentEvent = await JORD.api('/api/events/' + currentEvent.id, { method: 'PATCH', body });
@@ -594,28 +676,116 @@
   });
 
   // ── Map ──
+  function haversineYardsClient(lat1, lon1, lat2, lon2) {
+    const R = 6371000;
+    const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
+    const Δφ = (lat2 - lat1) * Math.PI / 180, Δλ = (lon2 - lon1) * Math.PI / 180;
+    const a = Math.sin(Δφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)**2;
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)) * 1.09361;
+  }
+
+  function applyHoleTabTools() {
+    const isLd = currentHoleTab === 'ld';
+    $$('.ld-only').forEach(el => { el.style.display = isLd ? '' : 'none'; });
+    const label = $('#tee-list-label');
+    if (label) label.textContent = isLd ? '— Longest Drive hole' : '— Closest to Pin hole';
+    renderTees();
+    updateHoleDistanceDisplay();
+    updatePinCoordsDisplay();
+  }
+
+  function updateHoleDistanceDisplay() {
+    const distEl = $('#tee-distances'), manualEl = $('#manual-hole-dist');
+    if (!distEl) return;
+    const isLd = currentHoleTab === 'ld';
+    const pinLat = isLd ? currentEvent.pin_lat : currentEvent.ctp_pin_lat;
+    const pinLon = isLd ? currentEvent.pin_lon : currentEvent.ctp_pin_lon;
+    const tees = (currentEvent.tee_boxes || []).filter(t =>
+      isLd ? t.hole_type !== 'closest_pin' : t.hole_type === 'closest_pin'
+    );
+    distEl.innerHTML = '';
+    if (!pinLat || !pinLon) {
+      distEl.innerHTML = '<span style="color:var(--ink-2);font-size:12px">Place a pin to see distances</span>';
+    } else if (!tees.length) {
+      distEl.innerHTML = '<span style="color:var(--ink-2);font-size:12px">Add tee boxes to see distances</span>';
+    } else {
+      let shortestYds = Infinity;
+      tees.forEach((t, i) => {
+        const yds = Math.round(haversineYardsClient(t.lat, t.lon, pinLat, pinLon));
+        if (yds < shortestYds) shortestYds = yds;
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;font-size:13px';
+        row.innerHTML = `<span style="font-weight:600">T${i+1} <span style="font-weight:400;color:var(--ink-2)">${t.name}</span></span><span style="font-family:var(--font-mono);font-weight:700">${yds} <span style="font-weight:400;font-size:11px;color:var(--ink-2)">yd</span></span>`;
+        distEl.appendChild(row);
+      });
+      if (manualEl && !manualEl.value && shortestYds < Infinity) manualEl.value = shortestYds;
+    }
+    if (manualEl && !manualEl.value) {
+      const saved = isLd ? currentEvent.hole_distance_yards : currentEvent.ctp_hole_distance_yards;
+      if (saved) manualEl.value = saved;
+    }
+  }
+
+  const ZONE_COLORS = { fairway: '#22C55E', rough: '#EAB308', oob: '#DC2626', green: '#3B82F6', ctp_green: '#3B82F6' };
+
+  function syncZoneLayers() {
+    if (!map || !draw) return;
+    const all = draw.getAll().features;
+    for (const kind of Object.keys(ZONE_COLORS)) {
+      const src = map.getSource(`zone-${kind}`);
+      if (!src) return;
+      src.setData({ type: 'FeatureCollection', features: all.filter(f => {
+        const k = f.properties.kind || f.properties.user_kind || '';
+        return k === kind;
+      })});
+    }
+  }
+
+  function updatePinCoordsDisplay() {
+    const latEl = $('#pin-lat-display'), lonEl = $('#pin-lon-display'), lbl = $('#pin-coords-hole-label');
+    if (!latEl) return;
+    const isLd = currentHoleTab === 'ld';
+    const lat = isLd ? currentEvent.pin_lat : currentEvent.ctp_pin_lat;
+    const lon = isLd ? currentEvent.pin_lon : currentEvent.ctp_pin_lon;
+    latEl.textContent = lat ? lat.toFixed(6) : '—';
+    lonEl.textContent = lon ? lon.toFixed(6) : '—';
+    if (lbl) lbl.textContent = isLd ? 'LD hole pin' : 'CTP hole pin';
+  }
+
   function initMap() {
-    if (map) { map.resize(); return; }
+    if (map) { map.resize(); applyHoleTabTools(); return; }
     if (!mapboxToken) {
       $('#map').innerHTML = '<div class="empty"><div class="empty-icon">🗺</div><div class="empty-title">Mapbox token missing</div><p>Add MAPBOX_TOKEN to your .env file and restart.</p></div>';
       return;
     }
+    if (typeof mapboxgl === 'undefined') {
+      $('#map').innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Mapbox failed to load</div><p>Check your internet connection — the Mapbox library loads from a CDN. Try a hard refresh (Ctrl+Shift+R).</p></div>';
+      return;
+    }
     mapboxgl.accessToken = mapboxToken;
 
-    const tees = currentEvent.tee_boxes || [];
-    const center = tees.length ? [tees[0].lon, tees[0].lat]
-      : (currentEvent.pin_lon ? [currentEvent.pin_lon, currentEvent.pin_lat] : [-84.3953, 33.5031]);
+    // Determine center: LD tees > LD pin > CTP tees > CTP pin > geocode venue > US fallback
+    const allTees  = currentEvent.tee_boxes || [];
+    const ldTees   = allTees.filter(t => t.hole_type !== 'closest_pin');
+    const ctpTees  = allTees.filter(t => t.hole_type === 'closest_pin');
+    let center = [-98.5, 39.5], zoom = 4;
+    if (ldTees.length)                   { center = [ldTees[0].lon,  ldTees[0].lat];  zoom = 17; }
+    else if (currentEvent.pin_lon)        { center = [currentEvent.pin_lon, currentEvent.pin_lat]; zoom = 16; }
+    else if (ctpTees.length)              { center = [ctpTees[0].lon, ctpTees[0].lat]; zoom = 17; }
+    else if (currentEvent.ctp_pin_lon)    { center = [currentEvent.ctp_pin_lon, currentEvent.ctp_pin_lat]; zoom = 16; }
 
-    // Color-coded draw styles
-    const kindColor = ['match', ['get', 'user_kind'],
-      'fairway', '#0F3D2E', 'rough', '#B38D30', 'oob', '#C0392B', 'green', '#4CAF50', '#6272C1'];
+    // Color-coded draw styles — matches toolbar button colors
+    // ['coalesce'] tries user_kind first (MapboxDraw's prefixed form) then kind (raw property)
+    const kindKey = ['coalesce', ['get', 'user_kind'], ['get', 'kind']];
+    const kindColor = ['match', kindKey,
+      'fairway', '#22C55E', 'rough', '#EAB308', 'oob', '#DC2626', 'green', '#3B82F6', 'ctp_green', '#3B82F6', '#888888'];
     const drawStyles = [
       { id: 'gl-draw-polygon-fill-inactive', type: 'fill',
         filter: ['all', ['==', 'active', 'false'], ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
-        paint: { 'fill-color': kindColor, 'fill-outline-color': kindColor, 'fill-opacity': 0.3 } },
+        paint: { 'fill-color': kindColor, 'fill-opacity': 0.38 } },
       { id: 'gl-draw-polygon-fill-active', type: 'fill',
         filter: ['all', ['==', 'active', 'true'], ['==', '$type', 'Polygon']],
-        paint: { 'fill-color': '#fbb03b', 'fill-outline-color': '#fbb03b', 'fill-opacity': 0.12 } },
+        paint: { 'fill-color': kindColor, 'fill-opacity': 0.5 } },
       { id: 'gl-draw-polygon-stroke-inactive', type: 'line',
         filter: ['all', ['==', 'active', 'false'], ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -623,7 +793,7 @@
       { id: 'gl-draw-polygon-stroke-active', type: 'line',
         filter: ['all', ['==', 'active', 'true'], ['==', '$type', 'Polygon']],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#fbb03b', 'line-dasharray': [0.2, 2], 'line-width': 2 } },
+        paint: { 'line-color': kindColor, 'line-dasharray': [0.2, 2], 'line-width': 2.5 } },
       { id: 'gl-draw-polygon-midpoint', type: 'circle',
         filter: ['all', ['==', '$type', 'Point'], ['==', 'meta', 'midpoint']],
         paint: { 'circle-radius': 3, 'circle-color': '#fbb03b' } },
@@ -638,111 +808,277 @@
     map = new mapboxgl.Map({
       container: 'map',
       style: 'mapbox://styles/mapbox/satellite-streets-v12',
-      center, zoom: tees.length ? 17 : 12
+      center, zoom
+    });
+
+    map.once('error', (e) => {
+      const status = e.status || e.error?.status;
+      if (status === 401 || status === 403) {
+        map.remove(); map = null;
+        $('#map').innerHTML = '<div class="empty"><div class="empty-icon">🔑</div><div class="empty-title">Mapbox token rejected</div><p>Your token may have URL restrictions. In your <a href="https://account.mapbox.com/access-tokens/" target="_blank">Mapbox account → Tokens</a>, either remove URL restrictions or add <strong>http://localhost:3000</strong> to the allowed list.</p></div>';
+      }
     });
 
     draw = new MapboxDraw({
       displayControlsDefault: false,
-      controls: { polygon: true, trash: true },
+      controls: { polygon: false, trash: true },
       defaultMode: 'simple_select',
       styles: drawStyles
     });
     map.addControl(draw, 'top-left');
     map.addControl(new mapboxgl.NavigationControl());
 
-    // Track current polygon kind when drawing
+    // ── Freehand + pin state ──
     let currentDrawKind = 'fairway';
-
-    map.on('draw.create', (e) => {
-      for (const f of e.features) {
-        draw.setFeatureProperty(f.id, 'kind', currentDrawKind);
-        const feat = draw.get(f.id);
-        if (feat) draw.add(feat);
-      }
-    });
+    let freehandActive = false, isDrawingFreehand = false, freehandPoints = [];
+    let pinPickerActive = false, ctpPinPickerActive = false;
 
     function loadPolygon(geojsonStr, kind) {
       if (!geojsonStr) return;
-      try {
-        draw.add({ type: 'Feature', geometry: JSON.parse(geojsonStr), properties: { kind } });
-      } catch {}
+      try { draw.add({ type: 'Feature', geometry: JSON.parse(geojsonStr), properties: { kind } }); } catch {}
     }
 
     map.on('load', () => {
-      loadPolygon(currentEvent.fairway_polygon, 'fairway');
-      loadPolygon(currentEvent.rough_polygon,   'rough');
-      loadPolygon(currentEvent.oob_polygon,     'oob');
-      loadPolygon(currentEvent.green_polygon,   'green');
+      // Freehand preview source
+      map.addSource('freehand-preview', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } } });
+      map.addLayer({ id: 'freehand-preview-layer', type: 'line', source: 'freehand-preview',
+        paint: { 'line-color': '#fbb03b', 'line-width': 2, 'line-dasharray': [2, 1] } });
 
-      // Add GPS trace source/layer
       map.addSource('gps-trace', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [] } } });
       map.addLayer({ id: 'gps-trace-layer', type: 'line', source: 'gps-trace',
         paint: { 'line-color': '#fbb03b', 'line-width': 3, 'line-dasharray': [2, 1] } });
 
+      // Dedicated colored fill layers for each zone — inserted below MapboxDraw's UI layers
+      for (const [kind, color] of Object.entries(ZONE_COLORS)) {
+        map.addSource(`zone-${kind}`, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+        map.addLayer({ id: `zone-fill-${kind}`, type: 'fill', source: `zone-${kind}`,
+          paint: { 'fill-color': color, 'fill-opacity': 0.45 } }, 'gl-draw-polygon-fill-inactive');
+        map.addLayer({ id: `zone-stroke-${kind}`, type: 'line', source: `zone-${kind}`,
+          paint: { 'line-color': color, 'line-width': 2, 'line-opacity': 0.9 } }, 'gl-draw-polygon-fill-inactive');
+      }
+
+      // Load existing polygons for both holes
+      loadPolygon(currentEvent.fairway_polygon,   'fairway');
+      loadPolygon(currentEvent.rough_polygon,     'rough');
+      loadPolygon(currentEvent.oob_polygon,       'oob');
+      loadPolygon(currentEvent.green_polygon,     'green');
+      loadPolygon(currentEvent.ctp_green_polygon, 'ctp_green');
+      syncZoneLayers();
+
+      // Keep zone layers in sync with any MapboxDraw edits
+      map.on('draw.create', syncZoneLayers);
+      map.on('draw.delete', syncZoneLayers);
+      map.on('draw.update', syncZoneLayers);
+
       drawTeeMarkers();
       drawPinMarker();
-    });
+      drawCtpPinMarker();
 
-    let pinPickerActive = false;
+      // Hole tabs setup
+      const hasBoth = currentEvent.has_longest_drive && currentEvent.has_closest_pin;
+      $('#hole-tabs').style.display = hasBoth ? 'flex' : 'none';
+      applyHoleTabTools();
 
-    function setDrawKind(kind) {
-      currentDrawKind = kind;
-      ['fairway', 'rough', 'oob', 'green'].forEach(k => {
-        const btn = $(`#tool-${k}`);
-        if (btn) btn.classList.toggle('is-drawing', k === kind);
-      });
-    }
-
-    $('#tool-tee').onclick = async () => {
-      const c = map.getCenter();
-      const name = prompt('Tee box name (e.g. Men\'s, Women\'s)?', 'Main');
-      if (!name) return;
-      const teeBox = await JORD.api(`/api/events/${currentEvent.id}/tee-boxes`, { method: 'POST', body: { name, color: 'white', lat: c.lat, lon: c.lng, hole_type: 'longest_drive' }});
-      currentEvent.tee_boxes = currentEvent.tee_boxes || [];
-      currentEvent.tee_boxes.push(teeBox);
-      drawTeeMarkers(); renderTees();
-      JORD.success('Tee box added');
-    };
-
-    $('#tool-fairway').onclick = () => { setDrawKind('fairway'); draw.changeMode('draw_polygon'); };
-    $('#tool-rough').onclick   = () => { setDrawKind('rough');   draw.changeMode('draw_polygon'); };
-    $('#tool-oob').onclick     = () => { setDrawKind('oob');     draw.changeMode('draw_polygon'); };
-    $('#tool-green').onclick   = () => { setDrawKind('green');   draw.changeMode('draw_polygon'); };
-
-    $('#tool-pin').onclick = () => { pinPickerActive = true; map.getCanvas().style.cursor = 'crosshair'; JORD.toast('Click the map to place the pin', 'warn'); };
-    $('#tool-clear').onclick = () => draw.deleteAll();
-
-    map.on('click', (e) => {
-      if (pinPickerActive) {
-        currentEvent.pin_lat = e.lngLat.lat;
-        currentEvent.pin_lon = e.lngLat.lng;
-        drawPinMarker();
-        pinPickerActive = false;
-        map.getCanvas().style.cursor = '';
-        JORD.success('Pin placed — remember to Save map');
+      // Geocode venue if no location data found
+      if (zoom <= 4 && currentEvent.venue) {
+        fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(currentEvent.venue)}.json?access_token=${mapboxToken}&types=poi,address&limit=1`)
+          .then(r => r.json())
+          .then(r => { if (r.features?.[0]) map.flyTo({ center: r.features[0].center, zoom: 16 }); })
+          .catch(() => {});
       }
     });
 
+    // ── Freehand drawing ──
+    const canvas = map.getCanvas();
+
+    function startFreehand(kind) {
+      freehandActive = true;
+      currentDrawKind = kind;
+      canvas.style.cursor = 'crosshair';
+      draw.changeMode('simple_select');
+      $$('.draw-kind-btn').forEach(b => b.classList.remove('is-drawing'));
+      const btnKey = kind === 'ctp_green' ? 'green' : kind;
+      const btn = $(`#tool-${btnKey}`);
+      if (btn) btn.classList.add('is-drawing');
+      JORD.toast(`Click and drag to draw ${kind.replace('ctp_','').replace('_',' ')} — release to finish`, 'warn');
+    }
+
+    canvas.addEventListener('mousedown', (e) => {
+      if (!freehandActive) return;
+      e.preventDefault(); e.stopPropagation();
+      map.dragPan.disable();
+      isDrawingFreehand = true;
+      freehandPoints = [];
+      const c = map.unproject([e.offsetX, e.offsetY]);
+      freehandPoints.push([c.lng, c.lat]);
+    });
+
+    canvas.addEventListener('mousemove', (e) => {
+      if (!isDrawingFreehand) return;
+      if (freehandPoints.length > 0) {
+        const last = freehandPoints[freehandPoints.length - 1];
+        const px = map.project(last);
+        if (Math.hypot(e.offsetX - px.x, e.offsetY - px.y) < 6) return;
+      }
+      const c = map.unproject([e.offsetX, e.offsetY]);
+      freehandPoints.push([c.lng, c.lat]);
+      map.getSource('freehand-preview').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: freehandPoints } });
+    });
+
+    function finishFreehand() {
+      if (!isDrawingFreehand) return;
+      isDrawingFreehand = false; freehandActive = false;
+      map.dragPan.enable();
+      canvas.style.cursor = '';
+      $$('.draw-kind-btn').forEach(b => b.classList.remove('is-drawing'));
+      map.getSource('freehand-preview').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
+      if (freehandPoints.length < 3) {
+        JORD.warn('Draw a larger area — hold mouse button and drag around the zone');
+        freehandPoints = []; return;
+      }
+      const closed = [...freehandPoints, freehandPoints[0]];
+      const feat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closed] }, properties: { kind: currentDrawKind } };
+      const ids = draw.add(feat);
+      freehandPoints = [];
+      syncZoneLayers();
+      if (ids?.length) { try { draw.changeMode('simple_select', { featureIds: [ids[0]] }); } catch {} }
+      JORD.success(`${currentDrawKind.replace('ctp_','').replace(/_/g,' ')} drawn — drag the nodes to adjust shape`);
+    }
+    canvas.addEventListener('mouseup', finishFreehand);
+    canvas.addEventListener('mouseleave', () => { if (isDrawingFreehand) finishFreehand(); });
+
+    // ── Tool buttons ──
+    $('#tool-tee').onclick = async () => {
+      const c = map.getCenter();
+      const name = prompt("Tee box name (e.g. Men's, Women's)?", 'Main');
+      if (!name) return;
+      const hole_type = currentHoleTab === 'ctp' ? 'closest_pin' : 'longest_drive';
+      const teeBox = await JORD.api(`/api/events/${currentEvent.id}/tee-boxes`, { method: 'POST', body: { name, color: 'white', lat: c.lat, lon: c.lng, hole_type } });
+      currentEvent.tee_boxes = currentEvent.tee_boxes || [];
+      currentEvent.tee_boxes.push(teeBox);
+      drawTeeMarkers(); renderTees(); updateHoleDistanceDisplay();
+      JORD.success('Tee box added — drag it to position');
+    };
+
+    $('#tool-fairway').onclick = () => startFreehand('fairway');
+    $('#tool-rough').onclick   = () => startFreehand('rough');
+    $('#tool-oob').onclick     = () => startFreehand('oob');
+    $('#tool-green').onclick   = () => startFreehand(currentHoleTab === 'ctp' ? 'ctp_green' : 'green');
+
+    $('#tool-pin').onclick = () => {
+      if (currentHoleTab === 'ld') { pinPickerActive = true; }
+      else { ctpPinPickerActive = true; }
+      canvas.style.cursor = 'crosshair';
+      JORD.toast('Click the map to place the pin for this hole', 'warn');
+    };
+
+    // GPS Pin Grab — watches for up to 10 s and uses the reading with best accuracy
+    $('#tool-grab-pin').onclick = async () => {
+      if (!navigator.geolocation) { JORD.error('GPS not available on this device'); return; }
+      if (!await JORD.confirm('Stand directly at the hole flag and hold your device still, then click OK. It will sample GPS for up to 10 seconds and use the most accurate reading.', { okText: 'Start GPS Capture' })) return;
+
+      let bestPos = null;
+      let watchId = null;
+      const SAMPLE_MS = 10000;   // collect for 10 seconds
+      const GOOD_ENOUGH_M = 4;   // stop early if we hit this accuracy
+
+      JORD.toast('Sampling GPS — hold still…', 'warn');
+
+      const finish = () => {
+        if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+        if (!bestPos) { JORD.error('Could not get a GPS fix — try again in an open area'); return; }
+        const lat = bestPos.coords.latitude, lon = bestPos.coords.longitude;
+        const acc = Math.round(bestPos.coords.accuracy);
+        if (currentHoleTab === 'ld') {
+          currentEvent.pin_lat = lat; currentEvent.pin_lon = lon;
+          drawPinMarker();
+        } else {
+          currentEvent.ctp_pin_lat = lat; currentEvent.ctp_pin_lon = lon;
+          drawCtpPinMarker();
+        }
+        map.flyTo({ center: [lon, lat], zoom: 18 });
+        updateHoleDistanceDisplay(); updatePinCoordsDisplay();
+        JORD.success(`Pin placed ±${acc}m accuracy at ${lat.toFixed(6)}, ${lon.toFixed(6)} — Save map to confirm`);
+      };
+
+      const timer = setTimeout(finish, SAMPLE_MS);
+
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          if (!bestPos || pos.coords.accuracy < bestPos.coords.accuracy) {
+            bestPos = pos;
+          }
+          const acc = Math.round(pos.coords.accuracy);
+          JORD.toast(`Sampling GPS — best so far ±${acc}m, hold still…`, 'warn');
+          if (pos.coords.accuracy <= GOOD_ENOUGH_M) {
+            clearTimeout(timer);
+            finish();
+          }
+        },
+        (err) => { clearTimeout(timer); JORD.error('GPS error: ' + err.message); },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+      );
+    };
+
+    $('#tool-clear').onclick = async () => {
+      const selected = draw.getSelectedIds();
+      if (selected.length) {
+        draw.delete(selected);
+        syncZoneLayers();
+        JORD.success('Selected zone removed — Save map to confirm');
+        return;
+      }
+      const ldKinds = new Set(['fairway','rough','oob','green']);
+      const holeName = currentHoleTab === 'ld' ? 'Longest Drive' : 'Closest to Pin';
+      if (!await JORD.confirm(`Clear all zones for the ${holeName} hole? Select a specific zone first to remove just that one.`, { okText: 'Clear all', danger: true })) return;
+      const features = draw.getAll().features;
+      if (currentHoleTab === 'ld') {
+        features.filter(f => ldKinds.has(f.properties.kind || f.properties.user_kind || '')).forEach(f => draw.delete(f.id));
+      } else {
+        features.filter(f => (f.properties.kind || f.properties.user_kind) === 'ctp_green').forEach(f => draw.delete(f.id));
+      }
+      syncZoneLayers();
+    };
+
+    map.on('click', (e) => {
+      if (pinPickerActive) {
+        currentEvent.pin_lat = e.lngLat.lat; currentEvent.pin_lon = e.lngLat.lng;
+        drawPinMarker(); pinPickerActive = false; canvas.style.cursor = '';
+        updateHoleDistanceDisplay(); updatePinCoordsDisplay();
+        JORD.success('LD Pin placed — Save map to confirm');
+      } else if (ctpPinPickerActive) {
+        currentEvent.ctp_pin_lat = e.lngLat.lat; currentEvent.ctp_pin_lon = e.lngLat.lng;
+        drawCtpPinMarker(); ctpPinPickerActive = false; canvas.style.cursor = '';
+        updateHoleDistanceDisplay(); updatePinCoordsDisplay();
+        JORD.success('CTP Pin placed — Save map to confirm');
+      }
+    });
+
+    // ── Save map ──
     $('#btn-save-map').onclick = async () => {
       const all = draw.getAll();
-      const byKind = { fairway: null, rough: null, oob: null, green: null };
+      const byKind = { fairway: null, rough: null, oob: null, green: null, ctp_green: null };
       for (const f of all.features) {
         if (f.geometry.type !== 'Polygon') continue;
         const kind = f.properties.kind || f.properties.user_kind || 'fairway';
         if (kind in byKind) byKind[kind] = JSON.stringify(f.geometry);
       }
-      const body = {
-        fairway_polygon: byKind.fairway,
-        rough_polygon:   byKind.rough,
-        oob_polygon:     byKind.oob,
-        green_polygon:   byKind.green,
-        pin_lat: currentEvent.pin_lat || null,
-        pin_lon: currentEvent.pin_lon || null
-      };
+      const manualDist = parseFloat($('#manual-hole-dist')?.value) || null;
+      let body;
+      if (currentHoleTab === 'ld') {
+        body = { fairway_polygon: byKind.fairway, rough_polygon: byKind.rough, oob_polygon: byKind.oob,
+          green_polygon: byKind.green, pin_lat: currentEvent.pin_lat || null, pin_lon: currentEvent.pin_lon || null };
+        if (manualDist) body.hole_distance_yards = manualDist;
+      } else {
+        body = { ctp_green_polygon: byKind.ctp_green,
+          ctp_pin_lat: currentEvent.ctp_pin_lat || null, ctp_pin_lon: currentEvent.ctp_pin_lon || null };
+        if (manualDist) body.ctp_hole_distance_yards = manualDist;
+      }
       currentEvent = Object.assign(currentEvent, await JORD.api('/api/events/' + currentEvent.id, { method: 'PATCH', body }));
-      JORD.success('Map saved');
+      JORD.success(`${currentHoleTab === 'ld' ? 'Longest Drive' : 'Closest to Pin'} hole map saved`);
     };
 
+    // ── Search ──
     $('#search-place').addEventListener('keydown', async (e) => {
       if (e.key !== 'Enter') return;
       const q = e.target.value.trim(); if (!q) return;
@@ -752,130 +1088,201 @@
     });
 
     // ── GPS Trace ──
-    let traceWatchId = null;
-    let tracePoints = [];
+    const GPS_ACCURACY_THRESHOLD = 10; // metres — only record points this accurate or better
+    const GPS_WARMUP_THRESHOLD   = 15; // metres — wait for this before allowing trace to start
+    let traceWatchId = null, tracePoints = [], traceReady = false;
+
+    const accuracyBadge = $('#gps-accuracy-badge');
+    function setAccuracyBadge(accuracyM, active) {
+      if (!active) { accuracyBadge.style.display = 'none'; return; }
+      const good = accuracyM <= GPS_WARMUP_THRESHOLD;
+      accuracyBadge.style.display = '';
+      accuracyBadge.style.borderColor = good ? '#22C55E' : '#EAB308';
+      accuracyBadge.style.color       = good ? '#22C55E' : '#EAB308';
+      accuracyBadge.textContent = `GPS ±${Math.round(accuracyM)}m`;
+    }
 
     $('#tool-trace-start').onclick = () => {
       if (traceWatchId !== null) { JORD.warn('Already tracing — click Stop Trace first'); return; }
       if (!navigator.geolocation) { JORD.error('GPS not available on this device'); return; }
       const kind = $('#tool-trace-kind').value;
-      tracePoints = [];
-      JORD.toast(`GPS trace started for ${kind} — walk the boundary, then click Stop Trace`, 'warn');
-      $('#tool-trace-stop').style.display = '';
-      $('#tool-trace-start').style.display = 'none';
+      tracePoints = []; traceReady = false;
+      $('#tool-trace-stop').style.display = ''; $('#tool-trace-start').style.display = 'none';
       map.getSource('gps-trace').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
+      JORD.toast('Acquiring GPS lock — hold still until accuracy turns green, then start walking', 'warn');
 
       traceWatchId = navigator.geolocation.watchPosition(
         (pos) => {
+          const acc = pos.coords.accuracy;
+          setAccuracyBadge(acc, true);
+
+          if (!traceReady) {
+            // Warm-up phase: pan map to current position but don't record yet
+            map.setCenter([pos.coords.longitude, pos.coords.latitude]);
+            if (acc <= GPS_WARMUP_THRESHOLD) {
+              traceReady = true;
+              JORD.toast(`GPS locked (±${Math.round(acc)}m) — walk the ${kind} boundary now`, 'warn');
+            }
+            return;
+          }
+
+          // Only record point if accuracy is good enough
+          if (acc > GPS_ACCURACY_THRESHOLD) return;
+
           tracePoints.push([pos.coords.longitude, pos.coords.latitude]);
           map.getSource('gps-trace').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: tracePoints } });
           map.setCenter([pos.coords.longitude, pos.coords.latitude]);
         },
         (err) => JORD.warn('GPS error: ' + err.message),
-        { enableHighAccuracy: true, maximumAge: 0 }
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
       );
     };
 
     $('#tool-trace-stop').onclick = () => {
       if (traceWatchId === null) return;
       navigator.geolocation.clearWatch(traceWatchId);
-      traceWatchId = null;
-      $('#tool-trace-stop').style.display = 'none';
-      $('#tool-trace-start').style.display = '';
-
+      traceWatchId = null; traceReady = false;
+      $('#tool-trace-stop').style.display = 'none'; $('#tool-trace-start').style.display = '';
+      setAccuracyBadge(0, false);
       if (tracePoints.length < 3) {
         JORD.warn('Not enough GPS points — walk more of the boundary before stopping');
         map.getSource('gps-trace').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
         return;
       }
-      const kind = $('#tool-trace-kind').value;
+      const kind = currentHoleTab === 'ctp' ? 'ctp_green' : $('#tool-trace-kind').value;
       const closedPts = [...tracePoints, tracePoints[0]];
-      const feat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closedPts] }, properties: { kind } };
-      draw.add(feat);
+      draw.add({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [closedPts] }, properties: { kind } });
+      syncZoneLayers();
       map.getSource('gps-trace').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
       tracePoints = [];
-      JORD.success(`${kind} boundary traced (${closedPts.length - 1} points) — click Save map to save`);
+      JORD.success(`${kind} boundary traced (${closedPts.length - 1} points) — Save map to save`);
     };
+
+    // ── Hole tab switching ──
+    $$('.map-hole-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentHoleTab = btn.dataset.hole;
+        $$('.map-hole-tab').forEach(b => b.classList.toggle('is-active', b === btn));
+        applyHoleTabTools();
+        const tabTees = (currentEvent.tee_boxes || []).filter(t =>
+          currentHoleTab === 'ctp' ? t.hole_type === 'closest_pin' : t.hole_type !== 'closest_pin'
+        );
+        const pinLat = currentHoleTab === 'ld' ? currentEvent.pin_lat : currentEvent.ctp_pin_lat;
+        const pinLon = currentHoleTab === 'ld' ? currentEvent.pin_lon : currentEvent.ctp_pin_lon;
+        if (tabTees.length) map.flyTo({ center: [tabTees[0].lon, tabTees[0].lat], zoom: 17 });
+        else if (pinLat) map.flyTo({ center: [pinLon, pinLat], zoom: 17 });
+        const manualEl = $('#manual-hole-dist');
+        if (manualEl) {
+          const saved = currentHoleTab === 'ld' ? currentEvent.hole_distance_yards : currentEvent.ctp_hole_distance_yards;
+          manualEl.value = saved || '';
+        }
+      });
+    });
   }
 
   function drawTeeMarkers() {
     mapMarkers.tees.forEach(m => m.remove());
     mapMarkers.tees = [];
+    const ldTees  = (currentEvent.tee_boxes || []).filter(t => t.hole_type !== 'closest_pin');
+    const ctpTees = (currentEvent.tee_boxes || []).filter(t => t.hole_type === 'closest_pin');
     for (const t of (currentEvent.tee_boxes || [])) {
+      const isLd = t.hole_type !== 'closest_pin';
+      const group = isLd ? ldTees : ctpTees;
+      const num = group.indexOf(t) + 1;
       const elDiv = document.createElement('div');
-      elDiv.style.cssText = 'background:#C9A24A;color:#1a1a1a;border:2px solid #fff;border-radius:50%;width:28px;height:28px;display:grid;place-items:center;font-size:14px;font-weight:700;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,0.3);';
-      elDiv.textContent = 'T';
-      elDiv.title = t.name + ' — drag to reposition';
+      elDiv.style.cssText = `background:${isLd ? '#C9A24A' : '#3B82F6'};color:${isLd ? '#1a1a1a' : '#fff'};border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:grid;place-items:center;font-size:11px;font-weight:700;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,0.3);`;
+      elDiv.textContent = `T${num}`;
+      elDiv.title = `T${num} ${t.name} (${isLd ? 'LD' : 'CTP'}) — drag to reposition`;
       const m = new mapboxgl.Marker({ element: elDiv, draggable: true })
         .setLngLat([t.lon, t.lat])
-        .setPopup(new mapboxgl.Popup().setHTML(`<strong>${t.name}</strong><br>${t.hole_type}<br><em>Drag to move</em>`))
+        .setPopup(new mapboxgl.Popup().setHTML(`<strong>${t.name}</strong><br>${isLd ? 'Longest Drive' : 'Closest to Pin'}<br><em>Drag to move</em>`))
         .addTo(map);
-
       m.on('dragend', async () => {
         const { lat, lng } = m.getLngLat();
         try {
           await JORD.api(`/api/tee-boxes/${t.id}`, { method: 'PATCH', body: { lat, lon: lng } });
           const tb = (currentEvent.tee_boxes || []).find(x => x.id === t.id);
           if (tb) { tb.lat = lat; tb.lon = lng; }
-          renderTees();
+          renderTees(); updateHoleDistanceDisplay();
           JORD.success(`Tee box "${t.name}" moved`);
-        } catch (e) { JORD.error('Could not save tee box position'); }
+        } catch { JORD.error('Could not save tee box position'); }
       });
-
       mapMarkers.tees.push(m);
     }
   }
+
   function drawPinMarker() {
     if (mapMarkers.pin) mapMarkers.pin.remove();
     if (!currentEvent.pin_lat) return;
     const elDiv = document.createElement('div');
     elDiv.style.cssText = 'background:#C0392B;color:white;border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:grid;place-items:center;font-size:14px;font-weight:700;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,0.3);';
-    elDiv.textContent = '⚑';
-    elDiv.title = 'Pin — drag to reposition, then Save map';
+    elDiv.textContent = '⚑'; elDiv.title = 'LD Pin — drag to reposition, then Save map';
     mapMarkers.pin = new mapboxgl.Marker({ element: elDiv, draggable: true })
-      .setLngLat([currentEvent.pin_lon, currentEvent.pin_lat])
-      .addTo(map);
+      .setLngLat([currentEvent.pin_lon, currentEvent.pin_lat]).addTo(map);
     mapMarkers.pin.on('dragend', () => {
       const { lat, lng } = mapMarkers.pin.getLngLat();
-      currentEvent.pin_lat = lat;
-      currentEvent.pin_lon = lng;
-      JORD.toast('Pin moved — click Save map to confirm', 'warn');
+      currentEvent.pin_lat = lat; currentEvent.pin_lon = lng;
+      updateHoleDistanceDisplay(); updatePinCoordsDisplay();
+      JORD.toast('LD Pin moved — Save map to confirm', 'warn');
     });
   }
+
+  function drawCtpPinMarker() {
+    if (mapMarkers.ctpPin) mapMarkers.ctpPin.remove();
+    if (!currentEvent.ctp_pin_lat) return;
+    const elDiv = document.createElement('div');
+    elDiv.style.cssText = 'background:#3B82F6;color:white;border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:grid;place-items:center;font-size:14px;font-weight:700;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,0.3);';
+    elDiv.textContent = '⚑'; elDiv.title = 'CTP Pin — drag to reposition, then Save map';
+    mapMarkers.ctpPin = new mapboxgl.Marker({ element: elDiv, draggable: true })
+      .setLngLat([currentEvent.ctp_pin_lon, currentEvent.ctp_pin_lat]).addTo(map);
+    mapMarkers.ctpPin.on('dragend', () => {
+      const { lat, lng } = mapMarkers.ctpPin.getLngLat();
+      currentEvent.ctp_pin_lat = lat; currentEvent.ctp_pin_lon = lng;
+      updateHoleDistanceDisplay(); updatePinCoordsDisplay();
+      JORD.toast('CTP Pin moved — Save map to confirm', 'warn');
+    });
+  }
+
   function renderTees() {
     const list = $('#tee-list');
+    if (!list) return;
     list.innerHTML = '';
-    for (const t of (currentEvent.tee_boxes || [])) {
+    const filtered = (currentEvent.tee_boxes || []).filter(t =>
+      currentHoleTab === 'ctp' ? t.hole_type === 'closest_pin' : t.hole_type !== 'closest_pin'
+    );
+    filtered.forEach((t, i) => {
+      const tNum = `T${i + 1}`;
       const latIn = el('input', { class: 'input tee-coord-input', type: 'number', step: 'any',
-        value: t.lat.toFixed(6), title: 'Latitude — edit and click Update or press Enter' });
+        value: t.lat.toFixed(6), title: 'Latitude — edit and press Enter or click Update' });
       const lonIn = el('input', { class: 'input tee-coord-input', type: 'number', step: 'any',
-        value: t.lon.toFixed(6), title: 'Longitude — edit and click Update or press Enter' });
-
+        value: t.lon.toFixed(6), title: 'Longitude — edit and press Enter or click Update' });
       const saveCoords = async () => {
         const lat = parseFloat(latIn.value), lon = parseFloat(lonIn.value);
         if (isNaN(lat) || isNaN(lon)) return JORD.warn('Invalid coordinates');
         try {
           await JORD.api(`/api/tee-boxes/${t.id}`, { method: 'PATCH', body: { lat, lon } });
           t.lat = lat; t.lon = lon;
-          if (map) drawTeeMarkers();
+          if (map) { drawTeeMarkers(); updateHoleDistanceDisplay(); }
           JORD.success(`"${t.name}" location updated`);
-        } catch { JORD.error('Could not save location'); }
+        } catch (err) { JORD.error('Could not save location: ' + err.message); }
       };
-
       latIn.addEventListener('keydown', e => { if (e.key === 'Enter') saveCoords(); });
       lonIn.addEventListener('keydown',  e => { if (e.key === 'Enter') saveCoords(); });
-
       const row = el('div', { class: 'tee-row', style: { flexDirection: 'column', alignItems: 'flex-start', gap: '6px' } },
         el('div', { style: { display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' } },
           el('div', null,
-            el('strong', null, t.name),
-            el('small', { style: { color: 'var(--ink-2)', marginLeft: '8px' } }, t.hole_type)
+            el('strong', null, `${tNum} — ${t.name}`),
+            el('small', { style: { color: 'var(--ink-2)', marginLeft: '8px' } }, t.hole_type === 'closest_pin' ? 'CTP' : 'LD')
           ),
-          el('button', { class: 'btn btn-ghost', style: { fontSize: '12px', padding: '4px 8px' }, on: { click: async () => {
-            if (!await JORD.confirm('Delete this tee box?')) return;
-            await JORD.api('/api/tee-boxes/' + t.id, { method: 'DELETE' });
-            currentEvent.tee_boxes = currentEvent.tee_boxes.filter(x => x.id !== t.id);
-            drawTeeMarkers(); renderTees();
+          el('button', { class: 'btn btn-danger', style: { fontSize: '12px', padding: '4px 8px' }, on: { click: async () => {
+            if (!await JORD.confirm(`Delete ${tNum} (${t.name})?`, { okText: 'Delete', danger: true })) return;
+            try {
+              await JORD.api('/api/tee-boxes/' + t.id, { method: 'DELETE' });
+              currentEvent.tee_boxes = currentEvent.tee_boxes.filter(x => x.id !== t.id);
+              if (map) drawTeeMarkers();
+              renderTees(); updateHoleDistanceDisplay();
+              JORD.success(`${tNum} deleted`);
+            } catch (err) { JORD.error('Could not delete: ' + err.message); }
           } } }, 'Delete')
         ),
         el('div', { class: 'tee-coords' },
@@ -885,7 +1292,7 @@
         )
       );
       list.appendChild(row);
-    }
+    });
   }
 
   // ── Balls ──
@@ -964,6 +1371,63 @@
       e.target.value = '';
     };
     reader.readAsText(file);
+  });
+
+  // ── QR Code Print ──
+  document.getElementById('btn-print-qr').addEventListener('click', async () => {
+    if (!currentEvent) return;
+    const r = await JORD.api('/api/events/' + currentEvent.id + '/balls');
+    const base = window.location.origin;
+    const regUrl = base + '/register/' + currentEvent.id;
+
+    function qrImg(url, size = 140) {
+      return `<img src="/api/qr?size=${size}&data=${encodeURIComponent(url)}" width="${size}" height="${size}" style="display:block;margin:0 auto 8px;border-radius:6px" alt="QR">`;
+    }
+
+    let ballCards = r.balls.map(b => {
+      const scanUrl = base + '/scan/' + b.drop_code;
+      const assigned = !!b.team_id;
+      const sub = assigned
+        ? [(b.first_name || '') + ' ' + (b.last_name || ''), b.team_name].filter(Boolean).join(' · ')
+        : 'Unassigned';
+      return `<div class="qr-card${assigned ? ' assigned' : ''}">
+        ${qrImg(scanUrl)}
+        <div class="qr-label">${b.drop_code}</div>
+        <div class="qr-sub">${sub.trim()}</div>
+      </div>`;
+    }).join('');
+
+    const html = `<!doctype html><html><head><meta charset="utf-8">
+<title>QR Codes — ${currentEvent.name}</title>
+<style>
+  body { font-family: sans-serif; background: #fff; color: #222; margin: 0; padding: 20px; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #666; font-size: 13px; margin-bottom: 20px; }
+  .section-title { font-size: 14px; font-weight: 700; margin: 24px 0 12px; border-bottom: 1px solid #ddd; padding-bottom: 6px; text-transform: uppercase; letter-spacing: .06em; }
+  .qr-grid { display: flex; flex-wrap: wrap; gap: 14px; }
+  .qr-card { border: 1px solid #ddd; border-radius: 8px; padding: 12px; text-align: center; width: 158px; }
+  .qr-card.assigned { background: #f0f8f0; border-color: #a0d4a0; }
+  .qr-label { font-size: 13px; font-weight: 700; word-break: break-all; margin-top: 2px; }
+  .qr-sub { font-size: 10px; color: #666; margin-top: 3px; }
+  .print-btn { padding: 8px 20px; background: #0F3D2E; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-bottom: 20px; }
+  @media print { .print-btn { display: none; } }
+</style></head><body>
+<h1>${currentEvent.name}</h1>
+<div class="sub">${currentEvent.venue || ''} · Ball QR Codes</div>
+<button class="print-btn" onclick="window.print()">🖨 Print this page</button>
+
+<div class="section-title">📱 Player Registration — share this with all players</div>
+<div class="qr-grid">
+  <div class="qr-card">${qrImg(regUrl, 150)}<div class="qr-label">Register Here</div><div class="qr-sub">Scan to register your ball</div></div>
+</div>
+
+<div class="section-title">⛳ Ball Scan QR Codes — one per player</div>
+<div class="qr-grid">${ballCards}</div>
+</body></html>`;
+
+    const win = window.open('', '_blank');
+    win.document.write(html);
+    win.document.close();
   });
 
   // ── Teams ──

@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
-<link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet">
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
 <link rel="stylesheet" href="/css/jord.css">
 <style>
   body { background: var(--bg); }
@@ -25,6 +25,12 @@
   /* Monitor grid */
   .mon-grid { display: grid; grid-template-columns: 1fr 380px; gap: var(--s-5); }
   @media (max-width: 900px) { .mon-grid { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) {
+    .map-box { height: 280px; border-radius: var(--r-md); }
+    .stats-bar { grid-template-columns: repeat(2, 1fr); gap: var(--s-2); }
+    .correction-row { grid-template-columns: 1fr; }
+    .mon-wrap { padding: var(--s-3) var(--s-3) var(--s-6); }
+  }
 
   /* Alerts */
   .alert-item { padding: var(--s-4); border-radius: var(--r-md); border: 1px solid var(--border); margin-bottom: var(--s-2); display: flex; gap: var(--s-3); align-items: flex-start; background: var(--surface); }
@@ -78,7 +84,7 @@
   <!-- content rendered by JS -->
 </div>
 
-<script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+<script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
 <script src="/js/jord.js"></script>
 <script>
 (function () {
@@ -89,6 +95,7 @@
   var mapboxToken = '';
   var markers = {};
   var snap = null;
+  var mapViewMode = 'active'; /* 'active' = teams still on hole | 'all' = everyone */
 
   /* ── Gate ── */
   document.getElementById('gate-form').addEventListener('submit', function (e) {
@@ -165,14 +172,68 @@
     /* Map */
     var mapCard = document.createElement('div');
     mapCard.className = 'card mb-4';
-    mapCard.innerHTML = '<h3 class="card-title">Course Map — Ball Positions</h3>'
-      + '<div id="mon-map" class="map-box"></div>'
-      + '<div class="legend">'
-      + '<div class="legend-item"><div class="dot" style="background:#4CAF50"></div>Fairway</div>'
+
+    /* Card header row: title + toggle */
+    var mapHeader = document.createElement('div');
+    mapHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:var(--s-3);margin-bottom:var(--s-3);flex-wrap:wrap';
+
+    var mapTitle = document.createElement('h3');
+    mapTitle.className = 'card-title';
+    mapTitle.style.margin = '0';
+    mapTitle.textContent = 'Course Map — Ball Positions';
+    mapHeader.appendChild(mapTitle);
+
+    /* Toggle pill */
+    var toggleWrap = document.createElement('div');
+    toggleWrap.style.cssText = 'display:flex;gap:3px;background:var(--surface-2);border-radius:var(--r-md);padding:3px;flex-shrink:0';
+
+    function makeToggleBtn(label, mode) {
+      var btn = document.createElement('button');
+      btn.textContent = label;
+      btn.dataset.mode = mode;
+      btn.style.cssText = 'font-size:12px;font-weight:600;padding:4px 12px;border-radius:calc(var(--r-md) - 2px);border:none;cursor:pointer;transition:background 0.15s,color 0.15s';
+      function refresh() {
+        if (mapViewMode === mode) {
+          btn.style.background = 'var(--primary)';
+          btn.style.color = '#fff';
+        } else {
+          btn.style.background = 'transparent';
+          btn.style.color = 'var(--ink-2)';
+        }
+      }
+      refresh();
+      btn.addEventListener('click', function () {
+        mapViewMode = mode;
+        toggleWrap.querySelectorAll('button').forEach(function (b) {
+          if (b.dataset.mode === mapViewMode) {
+            b.style.background = 'var(--primary)'; b.style.color = '#fff';
+          } else {
+            b.style.background = 'transparent'; b.style.color = 'var(--ink-2)';
+          }
+        });
+        if (snap) updateMapDots(snap);
+      });
+      return btn;
+    }
+
+    toggleWrap.appendChild(makeToggleBtn('On Hole', 'active'));
+    toggleWrap.appendChild(makeToggleBtn('All Players', 'all'));
+    mapHeader.appendChild(toggleWrap);
+    mapCard.appendChild(mapHeader);
+
+    var mapBox = document.createElement('div');
+    mapBox.id = 'mon-map';
+    mapBox.className = 'map-box';
+    mapCard.appendChild(mapBox);
+
+    var legend = document.createElement('div');
+    legend.className = 'legend';
+    legend.innerHTML = '<div class="legend-item"><div class="dot" style="background:#4CAF50"></div>Fairway</div>'
       + '<div class="legend-item"><div class="dot" style="background:#FFC107"></div>Rough</div>'
       + '<div class="legend-item"><div class="dot" style="background:#C0392B"></div>OOB / Lost</div>'
-      + '<div class="legend-item"><div class="dot" style="background:#9E9E9E"></div>Not scanned</div>'
-      + '</div>';
+      + '<div class="legend-item"><div class="dot" style="background:#9E9E9E"></div>Not scanned</div>';
+    mapCard.appendChild(legend);
+
     left.appendChild(mapCard);
 
     /* Mini leaderboard */
@@ -210,20 +271,48 @@
       });
   }
 
+  var mapCentered = false;
+
   /* ── Map ── */
   function initMap() {
     if (!mapboxToken) {
       document.getElementById('mon-map').innerHTML = '<div class="empty"><div class="empty-icon">🗺</div><div class="empty-title">Mapbox token missing</div><p>Add MAPBOX_TOKEN to .env</p></div>';
       return;
     }
+    if (typeof mapboxgl === 'undefined') {
+      document.getElementById('mon-map').innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><div class="empty-title">Mapbox failed to load</div><p>Check internet connection and try Ctrl+Shift+R.</p></div>';
+      return;
+    }
     mapboxgl.accessToken = mapboxToken;
     map = new mapboxgl.Map({
       container: 'mon-map',
       style: 'mapbox://styles/mapbox/satellite-streets-v12',
-      center: [-84.3953, 33.5031],
-      zoom: 14
+      center: [-98.5, 39.5],
+      zoom: 4
     });
     map.addControl(new mapboxgl.NavigationControl(), 'top-right');
+    map.once('error', function (e) {
+      var status = e.status || (e.error && e.error.status);
+      if (status === 401 || status === 403) {
+        map.remove(); map = null;
+        document.getElementById('mon-map').innerHTML = '<div class="empty"><div class="empty-icon">🔑</div><div class="empty-title">Mapbox token rejected (401)</div><p>Check token URL restrictions at account.mapbox.com/access-tokens</p></div>';
+      }
+    });
+  }
+
+  function centerMapOnCourse(ev) {
+    if (!map || mapCentered) return;
+    var tees = (ev.tee_boxes || []);
+    if (tees.length) {
+      map.flyTo({ center: [tees[0].lon, tees[0].lat], zoom: 16 });
+      mapCentered = true;
+    } else if (ev.pin_lat) {
+      map.flyTo({ center: [ev.pin_lon, ev.pin_lat], zoom: 16 });
+      mapCentered = true;
+    } else if (ev.ctp_pin_lat) {
+      map.flyTo({ center: [ev.ctp_pin_lon, ev.ctp_pin_lat], zoom: 16 });
+      mapCentered = true;
+    }
   }
 
   var dotColors = { fairway: '#4CAF50', rough: '#FFC107', oob: '#C0392B', lost: '#C0392B' };
@@ -232,7 +321,10 @@
     if (!map) return;
     var allBalls = [];
     ((d.ld || []).concat(d.cp || [])).forEach(function (team) {
-      (team.balls || []).forEach(function (b) { allBalls.push({ team: team.team_name, ball: b }); });
+      var teamBalls = team.balls || [];
+      /* In 'active' mode, hide teams where every ball has been submitted */
+      if (mapViewMode === 'active' && teamBalls.length > 0 && teamBalls.every(function (b) { return b.scanned; })) return;
+      teamBalls.forEach(function (b) { allBalls.push({ team: team.team_name, ball: b }); });
     });
 
     /* Remove old markers */
@@ -252,9 +344,11 @@
 
       var popup = new mapboxgl.Popup({ offset: 12 }).setHTML(
         '<strong>' + (b.player_name || b.drop_code) + '</strong><br>'
+        + '<span style="font-family:monospace;font-size:13px;font-weight:700;background:#f0f0f0;padding:1px 6px;border-radius:4px">' + b.drop_code + '</span><br>'
         + item.team + '<br>'
         + (b.location_type ? b.location_type : 'not scanned') + '<br>'
         + (b.final_yards != null ? b.final_yards + ' yd' : b.distance_ft != null ? b.distance_ft + ' ft' : '')
+        + '<br><button onclick="var c=document.getElementById(\'corr-code\');if(c){c.value=\'' + b.drop_code + '\';c.closest(\'.card\').scrollIntoView({behavior:\'smooth\'});}" style="margin-top:6px;font-size:11px;padding:3px 8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer">Fill correction form</button>'
       );
 
       var marker = new mapboxgl.Marker(el).setLngLat([lon, lat]).setPopup(popup).addTo(map);
@@ -272,6 +366,7 @@
   /* ── Stats ── */
   function updateStats(d) {
     var ev = d.event || {};
+    centerMapOnCourse(ev);
     var title = document.getElementById('mon-title');
     if (title) title.textContent = ev.name || 'Tournament';
 
@@ -363,6 +458,7 @@
     codeField.className = 'field';
     codeField.innerHTML = '<label>Drop Code</label>';
     var codeInput = document.createElement('input');
+    codeInput.id = 'corr-code';
     codeInput.className = 'input input-code'; codeInput.placeholder = 'ABC123';
     codeInput.addEventListener('input', function () { codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, ''); });
     codeField.appendChild(codeInput);

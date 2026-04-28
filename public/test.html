@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Test Tools · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  .qr-box { display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px;border:1px solid var(--border);border-radius:var(--r-md);text-align:center;background:var(--surface-2); }
+  .qr-box img { border-radius:var(--r-sm);display:block; }
+  .qr-label { font-weight:700;font-size:13px; }
+  .qr-url { font-size:11px;color:var(--ink-2);font-family:var(--font-mono);word-break:break-all; }
+  .ip-display { font-family:var(--font-mono);font-size:28px;font-weight:700;color:var(--primary-light);letter-spacing:0.05em; }
+  .sim-map { height:300px;border-radius:var(--r-md);overflow:hidden;border:1px solid var(--border);margin-top:var(--s-3);position:relative; }
+  .coord-display { font-family:var(--font-mono);font-size:13px;color:var(--ink-2);margin-top:var(--s-2);min-height:20px; }
+  .step { display:flex;gap:12px;align-items:flex-start;margin-bottom:12px; }
+  .step-num { width:28px;height:28px;border-radius:50%;background:var(--primary);color:var(--primary-ink);display:grid;place-items:center;font-weight:700;font-size:13px;flex-shrink:0; }
+  .ev-row { border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px;margin-bottom:12px; }
+  .ev-qr-row { display:flex;gap:16px;flex-wrap:wrap;margin-top:12px; }
+  .ev-qr-item { text-align:center; }
+  .ev-qr-item img { border-radius:var(--r-sm);display:block; }
+  .ev-qr-item .qr-sub { font-size:10px;color:var(--ink-2);margin-top:4px; }
+</style>
+</head>
+<body class="theme-dark">
+
+<div class="container mt-4 mb-8">
+  <div class="hero-eyebrow">Developer Tools</div>
+  <h1 class="mt-2">Phone Testing Tools</h1>
+  <p class="mt-2" style="color:var(--ink-2)">Use this page to test JORD Golf on your phone while running the server locally on your computer. Both devices must be on the same Wi-Fi network.</p>
+
+  <!-- ── Step 1: Connect phone ── -->
+  <div class="card mt-5">
+    <h3 class="card-title">Step 1 — Connect your phone to this server</h3>
+    <p class="card-sub">Scan either QR code below with your phone camera, or type the address into your phone's browser.</p>
+    <div id="connect-loading" class="text-center" style="padding:32px 0">
+      <div class="spinner spinner-lg" style="margin:0 auto"></div>
+      <p class="mt-3">Detecting local IP…</p>
+    </div>
+    <div id="connect-info" style="display:none">
+      <div class="text-center mb-4">
+        <div class="ip-display" id="ip-url"></div>
+        <div style="font-size:13px;color:var(--ink-2);margin-top:6px">Type this into your phone's browser — or scan a QR below</div>
+      </div>
+      <div style="display:flex;justify-content:center;gap:24px;flex-wrap:wrap">
+        <div class="qr-box">
+          <img id="qr-admin" width="200" height="200" alt="Admin QR">
+          <div class="qr-label">Admin Console</div>
+          <div class="qr-url" id="qr-admin-url"></div>
+        </div>
+        <div class="qr-box">
+          <img id="qr-scan" width="200" height="200" alt="Scan QR">
+          <div class="qr-label">Ball Scan</div>
+          <div class="qr-url" id="qr-scan-url"></div>
+        </div>
+      </div>
+      <div class="mt-4" style="background:rgba(201,162,74,0.1);border:1px solid var(--accent);border-radius:var(--r-md);padding:12px 16px;font-size:13px">
+        <strong>Can't connect?</strong> Make sure both devices are on the same Wi-Fi. On Windows, search <em>"Allow an app through Windows Firewall"</em> and make sure Node.js is allowed on Private networks.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Step 2: GPS simulator ── -->
+  <div class="card mt-4">
+    <h3 class="card-title">Step 2 — Simulate a shot (backyard or anywhere)</h3>
+    <p class="card-sub">Search your backyard address, click the map to mark where a ball "landed", enter a ball code, then generate a test scan link. Open that link on your phone to submit the shot as if you were on course.</p>
+
+    <div class="field mt-3">
+      <label>Search location</label>
+      <div style="display:flex;gap:8px">
+        <input id="sim-search" class="input" placeholder="e.g. 123 Oak St, Atlanta GA" style="flex:1">
+        <button class="btn btn-ghost" id="sim-search-btn">Go</button>
+      </div>
+    </div>
+
+    <div id="sim-map-status" style="display:none;padding:20px;text-align:center;color:var(--ink-2);font-size:13px;border:1px solid var(--border);border-radius:var(--r-md);margin-top:var(--s-3)">
+      Add MAPBOX_TOKEN to your .env file to enable the map.<br><br>
+      <strong>Manual mode:</strong> Enter lat/lon coordinates below instead.
+    </div>
+    <div class="sim-map" id="sim-map"></div>
+    <div class="coord-display" id="coord-display">Click the map to pick a shot location</div>
+
+    <div id="manual-coords" style="display:none" class="field-grid mt-3">
+      <div class="field">
+        <label>Latitude (manual)</label>
+        <input id="man-lat" class="input" type="number" step="any" placeholder="e.g. 33.5031">
+      </div>
+      <div class="field">
+        <label>Longitude (manual)</label>
+        <input id="man-lon" class="input" type="number" step="any" placeholder="e.g. -84.3953">
+      </div>
+    </div>
+
+    <div class="field-grid mt-4">
+      <div class="field">
+        <label>Ball drop code</label>
+        <input id="sim-code" class="input input-code" placeholder="ABC123" maxlength="12" style="text-transform:uppercase">
+        <div class="hint">From your ball pool in admin</div>
+      </div>
+      <div class="field">
+        <label>Location type</label>
+        <select id="sim-type" class="select">
+          <option value="fairway">Fairway</option>
+          <option value="rough">Rough</option>
+          <option value="oob">Out of Bounds</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="btn btn-primary mt-3" id="sim-generate" disabled>Generate test scan link →</button>
+
+    <div id="sim-result" style="display:none;margin-top:var(--s-4)">
+      <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);padding:16px">
+        <div style="font-size:12px;color:var(--ink-2);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.08em">Test Scan Link — open on phone or new tab</div>
+        <div style="font-family:var(--font-mono);font-size:12px;word-break:break-all;margin-bottom:12px;color:var(--primary-light)" id="sim-link-text"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+          <button class="btn btn-primary" id="sim-copy">Copy link</button>
+          <button class="btn btn-ghost" id="sim-open">Open in new tab</button>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+          <img id="qr-sim" width="200" height="200" alt="Scan QR" style="border-radius:var(--r-sm)">
+          <div style="font-size:11px;color:var(--ink-2)">Scan this with your phone</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Step 3: Event quick links ── -->
+  <div class="card mt-4">
+    <h3 class="card-title">Step 3 — Your events (scan to open on phone)</h3>
+    <p class="card-sub">QR codes for your leaderboard and registration pages — scan with your phone to open directly.</p>
+    <div id="events-loading" class="text-center" style="padding:24px 0"><div class="spinner" style="margin:0 auto"></div></div>
+    <div id="events-links"></div>
+  </div>
+
+  <!-- ── Demo Scan QR ── -->
+  <div class="card mt-4">
+    <h3 class="card-title">Demo Scan QR — No registration needed</h3>
+    <p class="card-sub">Generate a QR your phone can scan to open the full shot-submission screen — no ball code or player registration required. Uses the location you clicked in the GPS Simulator above. Great for showing the flyover animation.</p>
+
+    <div id="demo-noauth" style="display:none;color:var(--ink-2);font-size:13px;padding:16px 0">
+      Log in to admin first, then refresh this page to use this feature.
+    </div>
+    <div id="demo-noevent" style="display:none;color:var(--ink-2);font-size:13px;padding:16px 0">
+      Create and activate an event in admin first, then refresh.
+    </div>
+    <div id="demo-form" style="display:none">
+      <div class="field-grid mt-3">
+        <div class="field">
+          <label>Event</label>
+          <select id="demo-event" class="select"></select>
+        </div>
+        <div class="field">
+          <label>Location type</label>
+          <select id="demo-type" class="select">
+            <option value="fairway">Fairway</option>
+            <option value="rough">Rough</option>
+            <option value="oob">Out of Bounds</option>
+          </select>
+        </div>
+      </div>
+      <div id="demo-coord-status" class="coord-display mt-2">Pick a location on the GPS Simulator map above first</div>
+      <button class="btn btn-accent mt-3" id="demo-generate" disabled>Generate Demo Scan QR →</button>
+
+      <div id="demo-result" style="display:none;margin-top:var(--s-4)">
+        <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);padding:16px">
+          <div style="font-size:12px;color:var(--ink-2);margin-bottom:6px;font-weight:600;text-transform:uppercase;letter-spacing:.08em">Demo Scan Link — no ball code needed</div>
+          <div style="font-family:var(--font-mono);font-size:12px;word-break:break-all;margin-bottom:12px;color:var(--primary-light)" id="demo-link-text"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+            <button class="btn btn-primary" id="demo-copy">Copy link</button>
+            <button class="btn btn-ghost" id="demo-open">Open in new tab</button>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:center;gap:6px">
+            <img id="qr-demo" width="200" height="200" alt="Demo QR" style="border-radius:var(--r-sm)">
+            <div style="font-size:11px;color:var(--ink-2)">Scan with your phone to open the demo scan screen</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── How it works ── -->
+  <div class="card mt-4">
+    <h3 class="card-title">How to do a full backyard test</h3>
+    <div class="mt-3">
+      <div class="step"><div class="step-num">1</div><div>Scan the <strong>Admin QR</strong> at the top of this page with your phone. Log in with your password.</div></div>
+      <div class="step"><div class="step-num">2</div><div>In admin → Course map, search your home address. Place a <strong>Tee box marker</strong> at one end of your yard. Place the <strong>Pin</strong> at the other end. Draw a fairway polygon around the space. Save the map.</div></div>
+      <div class="step"><div class="step-num">3</div><div>In admin → Ball pool, add some codes (e.g. TEST01, TEST02). Share the Registration QR with yourself and register a player on your phone.</div></div>
+      <div class="step"><div class="step-num">4</div><div><strong>Option A — Real GPS:</strong> Go to <code>/scan/CODE</code> on your phone and physically stand somewhere in your yard. GPS will calculate actual distance from the tee.</div></div>
+      <div class="step"><div class="step-num">4</div><div><strong>Option B — Simulate:</strong> Use the map above to click a spot, enter your code, generate the test link. Open it on your phone — GPS is pre-loaded from your click.</div></div>
+      <div class="step"><div class="step-num">5</div><div>Watch the <strong>Leaderboard</strong> update live. Open it in another browser tab on your computer.</div></div>
+    </div>
+  </div>
+</div>
+
+<script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
+<script src="/js/jord.js"></script>
+<script>
+(async function () {
+  var simLat = null, simLon = null, simMap = null, simMarker = null;
+  var mapboxToken = '';
+  var localBase = window.location.origin; // fallback
+
+  function qrSrc(url, size) {
+    return '/api/qr?size=' + (size || 200) + '&data=' + encodeURIComponent(url);
+  }
+
+  /* ── Load server info + config ── */
+  var [info, cfg] = await Promise.all([
+    fetch('/api/server-info').then(r => r.json()).catch(() => ({ localIP: window.location.hostname, port: 3000 })),
+    fetch('/api/config').then(r => r.json()).catch(() => ({}))
+  ]);
+  mapboxToken = cfg.mapbox_token || '';
+  localBase = 'http://' + info.localIP + ':' + info.port;
+
+  /* Connect section */
+  document.getElementById('connect-loading').style.display = 'none';
+  document.getElementById('connect-info').style.display = '';
+  document.getElementById('ip-url').textContent = localBase;
+
+  var adminUrl = localBase + '/admin';
+  var scanUrl  = localBase + '/scan';
+  document.getElementById('qr-admin-url').textContent = adminUrl;
+  document.getElementById('qr-scan-url').textContent  = scanUrl;
+  document.getElementById('qr-admin').src = qrSrc(adminUrl, 200);
+  document.getElementById('qr-scan').src  = qrSrc(scanUrl, 200);
+
+  /* ── GPS simulator map ── */
+  function updateGenerateBtn() {
+    var code = document.getElementById('sim-code').value.trim();
+    document.getElementById('sim-generate').disabled = !(simLat !== null && code.length >= 4);
+    updateDemoBtn();
+  }
+
+  function updateDemoBtn() {
+    var btn = document.getElementById('demo-generate');
+    if (!btn) return;
+    btn.disabled = simLat === null;
+    var coordStatus = document.getElementById('demo-coord-status');
+    if (coordStatus) {
+      coordStatus.textContent = simLat !== null
+        ? 'Location: ' + simLat.toFixed(6) + ', ' + simLon.toFixed(6)
+        : 'Pick a location on the GPS Simulator map above first';
+    }
+  }
+
+  if (!mapboxToken) {
+    document.getElementById('sim-map').style.display = 'none';
+    document.getElementById('sim-map-status').style.display = '';
+    document.getElementById('manual-coords').style.display = '';
+
+    document.getElementById('man-lat').addEventListener('input', function () {
+      simLat = parseFloat(this.value);
+      simLon = parseFloat(document.getElementById('man-lon').value);
+      if (!isNaN(simLat) && !isNaN(simLon)) {
+        document.getElementById('coord-display').textContent = 'Position: ' + simLat.toFixed(6) + ', ' + simLon.toFixed(6);
+      }
+      updateGenerateBtn();
+    });
+    document.getElementById('man-lon').addEventListener('input', function () {
+      simLon = parseFloat(this.value);
+      simLat = parseFloat(document.getElementById('man-lat').value);
+      if (!isNaN(simLat) && !isNaN(simLon)) {
+        document.getElementById('coord-display').textContent = 'Position: ' + simLat.toFixed(6) + ', ' + simLon.toFixed(6);
+      }
+      updateGenerateBtn();
+    });
+  } else {
+    mapboxgl.accessToken = mapboxToken;
+    simMap = new mapboxgl.Map({
+      container: 'sim-map',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12',
+      center: [-84.3953, 33.5031],
+      zoom: 13
+    });
+    simMap.addControl(new mapboxgl.NavigationControl(), 'top-right');
+
+    simMap.on('click', function (e) {
+      simLat = e.lngLat.lat;
+      simLon = e.lngLat.lng;
+      document.getElementById('coord-display').textContent = 'Selected: ' + simLat.toFixed(6) + ', ' + simLon.toFixed(6);
+      if (simMarker) simMarker.remove();
+      var el = document.createElement('div');
+      el.style.cssText = 'width:22px;height:22px;border-radius:50%;background:#C9A24A;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.5)';
+      simMarker = new mapboxgl.Marker({ element: el }).setLngLat([simLon, simLat]).addTo(simMap);
+      updateGenerateBtn();
+      updateDemoBtn();
+    });
+
+    function doSearch() {
+      var q = document.getElementById('sim-search').value.trim();
+      if (!q) return;
+      fetch('https://api.mapbox.com/geocoding/v5/mapbox.places/' + encodeURIComponent(q) + '.json?access_token=' + mapboxToken + '&limit=1')
+        .then(r => r.json()).then(function (r) {
+          if (r.features && r.features[0]) simMap.flyTo({ center: r.features[0].center, zoom: 17 });
+          else JORD.warn('Location not found — try a street address or zip code');
+        }).catch(function () { JORD.warn('Search failed'); });
+    }
+    document.getElementById('sim-search-btn').addEventListener('click', doSearch);
+    document.getElementById('sim-search').addEventListener('keydown', function (e) { if (e.key === 'Enter') doSearch(); });
+  }
+
+  document.getElementById('sim-code').addEventListener('input', function () {
+    this.value = this.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    updateGenerateBtn();
+  });
+
+  document.getElementById('sim-generate').addEventListener('click', function () {
+    var code = document.getElementById('sim-code').value.trim();
+    if (!code || simLat === null || simLon === null) return;
+    var locType = document.getElementById('sim-type').value;
+    var link = localBase + '/scan/' + code + '?testLat=' + simLat.toFixed(6) + '&testLon=' + simLon.toFixed(6) + '&testLoc=' + locType;
+    document.getElementById('sim-link-text').textContent = link;
+    document.getElementById('sim-result').style.display = '';
+    document.getElementById('qr-sim').src = qrSrc(link, 200);
+    document.getElementById('sim-copy').onclick = function () {
+      navigator.clipboard.writeText(link).then(function () { JORD.success('Link copied!'); }).catch(function () { JORD.warn('Select and copy manually from the box above'); });
+    };
+    document.getElementById('sim-open').onclick = function () { window.open(link, '_blank'); };
+  });
+
+  /* ── Event quick links + Demo Scan setup ── */
+  var token = JORD.getToken();
+  if (!token) {
+    document.getElementById('events-loading').innerHTML = '<p style="color:var(--ink-2);font-size:13px;text-align:center">Log in to admin first, then refresh this page to see your events.</p>';
+    document.getElementById('demo-noauth').style.display = '';
+  } else {
+    try {
+      var events = await JORD.api('/api/events');
+      document.getElementById('events-loading').style.display = 'none';
+      var wrap = document.getElementById('events-links');
+      if (!events.length) {
+        wrap.innerHTML = '<p style="color:var(--ink-2);font-size:13px">No events yet — create one in admin first.</p>';
+        document.getElementById('demo-noevent').style.display = '';
+      } else {
+        events.forEach(function (ev) {
+          var lbUrl  = localBase + '/leaderboard/' + ev.id;
+          var regUrl = localBase + '/register/' + ev.id;
+          var row = document.createElement('div');
+          row.className = 'ev-row';
+          row.innerHTML =
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">'
+            + '<div><strong>' + ev.name + '</strong>'
+            + ' <span class="badge ' + (ev.status === 'active' ? 'badge-primary' : '') + '" style="margin-left:8px">' + ev.status + '</span>'
+            + (ev.venue ? '<div style="font-size:12px;color:var(--ink-2);margin-top:2px">' + ev.venue + '</div>' : '') + '</div>'
+            + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
+            + '<a href="' + lbUrl + '" target="_blank" class="btn btn-ghost" style="font-size:12px">📺 Leaderboard</a>'
+            + '<a href="' + regUrl + '" target="_blank" class="btn btn-ghost" style="font-size:12px">📱 Register</a>'
+            + '</div></div>'
+            + '<div class="ev-qr-row">'
+            + '<div class="ev-qr-item"><img src="' + qrSrc(lbUrl, 130) + '" width="130" height="130" alt="Leaderboard QR"><div class="qr-sub">Leaderboard</div></div>'
+            + '<div class="ev-qr-item"><img src="' + qrSrc(regUrl, 130) + '" width="130" height="130" alt="Registration QR"><div class="qr-sub">Registration</div></div>'
+            + '<div class="ev-qr-item"><img src="' + qrSrc(localBase + '/scan', 130) + '" width="130" height="130" alt="Submit Shot QR"><div class="qr-sub" style="color:var(--accent);font-weight:700">Submit My Shot</div></div>'
+            + '</div>';
+          wrap.appendChild(row);
+        });
+
+        /* Populate Demo Scan event picker */
+        var demoSel = document.getElementById('demo-event');
+        events.forEach(function (ev) {
+          var opt = document.createElement('option');
+          opt.value = ev.id;
+          opt.textContent = ev.name + (ev.status !== 'active' ? ' (' + ev.status + ')' : '');
+          demoSel.appendChild(opt);
+        });
+        document.getElementById('demo-form').style.display = '';
+
+        /* Demo generate button */
+        document.getElementById('demo-generate').addEventListener('click', function () {
+          if (simLat === null || simLon === null) return;
+          var evId   = document.getElementById('demo-event').value;
+          var locTyp = document.getElementById('demo-type').value;
+          var link   = localBase + '/scan/DEMO?demo=1&eventId=' + evId
+                       + '&testLat=' + simLat.toFixed(6)
+                       + '&testLon=' + simLon.toFixed(6)
+                       + '&testLoc=' + locTyp;
+          document.getElementById('demo-link-text').textContent = link;
+          document.getElementById('demo-result').style.display = '';
+          document.getElementById('qr-demo').src = qrSrc(link, 200);
+          document.getElementById('demo-copy').onclick = function () {
+            navigator.clipboard.writeText(link)
+              .then(function () { JORD.success('Link copied!'); })
+              .catch(function () { JORD.warn('Select and copy manually from the box above'); });
+          };
+          document.getElementById('demo-open').onclick = function () { window.open(link, '_blank'); };
+        });
+      }
+    } catch (e) {
+      document.getElementById('events-loading').innerHTML = '<p style="color:var(--ink-2);font-size:13px;text-align:center">Could not load events.</p>';
+      document.getElementById('demo-noauth').style.display = '';
+    }
+  }
+})();
+</script>
+</body>
+</html>

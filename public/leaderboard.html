@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css" rel="stylesheet">
 <link rel="stylesheet" href="/css/jord.css">
 <style>
   html, body { height: 100%; overflow: hidden; }
@@ -16,6 +17,7 @@
     display: flex; align-items: center; justify-content: space-between;
     padding: 14px 28px; background: var(--surface);
     border-bottom: 1px solid var(--border); flex-shrink: 0;
+    flex-wrap: wrap; gap: 8px;
   }
   .live-badge {
     display: inline-flex; align-items: center; gap: 6px;
@@ -29,7 +31,36 @@
   }
   .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #5CB85C; animation: pulse 1.6s ease-in-out infinite; }
 
-  .lb-wrap { flex: 1; overflow-y: auto; padding: 28px 32px; }
+  /* ── Two-panel content area ── */
+  .lb-content { flex: 1; display: flex; overflow: hidden; }
+  .lb-scores-col { flex: 1; overflow-y: auto; padding: 28px 32px; min-width: 0; }
+  .lb-map-col {
+    width: 420px; flex-shrink: 0; border-left: 1px solid var(--border);
+    display: none; flex-direction: column;
+  }
+  .lb-map-col.is-open { display: flex; }
+  .lb-map-container { flex: 1; position: relative; }
+  .lb-map-container .mapboxgl-map { width: 100%; height: 100%; }
+  .lb-map-header {
+    padding: 10px 14px; border-bottom: 1px solid var(--border);
+    font-size: 12px; font-weight: 600; color: var(--ink-2);
+    display: flex; justify-content: space-between; align-items: center;
+    flex-shrink: 0;
+  }
+  .lb-map-legend {
+    display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 14px;
+    border-top: 1px solid var(--border); font-size: 11px; color: var(--ink-2);
+    flex-shrink: 0;
+  }
+  .lb-map-legend span { display: flex; align-items: center; gap: 4px; }
+  .lb-map-legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+  .leg-fairway::before { background: rgba(34,197,94,0.7); }
+  .leg-rough::before   { background: rgba(234,179,8,0.7); }
+  .leg-oob::before     { background: rgba(220,38,38,0.7); }
+  .leg-green::before   { background: rgba(59,130,246,0.7); }
+  .leg-ld::before      { background: #C9A24A; border-radius: 50% !important; }
+  .leg-cp::before      { background: #4A90E4; border-radius: 50% !important; }
+
   .lb-inner { max-width: 960px; margin: 0 auto; }
 
   .lb-tab-bar { display: flex; gap: 8px; margin-bottom: 24px; }
@@ -53,7 +84,7 @@
   }
 
   /* TV Mode */
-  .is-tv .lb-wrap { padding: 40px 56px; }
+  .is-tv .lb-scores-col { padding: 40px 56px; }
   .is-tv .lb-inner { max-width: 100%; }
   .is-tv .lb-row { padding: 22px 28px !important; margin-bottom: 14px !important; }
   .is-tv .rank-num { font-size: 60px; }
@@ -64,10 +95,25 @@
   .is-tv .lb-topbar { padding: 18px 36px; }
   .is-tv .brand-name { font-size: 28px; }
   .is-tv .lb-tab-bar { margin-bottom: 32px; }
+  .is-tv .lb-map-col { width: 480px; }
 
-  @media (max-width: 600px) {
-    .lb-topbar { padding: 10px 16px; }
-    .lb-wrap { padding: 16px; }
+  @media (max-width: 700px) {
+    .lb-topbar { padding: 10px 14px; flex-wrap: wrap; gap: 6px; }
+    .lb-scores-col { padding: 12px 14px; }
+    .lb-content { flex-direction: column; }
+    .lb-map-col { width: 100%; border-left: none; border-top: 1px solid var(--border); height: 280px; flex-shrink: 0; }
+    .lb-map-col.is-open { display: flex; }
+    .rank-cell { width: 48px; }
+    .rank-num { font-size: 28px; }
+    .rank-trophy { font-size: 26px; }
+    .score-big { font-size: 24px; }
+    .lb-tab-bar { gap: 6px; margin-bottom: 14px; }
+    .lb-tab-bar .btn { font-size: 12px; padding: 8px 12px; min-height: 36px; }
+  }
+  @media (max-width: 400px) {
+    .rank-num { font-size: 22px; }
+    .score-big { font-size: 20px; }
+    .lb-name { font-size: 16px !important; }
   }
 </style>
 </head>
@@ -83,24 +129,49 @@
       <div class="brand-sub" id="ev-venue">LIVE TOURNAMENT</div>
     </div>
   </div>
-  <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+  <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
     <div class="live-badge"><div class="live-dot"></div>Live</div>
     <div class="tabs" id="contest-tabs" style="display:none">
       <button class="tab is-active" data-mode="ld">🏌️ Longest Drive</button>
       <button class="tab" data-mode="cp">📍 Closest to Pin</button>
     </div>
+    <button class="btn btn-ghost" id="btn-map" style="font-size:13px;padding:9px 14px" title="Toggle course map">🗺 Map</button>
     <button class="btn btn-ghost" id="btn-tv" style="font-size:13px;padding:9px 14px">⛶ TV Mode</button>
     <button class="btn btn-ghost" id="btn-fs" style="font-size:13px;padding:9px 14px" title="Fullscreen">⤢</button>
   </div>
 </div>
 
-<!-- ── Leaderboard ── -->
-<div class="lb-wrap">
-  <div class="lb-inner" id="lb-inner">
-    <div class="lb-empty">
-      <div class="lb-empty-icon">⛳</div>
-      <h2>Connecting to live feed…</h2>
-      <p>Scores appear here as players scan on course.</p>
+<!-- ── Content: scores + map side by side ── -->
+<div class="lb-content">
+  <!-- Scores column -->
+  <div class="lb-scores-col">
+    <div class="lb-inner" id="lb-inner">
+      <div class="lb-empty">
+        <div class="lb-empty-icon">⛳</div>
+        <h2>Connecting to live feed…</h2>
+        <p>Scores appear here as players scan on course.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Map column -->
+  <div class="lb-map-col" id="lb-map-col">
+    <div class="lb-map-header">
+      <span>Course Map</span>
+      <span id="map-player-count" style="color:var(--ink-2)"></span>
+    </div>
+    <div style="display:flex;gap:4px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0">
+      <button id="map-btn-all" style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--primary);color:#fff;cursor:pointer">All Teams</button>
+      <button id="map-btn-team" style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-md);border:1px solid var(--border);background:transparent;color:var(--ink-2);cursor:pointer;display:none">—</button>
+    </div>
+    <div class="lb-map-container" id="lb-map"></div>
+    <div class="lb-map-legend">
+      <span class="leg-fairway">Fairway</span>
+      <span class="leg-rough">Rough</span>
+      <span class="leg-oob">OOB</span>
+      <span class="leg-green">Green</span>
+      <span class="leg-ld">Drive</span>
+      <span class="leg-cp">Pin shot</span>
     </div>
   </div>
 </div>
@@ -111,6 +182,7 @@
   <span id="last-update"></span>
 </footer>
 
+<script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
 <script src="/js/jord.js"></script>
 <script>
 (function () {
@@ -122,6 +194,16 @@
 
   var mode = 'ld';
   var snap = null;
+  var lbMap = null;
+  var mapboxToken = '';
+  var mapLoaded = false;
+  var ballMarkers = [];
+  var mapFilter = null; /* null = all teams; string = team_name to filter to */
+
+  /* Load mapbox token — store promise so initMap can await it */
+  var configReady = fetch('/api/config').then(function(r){return r.json();}).then(function(cfg){
+    mapboxToken = cfg.mapbox_token || '';
+  }).catch(function(){});
 
   JORD.subscribe(eid, function (d) {
     snap = d;
@@ -135,7 +217,6 @@
     tabs.style.display = both ? 'flex' : 'none';
     if (!ev.has_longest_drive && ev.has_closest_pin) mode = 'cp';
 
-    // Update live/ended badge
     var badge = document.querySelector('.live-badge');
     if (ev.status === 'ended') {
       badge.className = 'live-badge is-ended';
@@ -146,9 +227,11 @@
     }
 
     render();
+    if (mapLoaded) updateMapMarkers();
     document.getElementById('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
   });
 
+  /* ── Scores render ── */
   function render() {
     if (!snap) return;
     var rows  = (mode === 'ld' ? snap.ld : snap.cp) || [];
@@ -166,7 +249,6 @@
       card.className = 'lb-row' + (lead ? ' is-leader' : '');
       card.style.cssText = 'margin-bottom:10px;cursor:pointer';
 
-      /* Rank cell */
       var rankCell = document.createElement('div');
       rankCell.className = 'rank-cell';
       var rankEl = document.createElement('div');
@@ -174,15 +256,12 @@
       rankEl.textContent = lead ? '🏆' : team.rank;
       rankCell.appendChild(rankEl);
 
-      /* Team info */
       var teamBlock = document.createElement('div');
       teamBlock.className = 'lb-team';
-
       var nameEl = document.createElement('div');
       nameEl.className = 'lb-name';
       nameEl.style.fontSize = '22px';
       nameEl.textContent = team.team_name;
-
       var metaEl = document.createElement('div');
       metaEl.className = 'lb-meta';
       metaEl.style.fontSize = '12px';
@@ -198,7 +277,6 @@
       teamBlock.appendChild(nameEl);
       teamBlock.appendChild(metaEl);
 
-      /* Score */
       var scoreBlock = document.createElement('div');
       scoreBlock.style.cssText = 'text-align:right;white-space:nowrap';
       var scoreBig  = document.createElement('span');
@@ -214,19 +292,31 @@
       }
       scoreBlock.appendChild(scoreBig);
       scoreBlock.appendChild(scoreUnit);
+      /* Show team penalty total below the score if any */
+      if (mode === 'ld' && team.total_penalty > 0) {
+        var penNote = document.createElement('div');
+        penNote.style.cssText = 'font-size:11px;color:#ef4444;font-weight:600;margin-top:2px';
+        penNote.textContent = '−' + team.total_penalty + ' yd penalty';
+        scoreBlock.appendChild(penNote);
+      }
 
-      /* Expandable balls */
       var ballsDiv = document.createElement('div');
       ballsDiv.className = 'lb-balls';
       (team.balls || []).forEach(function (b) {
         var br = document.createElement('div');
         br.className = 'lb-ball';
         if (mode === 'ld') {
+          var hasPenalty = b.penalty_yards > 0 && b.raw_yards != null && b.final_yards != null;
+          var scoreHtml = b.final_yards != null ? b.final_yards + ' yd' : '—';
+          if (hasPenalty) {
+            scoreHtml += '<div style="font-size:10px;color:#ef4444;font-weight:600;white-space:nowrap;margin-top:1px">'
+              + b.raw_yards + '−' + b.penalty_yards + ' pen</div>';
+          }
           br.style.gridTemplateColumns = '28px 1fr 90px 80px';
           br.innerHTML = '<span style="font-family:var(--font-mono);font-size:11px;opacity:.45">' + (b.player_index||'') + '</span>'
             + '<span class="lb-ball-name">' + (b.player_name || b.drop_code) + '</span>'
             + '<span class="lb-ball-loc">'  + (b.location_type || (b.scanned ? '—' : 'not scanned')) + '</span>'
-            + '<span class="lb-ball-score">'+ (b.final_yards != null ? b.final_yards + ' yd' : '—') + '</span>';
+            + '<span class="lb-ball-score" style="line-height:1.2;text-align:right">' + scoreHtml + '</span>';
         } else {
           br.style.gridTemplateColumns = '28px 1fr 100px';
           br.innerHTML = '<span style="font-family:var(--font-mono);font-size:11px;opacity:.45">' + (b.player_index||'') + '</span>'
@@ -240,9 +330,192 @@
       card.appendChild(teamBlock);
       card.appendChild(scoreBlock);
       card.appendChild(ballsDiv);
-      card.addEventListener('click', function () { card.classList.toggle('is-open'); });
+      card.addEventListener('click', function () {
+        card.classList.toggle('is-open');
+        /* Map filter: select this team; click again to deselect */
+        if (mapFilter === team.team_name) {
+          mapFilter = null;
+        } else {
+          document.querySelectorAll('.lb-row.map-selected').forEach(function (r) { r.classList.remove('map-selected'); });
+          mapFilter = team.team_name;
+          card.classList.add('map-selected');
+        }
+        setMapFilterUI();
+        if (mapLoaded) updateMapMarkers();
+      });
       inner.appendChild(card);
     });
+  }
+
+  /* ── Map filter UI ── */
+  function setMapFilterUI() {
+    var btnAll  = document.getElementById('map-btn-all');
+    var btnTeam = document.getElementById('map-btn-team');
+    if (!btnAll || !btnTeam) return;
+    if (mapFilter) {
+      btnAll.style.background  = 'transparent';
+      btnAll.style.color       = 'var(--ink-2)';
+      btnTeam.style.display    = '';
+      btnTeam.style.background = 'var(--primary)';
+      btnTeam.style.color      = '#fff';
+      btnTeam.textContent      = mapFilter;
+    } else {
+      btnAll.style.background  = 'var(--primary)';
+      btnAll.style.color       = '#fff';
+      btnTeam.style.display    = 'none';
+      document.querySelectorAll('.lb-row.map-selected').forEach(function (r) { r.classList.remove('map-selected'); });
+    }
+  }
+
+  document.getElementById('map-btn-all').addEventListener('click', function () {
+    mapFilter = null;
+    setMapFilterUI();
+    if (mapLoaded) updateMapMarkers();
+  });
+
+  /* ── Map ── */
+  function initMap() {
+    if (lbMap) { lbMap.resize(); return; }
+    if (!mapboxToken) {
+      document.getElementById('lb-map').innerHTML = '<div style="padding:32px;text-align:center;color:var(--ink-2);font-size:13px">Mapbox token not configured.<br>Add MAPBOX_TOKEN to .env</div>';
+      return;
+    }
+    if (typeof mapboxgl === 'undefined') {
+      document.getElementById('lb-map').innerHTML = '<div style="padding:32px;text-align:center;color:var(--ink-2);font-size:13px">Mapbox failed to load.<br>Check internet connection and try Ctrl+Shift+R.</div>';
+      return;
+    }
+    if (!snap) return;
+    var ev = snap.event || {};
+
+    mapboxgl.accessToken = mapboxToken;
+    var tees = ev.tee_boxes || [];
+    var center = tees.length
+      ? [tees[0].lon, tees[0].lat]
+      : (ev.pin_lon ? [ev.pin_lon, ev.pin_lat] : [-84.3953, 33.5031]);
+
+    lbMap = new mapboxgl.Map({
+      container: 'lb-map',
+      style: 'mapbox://styles/mapbox/satellite-streets-v12',
+      center: center,
+      zoom: tees.length ? 16 : 14
+    });
+    lbMap.addControl(new mapboxgl.NavigationControl(), 'top-right');
+
+    lbMap.once('error', function (e) {
+      var status = e.status || (e.error && e.error.status);
+      if (status === 401 || status === 403) {
+        lbMap.remove(); lbMap = null;
+        document.getElementById('lb-map').innerHTML = '<div style="padding:32px;text-align:center;color:var(--ink-2);font-size:13px">Mapbox token rejected (401).<br>Check token URL restrictions at account.mapbox.com</div>';
+      }
+    });
+
+    lbMap.on('load', function () {
+      mapLoaded = true;
+
+      /* Course polygon layers */
+      function addZone(id, geojsonStr, color, opacity) {
+        if (!geojsonStr) return;
+        try {
+          var geo = JSON.parse(geojsonStr);
+          lbMap.addSource(id, { type: 'geojson', data: { type: 'Feature', geometry: geo } });
+          lbMap.addLayer({ id: id + '-fill', type: 'fill', source: id, paint: { 'fill-color': color, 'fill-opacity': opacity } });
+          lbMap.addLayer({ id: id + '-line', type: 'line', source: id, paint: { 'line-color': color, 'line-width': 1.5, 'line-opacity': 0.8 } });
+        } catch(e) {}
+      }
+      addZone('lb-fairway',   ev.fairway_polygon,   '#22C55E', 0.35);
+      addZone('lb-rough',     ev.rough_polygon,     '#EAB308', 0.30);
+      addZone('lb-oob',       ev.oob_polygon,       '#DC2626', 0.25);
+      addZone('lb-green',     ev.green_polygon,     '#3B82F6', 0.35);
+      addZone('lb-ctp-green', ev.ctp_green_polygon, '#3B82F6', 0.35);
+
+      /* LD Pin marker */
+      if (ev.pin_lat && ev.pin_lon) {
+        var pinEl = document.createElement('div');
+        pinEl.style.cssText = 'background:#C0392B;color:white;border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:grid;place-items:center;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,0.4)';
+        pinEl.textContent = '⚑';
+        new mapboxgl.Marker({ element: pinEl }).setLngLat([ev.pin_lon, ev.pin_lat])
+          .setPopup(new mapboxgl.Popup().setText('LD Pin')).addTo(lbMap);
+      }
+      /* CTP Pin marker */
+      if (ev.ctp_pin_lat && ev.ctp_pin_lon) {
+        var ctpPinEl = document.createElement('div');
+        ctpPinEl.style.cssText = 'background:#3B82F6;color:white;border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:grid;place-items:center;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,0.4)';
+        ctpPinEl.textContent = '⚑';
+        new mapboxgl.Marker({ element: ctpPinEl }).setLngLat([ev.ctp_pin_lon, ev.ctp_pin_lat])
+          .setPopup(new mapboxgl.Popup().setText('CTP Pin')).addTo(lbMap);
+      }
+
+      /* Tee markers */
+      (ev.tee_boxes || []).forEach(function (t) {
+        var tEl = document.createElement('div');
+        tEl.style.cssText = 'background:#C9A24A;color:#1a1a1a;border:2px solid #fff;border-radius:50%;width:24px;height:24px;display:grid;place-items:center;font-size:12px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.3)';
+        tEl.textContent = 'T';
+        new mapboxgl.Marker({ element: tEl }).setLngLat([t.lon, t.lat])
+          .setPopup(new mapboxgl.Popup().setText(t.name + ' Tee')).addTo(lbMap);
+      });
+
+      updateMapMarkers();
+    });
+  }
+
+  function updateMapMarkers() {
+    if (!lbMap || !snap) return;
+    ballMarkers.forEach(function (m) { m.remove(); });
+    ballMarkers = [];
+
+    var allBalls = [];
+    var ldTeams = snap.ld || [];
+    var cpTeams = snap.cp || [];
+
+    ldTeams.forEach(function (team) {
+      if (mapFilter && team.team_name !== mapFilter) return;
+      (team.balls || []).forEach(function (b) {
+        if (b.lat && b.lon) {
+          var scoreLabel = b.final_yards != null ? b.final_yards + ' yd' : '—';
+          var penLabel   = b.penalty_yards > 0 && b.raw_yards != null
+            ? b.raw_yards + '−' + b.penalty_yards + ' pen' : '';
+          allBalls.push({ lat: b.lat, lon: b.lon, type: 'ld', team: team.team_name, player: b.player_name || b.drop_code, score: scoreLabel, pen: penLabel, loc: b.location_type, rank: team.rank });
+        }
+      });
+    });
+    cpTeams.forEach(function (team) {
+      if (mapFilter && team.team_name !== mapFilter) return;
+      (team.balls || []).forEach(function (b) {
+        if (b.lat && b.lon) allBalls.push({ lat: b.lat, lon: b.lon, type: 'cp', team: team.team_name, player: b.player_name || b.drop_code, score: b.distance_ft != null ? b.distance_ft + ' ft' : '—', pen: '', rank: team.rank });
+      });
+    });
+
+    var locColor = { fairway: '#4CAF50', rough: '#C9A24A', oob: '#C0392B', lost: '#C0392B' };
+
+    allBalls.forEach(function (b) {
+      var el = document.createElement('div');
+      var isLD = b.type === 'ld';
+      var bg = isLD ? (locColor[b.loc] || '#C9A24A') : '#4A90E4';
+      var border = b.rank === 1 ? '#FFD700' : '#fff';
+      el.style.cssText = 'width:20px;height:20px;border-radius:50%;border:2px solid ' + border + ';background:' + bg + ';box-shadow:0 2px 4px rgba(0,0,0,0.4);cursor:pointer;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;';
+      el.title = b.player + ' · ' + b.team;
+      var popupHtml = '<strong>' + b.player + '</strong><br>' + b.team + '<br>' + b.score;
+      if (b.pen) popupHtml += '<br><span style="color:#ef4444;font-size:11px">' + b.pen + '</span>';
+      if (isLD && b.loc) popupHtml += '<br>' + b.loc;
+      if (b.rank === 1) popupHtml += '<br>🏆 Leader';
+      var popup = new mapboxgl.Popup({ offset: 10 }).setHTML(popupHtml);
+      var m = new mapboxgl.Marker({ element: el }).setLngLat([b.lon, b.lat]).setPopup(popup).addTo(lbMap);
+      ballMarkers.push(m);
+    });
+
+    /* Auto-fit to filtered dots */
+    if (allBalls.length === 1) {
+      lbMap.flyTo({ center: [allBalls[0].lon, allBalls[0].lat], zoom: 17 });
+    } else if (allBalls.length > 1) {
+      var coords = allBalls.map(function (b) { return [b.lon, b.lat]; });
+      var bounds = coords.reduce(function (bnd, c) { return bnd.extend(c); }, new mapboxgl.LngLatBounds(coords[0], coords[0]));
+      lbMap.fitBounds(bounds, { padding: 60, maxZoom: 18 });
+    }
+
+    var scanned = allBalls.length;
+    document.getElementById('map-player-count').textContent = scanned
+      ? scanned + ' shot' + (scanned !== 1 ? 's' : '') + (mapFilter ? ' · ' + mapFilter : '')
+      : 'No shots yet';
   }
 
   /* Tab switching */
@@ -254,6 +527,21 @@
       x.classList.toggle('is-active', x.dataset.mode === mode);
     });
     render();
+  });
+
+  /* Map toggle */
+  document.getElementById('btn-map').addEventListener('click', function () {
+    var col = document.getElementById('lb-map-col');
+    var open = col.classList.toggle('is-open');
+    document.getElementById('btn-map').textContent = open ? '✕ Map' : '🗺 Map';
+    if (open) {
+      configReady.then(function () {
+        requestAnimationFrame(function () {
+          if (!lbMap) initMap();
+          else lbMap.resize();
+        });
+      });
+    }
   });
 
   /* TV mode */

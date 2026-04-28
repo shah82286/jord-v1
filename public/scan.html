@@ -11,6 +11,14 @@
 <style>
   body { background: var(--bg); }
   .scan-wrap { max-width: 480px; margin: 0 auto; padding: var(--s-4) var(--s-4) var(--s-8); }
+  @media (max-width: 480px) {
+    .scan-wrap { padding: var(--s-3) var(--s-3) var(--s-7); }
+    .result-score { font-size: 52px; }
+    .flyover-yds  { font-size: 60px; }
+    .result-card .row { flex-wrap: wrap; justify-content: center; }
+    .result-card .row .btn { flex: 1; min-width: 140px; }
+    .loc-btn { padding: var(--s-3); }
+  }
 
   /* GPS status */
   .gps-bar {
@@ -50,6 +58,16 @@
   .result-unit  { font-size: 20px; color: var(--ink-2); margin-top: 4px; }
   .result-loc   { display: inline-block; margin-top: var(--s-3); }
   .result-meta  { color: var(--ink-2); font-size: 14px; margin-top: var(--s-3); }
+
+  /* Flyover animation */
+  .flyover-card { padding: 0; overflow: hidden; }
+  .flyover-map  { height: 240px; background: var(--surface-2); display: grid; place-items: center; }
+  .flyover-yds-wrap { text-align: center; padding: 20px 16px 16px; background: var(--surface-2); border-top: 1px solid var(--border); }
+  .flyover-yds  { font-family: var(--font-display); font-size: 80px; font-weight: 700; line-height: 1; color: var(--accent); }
+  .flyover-unit { font-size: 18px; color: var(--ink-2); margin-top: 6px; }
+  .demo-banner  { background: rgba(20,160,200,0.12); border-bottom: 1px solid rgba(20,160,200,0.35);
+                  padding: 8px 16px; text-align: center; font-size: 12px; font-weight: 700;
+                  color: #14a0c8; letter-spacing: .08em; text-transform: uppercase; }
 </style>
 </head>
 <body>
@@ -63,11 +81,15 @@
   var locType    = null;  /* fairway | rough | oob | lost */
   var submitted  = false;
   var scanner    = null;
+  var demoMode   = false;
 
   document.addEventListener('DOMContentLoaded', function () {
     JORD.renderTopbar('Ball Scan');
+    var params = new URLSearchParams(window.location.search);
     var code = JORD.path(1);
-    if (code) {
+    if (code && params.get('demo') === '1' && params.get('eventId')) {
+      loadDemoMode(params);
+    } else if (code) {
       loadBall(code);
     } else {
       renderCodeEntry();
@@ -76,11 +98,27 @@
 
   /* ─── GPS ─── */
   function startGPS() {
+    // Test mode: accept ?testLat=X&testLon=Y&testLoc=TYPE in URL to simulate GPS
+    var params = new URLSearchParams(window.location.search);
+    var testLat = parseFloat(params.get('testLat'));
+    var testLon = parseFloat(params.get('testLon'));
+    var testLoc = params.get('testLoc');
+    if (!isNaN(testLat) && !isNaN(testLon)) {
+      gpsPos = { lat: testLat, lon: testLon, acc: 1 };
+      setGPS('locked', '🧪', 'Test mode — location simulated');
+      // Pre-select location type if provided
+      if (testLoc) {
+        var locBtn = document.querySelector('[data-loc="' + testLoc + '"]');
+        if (locBtn) { locBtn.click(); }
+      }
+      enableSubmit();
+      return;
+    }
     setGPS('locking', '📡', 'Acquiring GPS…');
     navigator.geolocation.getCurrentPosition(
       function (pos) {
         gpsPos = { lat: pos.coords.latitude, lon: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) };
-        setGPS('locked', '📍', 'GPS locked · ±' + gpsPos.acc + ' m accuracy');
+        setGPS('locked', '📍', 'Location locked — you\'re good to go!');
         enableSubmit();
       },
       function (err) {
@@ -98,19 +136,92 @@
     if (cls === 'locking') bar.innerHTML += '<span class="spinner" style="margin-left:auto"></span>';
   }
 
+  /* ─── Demo mode (no registration required) ─── */
+  function loadDemoMode(params) {
+    var eventId = params.get('eventId');
+    var root = getRoot();
+    root.innerHTML = '<div class="text-center" style="padding:60px 0"><div class="spinner spinner-lg" style="margin:0 auto"></div><p class="mt-4">Loading event…</p></div>';
+
+    fetch('/api/events/' + eventId + '/public')
+      .then(function (r) { return r.json(); })
+      .then(function (ev) {
+        if (ev.error) { renderError(ev.error); return; }
+        demoMode = true;
+        var teeBox = (ev.tee_boxes || [])[0] || null;
+        ballData = {
+          drop_code: 'DEMO',
+          event_id: ev.id,
+          event_name: ev.name,
+          event_status: ev.status,
+          player_name: 'Demo Player',
+          team_name: 'Demo Team',
+          has_longest_drive: ev.has_longest_drive,
+          has_closest_pin: ev.has_closest_pin,
+          allow_rough: ev.allow_rough,
+          allow_oob: ev.allow_oob,
+          oob_penalty_mode: ev.oob_penalty_mode,
+          oob_fixed_yards: ev.oob_fixed_yards || 0,
+          rough_fixed_yards: ev.rough_fixed_yards || 0,
+          rough_penalty_mode: ev.rough_penalty_mode,
+          hole_distance_yards: ev.hole_distance_yards || 300,
+          fairway_polygon: ev.fairway_polygon || null,
+          rough_polygon: ev.rough_polygon || null,
+          oob_polygon: ev.oob_polygon || null,
+          admin_phone: ev.admin_phone || null,
+          tee_box: teeBox
+        };
+        renderScanUI();
+      })
+      .catch(function () { renderError('Cannot load event. Check connection.'); });
+  }
+
+  function haversineYardsClient(lat1, lon1, lat2, lon2) {
+    var R = 6371000;
+    var dLat = (lat2 - lat1) * Math.PI / 180;
+    var dLon = (lon2 - lon1) * Math.PI / 180;
+    var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 1.09361;
+  }
+
   /* ─── Load ball ─── */
   function loadBall(code) {
     var root = getRoot();
     root.innerHTML = '<div class="text-center" style="padding:60px 0"><div class="spinner spinner-lg" style="margin:0 auto"></div><p class="mt-4">Loading…</p></div>';
 
     fetch('/api/ball/' + code.toUpperCase())
-      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        if (r.status === 404) { renderUnregistered(code); return null; }
+        return r.json();
+      })
       .then(function (data) {
+        if (!data) return;
         if (data.error) { renderError(data.error); return; }
         ballData = data;
         renderScanUI();
       })
       .catch(function () { renderError('Cannot connect to server. Check Wi-Fi.'); });
+  }
+
+  function renderUnregistered(code) {
+    var root = getRoot();
+    root.innerHTML = '';
+    var card = document.createElement('div');
+    card.className = 'card result-card';
+    card.innerHTML = '<div style="font-size:64px;margin-bottom:var(--s-3)">⛳</div>'
+      + '<div style="font-family:var(--font-display);font-size:26px;font-weight:700;color:var(--ink);margin-bottom:var(--s-2)">Ball Not Registered</div>'
+      + '<div class="result-unit" style="margin-bottom:var(--s-5)">Code <strong style="font-family:var(--font-mono)">' + (code || '') + '</strong> hasn\'t been signed up for a tournament yet.</div>'
+      + '<div style="color:var(--ink-2);font-size:14px;line-height:1.6;text-align:left;background:var(--surface-2);padding:var(--s-4);border-radius:var(--r-md)">'
+      + '👉 Head to the registration desk and give them your ball code.<br>'
+      + '👉 Or scan the <strong>Register</strong> QR code at the check-in table to sign up.'
+      + '</div>';
+    var backBtn = document.createElement('button');
+    backBtn.className = 'btn btn-ghost btn-block mt-5';
+    backBtn.textContent = '← Try a Different Code';
+    backBtn.addEventListener('click', function () { renderCodeEntry(); });
+    card.appendChild(backBtn);
+    root.appendChild(card);
   }
 
   /* ─── Main scan UI ─── */
@@ -236,6 +347,40 @@
 
   /* ─── Submit LD ─── */
   function doSubmitLD(btn, errEl) {
+    if (demoMode) {
+      var teeBox = ballData.tee_box;
+      if (!teeBox || !teeBox.lat || !teeBox.lon) {
+        errEl.textContent = 'No tee box configured — set one up in Admin → Course Map first.';
+        return;
+      }
+      var rawYards = haversineYardsClient(teeBox.lat, teeBox.lon, gpsPos.lat, gpsPos.lon);
+      var penaltyYards = 0;
+      if ((locType === 'oob' || locType === 'lost') && ballData.allow_oob) {
+        penaltyYards = ballData.oob_penalty_mode === 'half_hole'
+          ? ballData.hole_distance_yards / 2 : (ballData.oob_fixed_yards || 0);
+      } else if (locType === 'rough' && ballData.allow_rough) {
+        penaltyYards = ballData.rough_fixed_yards || 0;
+      }
+      var finalYards = (locType === 'fairway') ? rawYards : Math.max(0, rawYards - penaltyYards);
+      renderResultLD({
+        success: true,
+        drop_code: 'DEMO',
+        player: 'Demo Player',
+        team: ballData.event_name || 'Demo Event',
+        raw_yards: Math.round(rawYards),
+        penalty_yards: Math.round(penaltyYards),
+        final_yards: Math.round(finalYards),
+        location_type: locType,
+        tee_lat: teeBox.lat,
+        tee_lon: teeBox.lon,
+        ball_lat: gpsPos.lat,
+        ball_lon: gpsPos.lon,
+        event_id: ballData.event_id,
+        fairway_polygon: ballData.fairway_polygon || null
+      });
+      return;
+    }
+
     btn.disabled = true; btn.textContent = 'Submitting…';
     fetch('/api/scan/ld/' + ballData.drop_code, {
       method: 'POST',
@@ -270,24 +415,308 @@
   function renderResultLD(data) {
     var root = getRoot();
     root.innerHTML = '';
+
+    var hasFlyover = data.tee_lat && data.tee_lon && data.ball_lat && data.ball_lon;
+    if (!hasFlyover) { appendResultCard(root, data); return; }
+
+    /* ── Phase 1: Full-screen overlay ── */
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:9999;background:#0a1a10;display:flex;flex-direction:column;transition:opacity 0.75s ease';
+
+    if (demoMode) {
+      var dmBanner = document.createElement('div');
+      dmBanner.style.cssText = 'text-align:center;padding:10px 16px;background:rgba(20,160,200,0.2);font-size:11px;font-weight:700;color:#14a0c8;letter-spacing:.1em;text-transform:uppercase;flex-shrink:0';
+      dmBanner.textContent = 'DEMO MODE — Not saved to leaderboard';
+      overlay.appendChild(dmBanner);
+    }
+
+    var mapDiv = document.createElement('div');
+    mapDiv.id = 'flyover-map';
+    mapDiv.style.cssText = 'flex:1;min-height:0;position:relative';
+    overlay.appendChild(mapDiv);
+
+    var ydsPanel = document.createElement('div');
+    ydsPanel.style.cssText = 'text-align:center;padding:16px 16px 48px;background:linear-gradient(to top,rgba(0,0,0,0.92) 0%,rgba(0,0,0,0) 100%);flex-shrink:0;position:relative';
+    var ydsEl = document.createElement('div');
+    ydsEl.id = 'flyover-yards';
+    ydsEl.style.cssText = 'font-family:var(--font-display);font-size:min(24vw,120px);font-weight:700;line-height:1;color:#C9A24A;text-shadow:0 4px 24px rgba(0,0,0,0.7)';
+    ydsEl.textContent = '—';
+    var ydsLbl = document.createElement('div');
+    ydsLbl.style.cssText = 'font-size:22px;color:rgba(255,255,255,0.6);margin-top:8px;font-weight:600;letter-spacing:0.04em';
+    ydsLbl.textContent = 'yards';
+    ydsPanel.appendChild(ydsEl);
+    ydsPanel.appendChild(ydsLbl);
+    overlay.appendChild(ydsPanel);
+
+    document.body.appendChild(overlay);
+    document.body.style.overflow = 'hidden';
+
+    /* ── Fetch token then animate ── */
+    fetch('/api/config')
+      .then(function (r) { return r.json(); })
+      .then(function (cfg) {
+        var token = cfg.mapbox_token || '';
+
+        function transitionToResult(mapInstance) {
+          startCountUp(ydsEl, data.final_yards, function () {
+            /* Start fading out overlay */
+            overlay.style.opacity = '0';
+            document.body.style.overflow = '';
+
+            /* Build result layout behind the fading overlay */
+            if (token) appendEmbeddedMap(root, data, token);
+            appendResultCard(root, data);
+
+            /* Remove overlay after fade */
+            setTimeout(function () {
+              try { if (mapInstance) mapInstance.remove(); } catch (e) {}
+              if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+            }, 800);
+          });
+        }
+
+        if (!token) {
+          transitionToResult(null);
+          return;
+        }
+        startFlyoverMap(mapDiv, data, token, transitionToResult);
+      })
+      .catch(function () {
+        document.body.style.overflow = '';
+        if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+        appendResultCard(root, data);
+      });
+  }
+
+  function loadMapboxThen(token, cb) {
+    if (window.mapboxgl) { mapboxgl.accessToken = token; cb(); return; }
+    if (!document.querySelector('link[href*="mapbox-gl.css"]')) {
+      var css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.css';
+      document.head.appendChild(css);
+    }
+    var js = document.createElement('script');
+    js.src = 'https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js';
+    js.onload = function () { mapboxgl.accessToken = token; cb(); };
+    document.head.appendChild(js);
+  }
+
+  /* Full-screen animation map — calls onComplete(mapInstance) when done */
+  function startFlyoverMap(mapDiv, data, token, onComplete) {
+    loadMapboxThen(token, function () {
+      var map = new mapboxgl.Map({
+        container: mapDiv,
+        style: 'mapbox://styles/mapbox/satellite-v9',
+        center: [(data.tee_lon + data.ball_lon) / 2, (data.tee_lat + data.ball_lat) / 2],
+        zoom: 15,
+        interactive: false
+      });
+
+      map.on('load', function () {
+        var pad = 0.0005;
+        map.fitBounds([
+          [Math.min(data.tee_lon, data.ball_lon) - pad, Math.min(data.tee_lat, data.ball_lat) - pad],
+          [Math.max(data.tee_lon, data.ball_lon) + pad, Math.max(data.tee_lat, data.ball_lat) + pad]
+        ], { padding: 60, duration: 0 });
+
+        /* Fairway overlay */
+        if (data.fairway_polygon) {
+          try {
+            var geom = JSON.parse(data.fairway_polygon);
+            map.addSource('fp', { type: 'geojson', data: { type: 'Feature', geometry: geom } });
+            map.addLayer({ id: 'fp-fill', type: 'fill', source: 'fp', paint: { 'fill-color': '#2E7D5B', 'fill-opacity': 0.32 } });
+            map.addLayer({ id: 'fp-line', type: 'line', source: 'fp', paint: { 'line-color': '#4ade80', 'line-width': 2, 'line-opacity': 0.8 } });
+          } catch (e) {}
+        }
+
+        /* Animated shot line */
+        map.addSource('shot', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [[data.tee_lon, data.tee_lat]] } } });
+        map.addLayer({ id: 'shot', type: 'line', source: 'shot', paint: { 'line-color': '#C9A24A', 'line-width': 4 } });
+
+        /* Tee marker */
+        var tEl = document.createElement('div');
+        tEl.style.cssText = 'width:30px;height:30px;border-radius:50%;background:#C9A24A;border:3px solid #fff;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;box-shadow:0 3px 10px rgba(0,0,0,0.7)';
+        tEl.textContent = 'T';
+        new mapboxgl.Marker({ element: tEl }).setLngLat([data.tee_lon, data.tee_lat]).addTo(map);
+
+        /* Ball landing marker — hidden until animation ends */
+        var bEl = document.createElement('div');
+        bEl.style.cssText = 'width:26px;height:26px;border-radius:50%;background:#fff;border:4px solid #C9A24A;box-shadow:0 3px 12px rgba(0,0,0,0.7);opacity:0;transform:scale(0.1);transition:opacity 0.4s,transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275)';
+        new mapboxgl.Marker({ element: bEl }).setLngLat([data.ball_lon, data.ball_lat]).addTo(map);
+
+        /* Draw line tee → ball over 2000 ms */
+        var dur = 2000, t0 = null;
+        function step(ts) {
+          if (!t0) t0 = ts;
+          var p = Math.min((ts - t0) / dur, 1);
+          var e = 1 - Math.pow(1 - p, 2);
+          map.getSource('shot').setData({
+            type: 'Feature', geometry: { type: 'LineString', coordinates: [
+              [data.tee_lon, data.tee_lat],
+              [data.tee_lon + (data.ball_lon - data.tee_lon) * e,
+               data.tee_lat + (data.ball_lat - data.tee_lat) * e]
+            ]}
+          });
+          if (p < 1) {
+            requestAnimationFrame(step);
+          } else {
+            bEl.style.opacity = '1'; bEl.style.transform = 'scale(1)';
+            setTimeout(function () { onComplete(map); }, 400);
+          }
+        }
+        requestAnimationFrame(step);
+      });
+    });
+  }
+
+  /* Compact static map shown in the result card after animation */
+  function appendEmbeddedMap(root, data, token) {
+    var card = document.createElement('div');
+    card.className = 'card flyover-card';
+    card.style.cssText = 'opacity:0;transition:opacity 0.6s';
+
+    if (demoMode) {
+      var b = document.createElement('div');
+      b.className = 'demo-banner';
+      b.textContent = 'DEMO MODE — Not saved to leaderboard';
+      card.appendChild(b);
+    }
+
+    var mapEl = document.createElement('div');
+    mapEl.style.cssText = 'height:200px;position:relative';
+    card.appendChild(mapEl);
+    root.appendChild(card);
+    requestAnimationFrame(function () { card.style.opacity = '1'; });
+
+    loadMapboxThen(token, function () {
+      var map2 = new mapboxgl.Map({
+        container: mapEl,
+        style: 'mapbox://styles/mapbox/satellite-v9',
+        center: [(data.tee_lon + data.ball_lon) / 2, (data.tee_lat + data.ball_lat) / 2],
+        zoom: 15,
+        interactive: false
+      });
+      map2.on('load', function () {
+        var pad = 0.0005;
+        map2.fitBounds([
+          [Math.min(data.tee_lon, data.ball_lon) - pad, Math.min(data.tee_lat, data.ball_lat) - pad],
+          [Math.max(data.tee_lon, data.ball_lon) + pad, Math.max(data.tee_lat, data.ball_lat) + pad]
+        ], { padding: 30, duration: 0 });
+
+        if (data.fairway_polygon) {
+          try {
+            var geom = JSON.parse(data.fairway_polygon);
+            map2.addSource('fp', { type: 'geojson', data: { type: 'Feature', geometry: geom } });
+            map2.addLayer({ id: 'fp-fill', type: 'fill', source: 'fp', paint: { 'fill-color': '#2E7D5B', 'fill-opacity': 0.3 } });
+          } catch (e) {}
+        }
+
+        /* Complete shot line (static) */
+        map2.addSource('shot', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [[data.tee_lon, data.tee_lat], [data.ball_lon, data.ball_lat]] } } });
+        map2.addLayer({ id: 'shot', type: 'line', source: 'shot', paint: { 'line-color': '#C9A24A', 'line-width': 3 } });
+
+        var tEl = document.createElement('div');
+        tEl.style.cssText = 'width:22px;height:22px;border-radius:50%;background:#C9A24A;border:2px solid #fff;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;box-shadow:0 2px 5px rgba(0,0,0,0.6)';
+        tEl.textContent = 'T';
+        new mapboxgl.Marker({ element: tEl }).setLngLat([data.tee_lon, data.tee_lat]).addTo(map2);
+
+        var bEl = document.createElement('div');
+        bEl.style.cssText = 'width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid #C9A24A;box-shadow:0 2px 6px rgba(0,0,0,0.6)';
+        new mapboxgl.Marker({ element: bEl }).setLngLat([data.ball_lon, data.ball_lat]).addTo(map2);
+      });
+    });
+  }
+
+  function startCountUp(el, target, onComplete) {
+    if (!el) { if (onComplete) setTimeout(onComplete, 100); return; }
+    el.textContent = '0';
+    var t0 = null, dur = 700;
+    function step(ts) {
+      if (!t0) t0 = ts;
+      var p = Math.min((ts - t0) / dur, 1);
+      var e = 1 - Math.pow(1 - p, 3); /* ease-out cubic */
+      el.textContent = Math.round((target || 0) * e);
+      if (p < 1) {
+        requestAnimationFrame(step);
+      } else {
+        el.textContent = (target || 0);
+        if (onComplete) setTimeout(onComplete, 400);
+      }
+    }
+    requestAnimationFrame(step);
+  }
+
+  function getEncouragement(finalYards, locType) {
+    if (locType === 'oob' || locType === 'lost') {
+      var msgs = [
+        'Even pros stripe one OOB sometimes — you\'re in good company! 😅',
+        'The trees needed a high-five. Shake it off and keep swinging! 🌳',
+        'One for the highlight reel — the wrong reel, but still! Come back strong 💪'
+      ];
+      return msgs[Math.floor(Math.random() * msgs.length)];
+    }
+    if (locType === 'rough') return 'You found the rough — still on the board! Every yard counts out here 🌿';
+    if (finalYards >= 300) return 'ABSOLUTE BOMB. Are you sure you\'re not on tour?! 🚀';
+    if (finalYards >= 260) return 'That\'s a weapon right there! The leaderboard felt that one 🔥';
+    if (finalYards >= 220) return 'Dialing it in! Solid distance — your team is pumped 💪';
+    if (finalYards >= 180) return 'Right in the mix! Keep it up and the trophy is yours 🏆';
+    if (finalYards >= 140) return 'Respectable drive! You\'re right where you need to be 🎯';
+    if (finalYards >= 100) return 'On the board and swinging! Every yard tells a story 🏌️';
+    return 'Hey, you\'re on the course and having fun — that\'s what it\'s all about! 🏌️';
+  }
+
+  function appendResultCard(root, data) {
+    var locType = data.location_type;
+    var locLabel = { fairway: '🟩 Fairway', rough: '🌿 Rough', oob: '🚫 Out of Bounds', lost: '❓ Lost Ball' }[locType] || locType;
+    var isOob = locType === 'oob' || locType === 'lost';
+    var scoreColor = isOob ? 'var(--danger)' : 'var(--accent)';
+    var evId = data.event_id || (ballData && ballData.event_id) || '';
+    var phone = (ballData && ballData.admin_phone) || null;
+    var encouragement = getEncouragement(data.final_yards || 0, locType);
+
     var card = document.createElement('div');
     card.className = 'card result-card';
+    card.style.cssText = 'opacity:0;transition:opacity 0.5s;margin-top:var(--s-3)';
 
-    var locLabel = { fairway: '🟩 Fairway', rough: '🌿 Rough', oob: '🚫 Out of Bounds', lost: '❓ Lost Ball' }[data.location_type] || data.location_type;
-    var scoreColor = (data.location_type === 'oob' || data.location_type === 'lost') ? 'var(--danger)' : 'var(--jord-fairway)';
+    /* Top icon */
+    var icon = isOob ? '😬' : (data.final_yards >= 250 ? '🔥' : (data.final_yards >= 150 ? '💪' : '🏌️'));
 
-    card.innerHTML = '<div style="font-size:48px;margin-bottom:12px">🏌️</div>'
+    card.innerHTML = '<div style="font-size:52px;margin-bottom:8px">' + icon + '</div>'
+
+      /* Encouragement line */
+      + '<div style="font-style:italic;color:var(--ink-2);font-size:15px;margin-bottom:var(--s-4);line-height:1.4;padding:0 var(--s-2)">' + encouragement + '</div>'
+
+      /* Big yardage */
       + '<div class="result-score" style="color:' + scoreColor + '">' + (data.final_yards != null ? data.final_yards : '—') + '</div>'
       + '<div class="result-unit">yards</div>'
+
+      /* Location badge */
       + '<div class="result-loc mt-3"><span class="badge badge-primary">' + locLabel + '</span></div>'
-      + (data.penalty_yards > 0 ? '<div class="result-meta">(' + data.raw_yards + ' raw − ' + data.penalty_yards + ' penalty)</div>' : '')
+
+      /* Penalty breakdown */
+      + (data.penalty_yards > 0
+          ? '<div class="result-meta">(' + data.raw_yards + ' raw − ' + data.penalty_yards + ' yd penalty)</div>'
+          : '')
+
+      /* Demo badge */
+      + (demoMode
+          ? '<div class="mt-3"><span class="badge" style="background:rgba(20,160,200,0.12);color:#14a0c8;border:1px solid rgba(20,160,200,0.35)">DEMO — Not saved to leaderboard</span></div>'
+          : '')
+
+      /* Divider + player info */
       + '<hr class="divider mt-5 mb-4">'
-      + '<div class="text-muted" style="font-size:14px"><strong>' + data.player + '</strong> · ' + data.team + '</div>'
-      + '<div class="row gap-3 mt-5" style="justify-content:center">'
-      + '<a class="btn btn-primary" href="/leaderboard/' + (ballData.event_id || '') + '" target="_blank">📺 Live Leaderboard</a>'
-      + '<a class="btn btn-ghost" href="/dashboard/' + (ballData.event_id || '') + '/' + ballData.drop_code + '" target="_blank">📊 My Results</a>'
+      + '<div class="text-muted" style="font-size:14px"><strong>' + (data.player || 'Player') + '</strong>'
+      + (data.team && data.team !== 'Demo Event' ? ' &nbsp;·&nbsp; ' + data.team : '') + '</div>'
+
+      /* Buttons */
+      + '<div class="row gap-3 mt-5" style="justify-content:center;flex-wrap:wrap">'
+      + ((!demoMode) ? '<a class="btn btn-primary" href="/leaderboard/' + evId + '" target="_blank">📺 See Leaderboard</a>' : '')
+      + (phone ? '<a class="btn btn-ghost" href="tel:' + phone + '" style="display:flex;align-items:center;gap:6px"><span style="font-size:18px">📞</span> Call Admin</a>' : '')
       + '</div>';
+
     root.appendChild(card);
+    requestAnimationFrame(function () { card.style.opacity = '1'; });
   }
 
   function renderResultCP(data) {
@@ -318,46 +747,90 @@
 
     var card = document.createElement('div');
     card.className = 'card';
-    card.innerHTML = '<div class="text-center mb-4"><img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077" alt="JORD Golf" style="height:56px;width:auto;margin:0 auto var(--s-3);display:block">'
-      + '<div class="brand-name">JORD GOLF</div><div class="brand-sub">Ball Scan</div></div>';
+    root.appendChild(card);
 
+    /* Header */
+    var header = document.createElement('div');
+    header.className = 'text-center mb-5';
+    header.innerHTML = '<img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077" alt="JORD Golf" style="height:56px;width:auto;margin:0 auto var(--s-3);display:block">'
+      + '<div class="brand-name">JORD GOLF</div>'
+      + '<div class="brand-sub" style="margin-top:4px">Submit Your Shot</div>';
+    card.appendChild(header);
+
+    /* Code input */
+    var codeLabel = document.createElement('label');
+    codeLabel.style.cssText = 'display:block;font-size:15px;font-weight:700;margin-bottom:6px';
+    codeLabel.textContent = 'Your ball code';
+    card.appendChild(codeLabel);
+
+    var codeHint = document.createElement('div');
+    codeHint.className = 'hint';
+    codeHint.style.marginBottom = '10px';
+    codeHint.textContent = '6-digit code on your ball — e.g. ABC123';
+    card.appendChild(codeHint);
+
+    var codeInput = document.createElement('input');
+    codeInput.className = 'input input-code';
+    codeInput.placeholder = 'ABC123';
+    codeInput.maxLength = 12;
+    codeInput.autocomplete = 'off';
+    codeInput.style.cssText = 'font-size:28px;letter-spacing:0.12em;text-align:center;padding:14px;width:100%;box-sizing:border-box';
+    card.appendChild(codeInput);
+
+    var goBtn = document.createElement('button');
+    goBtn.className = 'btn btn-primary btn-block btn-lg mt-4';
+    goBtn.textContent = 'Submit My Shot →';
+    goBtn.disabled = true;
+    card.appendChild(goBtn);
+
+    codeInput.addEventListener('input', function () {
+      codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      goBtn.disabled = codeInput.value.length < 4;
+    });
+    codeInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !goBtn.disabled) goBtn.click();
+    });
+    goBtn.addEventListener('click', function () {
+      var code = codeInput.value.trim();
+      if (!code || code.length < 4) return;
+      if (scanner) { try { scanner.stop(); } catch (e) {} }
+      loadBall(code);
+    });
+
+    /* Divider */
+    var divider = document.createElement('div');
+    divider.style.cssText = 'display:flex;align-items:center;gap:12px;margin:var(--s-5) 0;color:var(--ink-3);font-size:13px';
+    divider.innerHTML = '<div style="flex:1;height:1px;background:var(--border)"></div>or scan your ball\'s QR code<div style="flex:1;height:1px;background:var(--border)"></div>';
+    card.appendChild(divider);
+
+    /* Camera QR scanner — hidden until user taps the button */
     var qrArea = document.createElement('div');
     qrArea.id = 'qr-area';
+    qrArea.style.display = 'none';
     card.appendChild(qrArea);
+
+    var scanBtn = document.createElement('button');
+    scanBtn.className = 'btn btn-ghost btn-block';
+    scanBtn.style.marginTop = '0';
+    scanBtn.textContent = '📷 Scan QR Code Instead';
+    card.appendChild(scanBtn);
 
     var scanner = new JORD.QRScanner(qrArea, function (raw) {
       var code = JORD.extractDropCode(raw);
       if (code) { scanner.stop(); loadBall(code); }
     });
-    scanner.start().catch(function (e) {
-      qrArea.innerHTML = '<p class="text-muted text-center" style="font-size:13px">Camera unavailable — enter code below.</p>';
+
+    scanBtn.addEventListener('click', function () {
+      scanBtn.style.display = 'none';
+      qrArea.style.display = '';
+      scanner.start().catch(function () {
+        qrArea.style.display = 'none';
+        scanBtn.style.display = '';
+        divider.style.display = 'none';
+      });
     });
 
-    var manualField = document.createElement('div');
-    manualField.className = 'field mt-4';
-    manualField.innerHTML = '<label>Or enter drop code</label>';
-    var manualInput = document.createElement('input');
-    manualInput.className = 'input input-code';
-    manualInput.placeholder = 'ABC123';
-    manualInput.maxLength = 12;
-    manualInput.addEventListener('input', function () {
-      manualInput.value = manualInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    });
-    manualField.appendChild(manualInput);
-
-    var goBtn = document.createElement('button');
-    goBtn.className = 'btn btn-primary btn-block mt-3';
-    goBtn.textContent = 'Look Up Ball →';
-    goBtn.addEventListener('click', function () {
-      var code = manualInput.value.trim();
-      if (!code || code.length < 4) { JORD.warn('Enter at least 4 characters.'); return; }
-      if (scanner) { scanner.stop(); }
-      loadBall(code);
-    });
-
-    card.appendChild(manualField);
-    card.appendChild(goBtn);
-    root.appendChild(card);
+    setTimeout(function () { codeInput.focus(); }, 100);
   }
 
   /* ─── Helpers ─── */
