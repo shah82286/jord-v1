@@ -55,6 +55,17 @@
     font-size: 11px; font-weight: 700; letter-spacing: 0.12em;
   }
   .live-dot2 { width: 7px; height: 7px; border-radius: 50%; background: #5CB85C; animation: pulse 1.6s ease-in-out infinite; }
+
+  /* Mapbox popup — force legible dark text regardless of page theme */
+  .mapboxgl-popup-content {
+    color: #1a1a1a !important;
+    background: #fff !important;
+    font-size: 13px !important;
+    line-height: 1.5;
+  }
+  .mapboxgl-popup-content strong { color: #0a0a0a !important; }
+  .mapboxgl-popup-content span   { color: #1a1a1a !important; }
+  .mapboxgl-popup-content button { color: #333 !important; }
 </style>
 </head>
 <body>
@@ -343,12 +354,14 @@
       el.title = (b.player_name || b.drop_code) + ' — ' + item.team;
 
       var popup = new mapboxgl.Popup({ offset: 12 }).setHTML(
-        '<strong>' + (b.player_name || b.drop_code) + '</strong><br>'
-        + '<span style="font-family:monospace;font-size:13px;font-weight:700;background:#f0f0f0;padding:1px 6px;border-radius:4px">' + b.drop_code + '</span><br>'
-        + item.team + '<br>'
-        + (b.location_type ? b.location_type : 'not scanned') + '<br>'
-        + (b.final_yards != null ? b.final_yards + ' yd' : b.distance_ft != null ? b.distance_ft + ' ft' : '')
-        + '<br><button onclick="var c=document.getElementById(\'corr-code\');if(c){c.value=\'' + b.drop_code + '\';c.closest(\'.card\').scrollIntoView({behavior:\'smooth\'});}" style="margin-top:6px;font-size:11px;padding:3px 8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer">Fill correction form</button>'
+        '<div style="color:#1a1a1a;font-size:13px;line-height:1.6">'
+        + '<strong style="color:#0a0a0a;display:block;margin-bottom:2px">' + (b.player_name || b.drop_code) + '</strong>'
+        + '<span style="font-family:monospace;font-size:13px;font-weight:700;background:#e8e8e8;padding:1px 6px;border-radius:4px;color:#1a1a1a">' + b.drop_code + '</span><br>'
+        + '<span style="color:#444">' + item.team + '</span><br>'
+        + '<span style="color:#555">' + (b.location_type ? b.location_type : 'not scanned') + '</span><br>'
+        + (b.final_yards != null ? '<span style="font-weight:600;color:#1a1a1a">' + b.final_yards + ' yd</span>' : b.distance_ft != null ? '<span style="font-weight:600;color:#1a1a1a">' + b.distance_ft + ' ft</span>' : '')
+        + '<br><button onclick="var c=document.getElementById(\'corr-code\');if(c){c.value=\'' + b.drop_code + '\';c.closest(\'.card\').scrollIntoView({behavior:\'smooth\'});}" style="margin-top:6px;font-size:11px;padding:3px 8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;color:#333">Fill correction form</button>'
+        + '</div>'
       );
 
       var marker = new mapboxgl.Marker(el).setLngLat([lon, lat]).setPopup(popup).addTo(map);
@@ -465,7 +478,7 @@
 
     var scoreField = document.createElement('div');
     scoreField.className = 'field';
-    scoreField.innerHTML = '<label>Final Score <span style="font-weight:400;color:var(--ink-2)">(yards / feet)</span></label>';
+    scoreField.innerHTML = '<label>Distance Drove <span style="font-weight:400;color:var(--ink-2)">(raw yards — penalty will be subtracted)</span></label>';
     var scoreInput = document.createElement('input');
     scoreInput.className = 'input'; scoreInput.type = 'number'; scoreInput.placeholder = '0';
     scoreField.appendChild(scoreInput);

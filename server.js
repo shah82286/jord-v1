@@ -167,6 +167,10 @@ try { db.exec("ALTER TABLE events ADD COLUMN ctp_pin_lon REAL"); } catch {}
 try { db.exec("ALTER TABLE events ADD COLUMN ctp_green_polygon TEXT"); } catch {}
 try { db.exec("ALTER TABLE events ADD COLUMN ctp_hole_distance_yards REAL DEFAULT 0"); } catch {}
 
+// CTP off-green penalty
+try { db.exec("ALTER TABLE events ADD COLUMN cp_off_green_penalty_ft REAL DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE balls ADD COLUMN cp_penalty_ft REAL DEFAULT 0"); } catch {}
+
 // ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
 app.use(cors({ origin: '*' }));
 app.use(express.json());
@@ -331,6 +335,7 @@ function getCPLeaderboard(eventId) {
         'last_name',    b.last_name,
         'player_index', b.player_index,
         'distance_ft',  b.cp_distance_ft,
+        'penalty_ft',   COALESCE(b.cp_penalty_ft, 0),
         'valid',        b.cp_valid,
         'lat',          b.cp_lat,
         'lon',          b.cp_lon,
@@ -356,7 +361,9 @@ function getCPLeaderboard(eventId) {
       .map(b => ({
         ...b,
         player_name: `${b.first_name||''} ${b.last_name||''}`.trim(),
-        distance_ft: b.distance_ft ? parseFloat(b.distance_ft.toFixed(1)) : null
+        distance_ft: b.distance_ft ? parseFloat(b.distance_ft.toFixed(1)) : null,
+        penalty_ft:  b.penalty_ft  ? parseFloat(b.penalty_ft.toFixed(1))  : 0,
+        raw_ft:      b.distance_ft && b.penalty_ft ? parseFloat((b.distance_ft - b.penalty_ft).toFixed(1)) : (b.distance_ft ? parseFloat(b.distance_ft.toFixed(1)) : null)
       }))
   }));
 }
@@ -457,7 +464,8 @@ app.get('/api/events/:id/public', (req, res) => {
           allow_rough, rough_penalty_mode, rough_fixed_yards,
           allow_oob, oob_penalty_mode, oob_fixed_yards, hole_distance_yards,
           fairway_polygon, rough_polygon, oob_polygon, green_polygon,
-          pin_lat, pin_lon, admin_phone } = ev;
+          pin_lat, pin_lon, admin_phone,
+          ctp_pin_lat, ctp_pin_lon, cp_off_green_penalty_ft } = ev;
   res.json({ id, name, venue, status, has_longest_drive, has_closest_pin,
              allow_rough, rough_penalty_mode, rough_fixed_yards: rough_fixed_yards || 0,
              allow_oob, oob_penalty_mode, oob_fixed_yards: oob_fixed_yards || 0,
@@ -465,6 +473,8 @@ app.get('/api/events/:id/public', (req, res) => {
              fairway_polygon: fairway_polygon || null, rough_polygon: rough_polygon || null,
              oob_polygon: oob_polygon || null, green_polygon: green_polygon || null,
              pin_lat: pin_lat || null, pin_lon: pin_lon || null,
+             ctp_pin_lat: ctp_pin_lat || null, ctp_pin_lon: ctp_pin_lon || null,
+             cp_off_green_penalty_ft: cp_off_green_penalty_ft || 0,
              admin_phone: admin_phone || null, tee_boxes });
 });
 
@@ -493,7 +503,7 @@ app.patch('/api/events/:id', requireAuth, (req, res) => {
     'fairway_polygon','rough_polygon','oob_polygon','green_polygon',
     'pin_lat','pin_lon',
     'ctp_green_polygon','ctp_pin_lat','ctp_pin_lon','ctp_hole_distance_yards',
-    'admin_phone'];
+    'cp_off_green_penalty_ft','admin_phone'];
   const updates = Object.entries(req.body).filter(([k]) => allowed.includes(k));
   if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
   db.prepare(`UPDATE events SET ${updates.map(([k])=>`${k}=?`).join(',')} WHERE id=?`)
@@ -806,6 +816,7 @@ app.post('/api/scan/cp/:code', (req, res) => {
       COALESCE(e.ctp_pin_lat, e.pin_lat) AS pin_lat,
       COALESCE(e.ctp_pin_lon, e.pin_lon) AS pin_lon,
       COALESCE(e.ctp_green_polygon, e.green_polygon) AS green_polygon,
+      COALESCE(e.cp_off_green_penalty_ft, 0) AS cp_off_green_penalty_ft,
       e.id AS event_id
     FROM balls b JOIN events e ON e.id=b.event_id
     WHERE b.drop_code=? ORDER BY b.added_at DESC LIMIT 1
@@ -814,13 +825,15 @@ app.post('/api/scan/cp/:code', (req, res) => {
   if (!ball) return res.status(404).json({ error: 'Ball not found' });
   if (!ball.pin_lat || !ball.pin_lon) return res.status(400).json({ error: 'Pin location not set for this event' });
 
-  const distFt = haversineFeet(parseFloat(lat), parseFloat(lon), ball.pin_lat, ball.pin_lon);
+  const rawFt = haversineFeet(parseFloat(lat), parseFloat(lon), ball.pin_lat, ball.pin_lon);
   const onGreen = ball.green_polygon ? pointInPolygon(parseFloat(lat), parseFloat(lon), ball.green_polygon) : true;
+  const penaltyFt = (!onGreen && ball.cp_off_green_penalty_ft > 0) ? ball.cp_off_green_penalty_ft : 0;
+  const distFt = rawFt + penaltyFt;
 
   db.prepare(`UPDATE balls SET
-    cp_lat=?, cp_lon=?, cp_distance_ft=?, cp_valid=?, cp_scanned_at=CURRENT_TIMESTAMP
+    cp_lat=?, cp_lon=?, cp_distance_ft=?, cp_penalty_ft=?, cp_valid=?, cp_scanned_at=CURRENT_TIMESTAMP
     WHERE drop_code=? AND event_id=?`)
-    .run(parseFloat(lat), parseFloat(lon), distFt, onGreen?1:1, code, ball.event_id);
+    .run(parseFloat(lat), parseFloat(lon), distFt, penaltyFt, onGreen?1:0, code, ball.event_id);
 
   const cpLB = getCPLeaderboard(ball.event_id);
   broadcast(ball.event_id);
@@ -836,6 +849,8 @@ app.post('/api/scan/cp/:code', (req, res) => {
     drop_code: code,
     player: `${ball.first_name} ${ball.last_name}`,
     team: ball.team_name,
+    raw_ft:      parseFloat(rawFt.toFixed(1)),
+    penalty_ft:  parseFloat(penaltyFt.toFixed(1)),
     distance_ft: parseFloat(distFt.toFixed(1)),
     on_green: onGreen,
     is_current_leader: isLeader,
@@ -852,12 +867,14 @@ app.post('/api/admin/correct', requireAuth, (req, res) => {
   if (!oldBall) return res.status(404).json({ error: 'Ball not found' });
 
   if (game === 'ld') {
-    const raw = final_yards ? parseFloat(final_yards) + parseFloat(penalty_yards||0) : oldBall.ld_raw_yards;
+    // final_yards field is the RAW distance the player drove; penalty is subtracted to get the score
+    const raw = parseFloat(final_yards || 0);
+    const pen = parseFloat(penalty_yards || 0);
+    const scored = Math.max(0, raw - pen);
     db.prepare(`UPDATE balls SET ld_lat=?, ld_lon=?, ld_raw_yards=?, ld_penalty_yards=?,
                 ld_final_yards=?, ld_location_type=?, ld_manual_entry=1, ld_scanned_at=CURRENT_TIMESTAMP
                 WHERE drop_code=? AND event_id=?`)
-      .run(lat||oldBall.ld_lat, lon||oldBall.ld_lon, raw,
-           parseFloat(penalty_yards||0), parseFloat(final_yards||0),
+      .run(lat||oldBall.ld_lat, lon||oldBall.ld_lon, raw, pen, scored,
            location_type||oldBall.ld_location_type, code, event_id);
   } else if (game === 'cp') {
     db.prepare(`UPDATE balls SET cp_lat=?, cp_lon=?, cp_distance_ft=?, cp_valid=?, cp_scanned_at=CURRENT_TIMESTAMP

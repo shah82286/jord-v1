@@ -725,17 +725,30 @@
     var card = document.createElement('div');
     card.className = 'card result-card';
 
-    var isLeader = data.is_current_leader;
+    var isLeader    = data.is_current_leader;
+    var hasPenalty  = data.penalty_ft > 0;
+    var phone       = (ballData && ballData.admin_phone) || null;
+    var evId        = (ballData && ballData.event_id) || '';
+
+    var scoreSection = '<div class="result-score" style="color:var(--jord-sky)">' + data.distance_ft + '</div>'
+      + '<div class="result-unit">feet from pin</div>';
+    if (hasPenalty) {
+      scoreSection += '<div style="font-size:13px;color:#ef4444;font-weight:600;margin-top:var(--s-2)">'
+        + data.raw_ft + ' ft raw + ' + data.penalty_ft + ' ft off-green penalty</div>';
+    }
+    if (!data.on_green) {
+      scoreSection += '<div class="mt-2"><span class="badge" style="background:rgba(234,179,8,0.15);color:#b45309;border:1px solid rgba(234,179,8,0.4)">⚠️ Off green' + (hasPenalty ? ' — penalty applied' : '') + '</span></div>';
+    }
+
     card.innerHTML = '<div style="font-size:48px;margin-bottom:12px">' + (isLeader ? '🏆' : '📍') + '</div>'
-      + '<div class="result-score" style="color:var(--jord-sky)">' + data.distance_ft + '</div>'
-      + '<div class="result-unit">feet from pin</div>'
+      + scoreSection
       + (isLeader ? '<div class="badge badge-accent mt-3 pulse">🥇 Current Leader!</div>' : '')
       + ((!isLeader && data.current_leader) ? '<div class="result-meta mt-3">Leader: <strong>' + data.current_leader.team + '</strong> at ' + data.current_leader.distance_ft + ' ft</div>' : '')
       + '<hr class="divider mt-5 mb-4">'
       + '<div class="text-muted" style="font-size:14px"><strong>' + data.player + '</strong> · ' + data.team + '</div>'
-      + '<div class="row gap-3 mt-5" style="justify-content:center">'
-      + '<a class="btn btn-primary" href="/leaderboard/' + (ballData.event_id || '') + '" target="_blank">📺 Live Leaderboard</a>'
-      + '<a class="btn btn-ghost" href="/dashboard/' + (ballData.event_id || '') + '/' + ballData.drop_code + '" target="_blank">📊 My Results</a>'
+      + '<div class="row gap-3 mt-5" style="justify-content:center;flex-wrap:wrap">'
+      + '<a class="btn btn-primary" href="/leaderboard/' + evId + '" target="_blank">📺 Live Leaderboard</a>'
+      + (phone ? '<a class="btn btn-ghost" href="tel:' + phone + '" style="display:flex;align-items:center;gap:6px"><span style="font-size:18px">📞</span> Call Admin</a>' : '')
       + '</div>';
     root.appendChild(card);
   }

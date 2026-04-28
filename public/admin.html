@@ -265,6 +265,16 @@
                 </div>
               </div>
 
+              <hr class="divider">
+              <h4>Closest to Pin — penalty rules</h4>
+              <div class="field-grid">
+                <div class="field">
+                  <label>Off-green penalty (feet)</label>
+                  <input class="input" type="number" name="cp_off_green_penalty_ft" min="0" value="0" title="Feet added to a player's pin distance if their ball does not land on the green. 0 = no penalty.">
+                  <div class="hint">Added to distance when ball is off the green. 0 = off-green shots count at their raw distance.</div>
+                </div>
+              </div>
+
               <div class="row gap-3 mt-3">
                 <button class="btn btn-primary" type="submit" title="Save all tournament settings">Save settings</button>
                 <button class="btn btn-ghost" type="button" id="btn-activate" title="Change status to Active — this opens the tournament for live scanning">Activate tournament</button>
@@ -656,14 +666,14 @@
     }
     f.rough_penalty_mode.value = currentEvent.rough_penalty_mode || 'perpendicular';
     f.oob_penalty_mode.value   = currentEvent.oob_penalty_mode   || 'half_hole';
-    for (const k of ['rough_fixed_yards', 'oob_fixed_yards', 'hole_distance_yards']) f[k].value = currentEvent[k] || 0;
+    for (const k of ['rough_fixed_yards', 'oob_fixed_yards', 'hole_distance_yards', 'cp_off_green_penalty_ft']) f[k].value = currentEvent[k] || 0;
   }
   $('#form-settings').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
     const body = {};
     ['name', 'venue', 'starts_at', 'ends_at', 'rough_penalty_mode', 'oob_penalty_mode', 'admin_phone'].forEach(k => body[k] = f[k].value || null);
-    ['rough_fixed_yards', 'oob_fixed_yards', 'hole_distance_yards'].forEach(k => body[k] = parseFloat(f[k].value) || 0);
+    ['rough_fixed_yards', 'oob_fixed_yards', 'hole_distance_yards', 'cp_off_green_penalty_ft'].forEach(k => body[k] = parseFloat(f[k].value) || 0);
     ['has_longest_drive', 'has_closest_pin', 'combined_scoring', 'allow_rough', 'allow_oob'].forEach(k => body[k] = f[k].checked ? 1 : 0);
     currentEvent = await JORD.api('/api/events/' + currentEvent.id, { method: 'PATCH', body });
     JORD.success('Settings saved');

@@ -115,6 +115,29 @@
     .score-big { font-size: 20px; }
     .lb-name { font-size: 16px !important; }
   }
+
+  /* Selected team card — blue ring visible on both dark and gold leader background */
+  .lb-row.map-selected {
+    box-shadow: inset 4px 0 0 #3B82F6, 0 0 0 2px rgba(59,130,246,0.35) !important;
+  }
+
+  /* Mapbox popup — force legible dark text regardless of page theme */
+  .mapboxgl-popup-content {
+    color: #1a1a1a !important;
+    font-family: var(--font-body, 'Inter', sans-serif);
+    font-size: 13px;
+    line-height: 1.5;
+    padding: 10px 14px;
+    border-radius: 8px;
+    max-width: 220px;
+    background: #fff !important;
+  }
+  .mapboxgl-popup-content strong { color: #0a0a0a !important; }
+  .mapboxgl-popup-content span   { color: #1a1a1a !important; }
+  .mapboxgl-popup-content button {
+    color: #333 !important;
+    margin-top: 6px;
+  }
 </style>
 </head>
 <body class="theme-dark" id="pg">
@@ -160,9 +183,9 @@
       <span>Course Map</span>
       <span id="map-player-count" style="color:var(--ink-2)"></span>
     </div>
-    <div style="display:flex;gap:4px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0">
+    <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;font-size:12px">
       <button id="map-btn-all" style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--primary);color:#fff;cursor:pointer">All Teams</button>
-      <button id="map-btn-team" style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-md);border:1px solid var(--border);background:transparent;color:var(--ink-2);cursor:pointer;display:none">—</button>
+      <span id="map-filter-label" style="color:var(--ink-2);font-size:11px;display:none">← tap team row to filter</span>
     </div>
     <div class="lb-map-container" id="lb-map"></div>
     <div class="lb-map-legend">
@@ -292,11 +315,11 @@
       }
       scoreBlock.appendChild(scoreBig);
       scoreBlock.appendChild(scoreUnit);
-      /* Show team penalty total below the score if any */
+      /* Show penalty note — clarify it is already deducted from the total shown */
       if (mode === 'ld' && team.total_penalty > 0) {
         var penNote = document.createElement('div');
         penNote.style.cssText = 'font-size:11px;color:#ef4444;font-weight:600;margin-top:2px';
-        penNote.textContent = '−' + team.total_penalty + ' yd penalty';
+        penNote.textContent = team.total_penalty + ' yd penalty deducted';
         scoreBlock.appendChild(penNote);
       }
 
@@ -307,21 +330,36 @@
         br.className = 'lb-ball';
         if (mode === 'ld') {
           var hasPenalty = b.penalty_yards > 0 && b.raw_yards != null && b.final_yards != null;
-          var scoreHtml = b.final_yards != null ? b.final_yards + ' yd' : '—';
-          if (hasPenalty) {
-            scoreHtml += '<div style="font-size:10px;color:#ef4444;font-weight:600;white-space:nowrap;margin-top:1px">'
-              + b.raw_yards + '−' + b.penalty_yards + ' pen</div>';
+          var notScored  = b.scanned && b.final_yards === 0 && !hasPenalty && b.location_type !== 'fairway';
+          var scoreHtml;
+          if (notScored) {
+            scoreHtml = '<span style="color:var(--ink-3);font-size:12px">not scored</span>';
+          } else if (hasPenalty) {
+            scoreHtml = b.final_yards + ' yd'
+              + '<div style="font-size:10px;color:#fff;background:#b91c1c;font-weight:700;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block">'
+              + b.raw_yards + ' &minus; ' + b.penalty_yards + ' = ' + b.final_yards + '</div>';
+          } else {
+            scoreHtml = b.final_yards != null ? b.final_yards + ' yd' : '—';
           }
-          br.style.gridTemplateColumns = '28px 1fr 90px 80px';
+          br.style.gridTemplateColumns = '28px 1fr 90px 90px';
           br.innerHTML = '<span style="font-family:var(--font-mono);font-size:11px;opacity:.45">' + (b.player_index||'') + '</span>'
             + '<span class="lb-ball-name">' + (b.player_name || b.drop_code) + '</span>'
             + '<span class="lb-ball-loc">'  + (b.location_type || (b.scanned ? '—' : 'not scanned')) + '</span>'
             + '<span class="lb-ball-score" style="line-height:1.2;text-align:right">' + scoreHtml + '</span>';
         } else {
-          br.style.gridTemplateColumns = '28px 1fr 100px';
+          var cpHasPen  = b.penalty_ft > 0 && b.raw_ft != null && b.distance_ft != null;
+          var cpScoreHtml;
+          if (cpHasPen) {
+            cpScoreHtml = b.distance_ft + ' ft'
+              + '<div style="font-size:10px;color:#fff;background:#b91c1c;font-weight:700;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block">'
+              + b.raw_ft + ' + ' + b.penalty_ft + ' ft off-green</div>';
+          } else {
+            cpScoreHtml = b.distance_ft != null ? b.distance_ft + ' ft' : '—';
+          }
+          br.style.gridTemplateColumns = '28px 1fr 110px';
           br.innerHTML = '<span style="font-family:var(--font-mono);font-size:11px;opacity:.45">' + (b.player_index||'') + '</span>'
             + '<span class="lb-ball-name">'  + (b.player_name || b.drop_code) + '</span>'
-            + '<span class="lb-ball-score">' + (b.distance_ft != null ? b.distance_ft + ' ft' : '—') + '</span>';
+            + '<span class="lb-ball-score" style="line-height:1.2;text-align:right">' + cpScoreHtml + '</span>';
         }
         ballsDiv.appendChild(br);
       });
@@ -349,20 +387,17 @@
 
   /* ── Map filter UI ── */
   function setMapFilterUI() {
-    var btnAll  = document.getElementById('map-btn-all');
-    var btnTeam = document.getElementById('map-btn-team');
-    if (!btnAll || !btnTeam) return;
+    var btnAll = document.getElementById('map-btn-all');
+    var label  = document.getElementById('map-filter-label');
+    if (!btnAll) return;
     if (mapFilter) {
-      btnAll.style.background  = 'transparent';
-      btnAll.style.color       = 'var(--ink-2)';
-      btnTeam.style.display    = '';
-      btnTeam.style.background = 'var(--primary)';
-      btnTeam.style.color      = '#fff';
-      btnTeam.textContent      = mapFilter;
+      btnAll.style.background = 'transparent';
+      btnAll.style.color      = 'var(--ink-2)';
+      if (label) { label.textContent = mapFilter; label.style.display = ''; }
     } else {
-      btnAll.style.background  = 'var(--primary)';
-      btnAll.style.color       = '#fff';
-      btnTeam.style.display    = 'none';
+      btnAll.style.background = 'var(--primary)';
+      btnAll.style.color      = '#fff';
+      if (label) label.style.display = 'none';
       document.querySelectorAll('.lb-row.map-selected').forEach(function (r) { r.classList.remove('map-selected'); });
     }
   }
@@ -494,10 +529,14 @@
       var border = b.rank === 1 ? '#FFD700' : '#fff';
       el.style.cssText = 'width:20px;height:20px;border-radius:50%;border:2px solid ' + border + ';background:' + bg + ';box-shadow:0 2px 4px rgba(0,0,0,0.4);cursor:pointer;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;';
       el.title = b.player + ' · ' + b.team;
-      var popupHtml = '<strong>' + b.player + '</strong><br>' + b.team + '<br>' + b.score;
-      if (b.pen) popupHtml += '<br><span style="color:#ef4444;font-size:11px">' + b.pen + '</span>';
-      if (isLD && b.loc) popupHtml += '<br>' + b.loc;
+      var popupHtml = '<div style="color:#1a1a1a;font-size:13px;line-height:1.6">'
+        + '<strong style="color:#0a0a0a;display:block;margin-bottom:1px">' + b.player + '</strong>'
+        + '<span style="color:#444">' + b.team + '</span><br>'
+        + '<span style="color:#1a1a1a;font-weight:600">' + b.score + '</span>';
+      if (b.pen) popupHtml += '<br><span style="font-size:11px;color:#b91c1c;font-weight:600">' + b.pen + '</span>';
+      if (isLD && b.loc) popupHtml += '<br><span style="color:#555;font-size:12px">' + b.loc + '</span>';
       if (b.rank === 1) popupHtml += '<br>🏆 Leader';
+      popupHtml += '</div>';
       var popup = new mapboxgl.Popup({ offset: 10 }).setHTML(popupHtml);
       var m = new mapboxgl.Marker({ element: el }).setLngLat([b.lon, b.lat]).setPopup(popup).addTo(lbMap);
       ballMarkers.push(m);

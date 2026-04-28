@@ -26,30 +26,33 @@ Default password: `jord2026` (change in `.env`)
 
 ---
 
-### Current State (as of v1.4.0 — 2026-04-27)
+### Current State (as of v1.5.0 — 2026-04-28)
 
 #### What's fully working
 - Tournament event creation with Longest Drive and/or Closest to Pin contests
 - **Course map** (admin): two separate hole configs (LD hole + CTP hole), each with:
   - Freehand click-and-drag polygon drawing for Fairway, Rough, OOB, Green zones
-  - Color-coded zones: Fairway=green `#22C55E`, Rough=yellow `#EAB308`, OOB=red `#DC2626`, Green/CTP=blue `#3B82F6`. Colors now show correctly on the setup map (fixed: draw fill styles use the `kindColor` expression instead of near-transparent black).
-  - Trash can button: deletes the currently selected (clicked) polygon. Useful for removing a single bad zone without clearing everything.
+  - Color-coded zones: Fairway=green `#22C55E`, Rough=yellow `#EAB308`, OOB=red `#DC2626`, Green/CTP=blue `#3B82F6`. Colors show correctly on the setup map (draw fill styles use the `kindColor` Mapbox expression).
+  - Trash can button: deletes the currently selected (clicked) polygon.
   - Multiple tee boxes numbered T1, T2, T3 with per-tee distance to pin displayed
   - Pin placement via map click, GPS grab (10-second accuracy sampling), or drag
   - GPS Trace tool (walk the boundary with phone) with warm-up accuracy phase
   - Selective clear (clear selected polygon only, or confirm-clear all)
-  - Pin latitude/longitude displayed after placement
+  - **CTP off-green penalty** — admin sets penalty in feet; if a CTP shot lands outside the green polygon, that many feet are added to the raw distance. Shown in leaderboard and scan result.
 - Ball pool management (bulk add drop codes, CSV import, QR print)
 - Player self-registration at `/register/:eventId`
-- **Scan page** (`/scan`): code-entry-first flow — player types or pastes their 6-digit ball code, camera is an opt-in button (no auto-popup). Unregistered codes show a friendly "Ball Not Registered" screen with instructions.
-- On-course shot scanning: GPS locks, player picks Fairway/Rough/OOB/Lost, submits → full-screen satellite flyover animation (tee → ball gold line draws, ball pops, yardage counts up) then fades to compact result card with encouragement, yardage, penalty breakdown, and optional Call Admin button.
+- **Scan page** (`/scan`): code-entry-first flow — player types their 6-digit ball code, camera is opt-in. Unregistered codes show a "Ball Not Registered" screen with instructions.
+- On-course shot scanning: GPS locks, player picks Fairway/Rough/OOB/Lost, submits → full-screen satellite flyover animation then fades to compact result card with encouragement, yardage, penalty breakdown, and optional Call Admin button.
 - **Live leaderboard** at `/leaderboard/:eventId`:
-  - Penalty yards now shown: player row shows `final_yards yd` with `raw−pen pen` below in red; team total shows `−N yd penalty` under the team score.
-  - Map panel has **All Teams** / **[Team Name]** toggle buttons — clicking a team on the leaderboard filters the map to just that team's dots (auto-fits view); clicking "All Teams" resets.
-  - Map popups show penalty breakdown in red.
+  - Penalty display: player row shows `final yd` with a red badge `raw − pen = final` below it. Team total shows `N yd penalty deducted`.
+  - Map panel: clicking a team card in the list filters the map to just that team's dots (auto-fits view). Active filter shows the team name label. "All Teams" button resets.
+  - Map-selected visual: blue ring/left-border (`#3B82F6`) — visible on both dark cards and the gold leader card.
+  - Map popups: all text forced dark (`color:#1a1a1a`) via inline styles — no longer invisible on the dark theme.
 - **Monitor dashboard** at `/monitor/:eventId`:
-  - Map has **On Hole** / **All Players** toggle — "On Hole" hides fully-submitted teams to reduce clutter.
-  - Clicking a ball dot shows the player's 6-digit ball code in the popup + a "Fill correction form" button that auto-populates the Admin Correction code field.
+  - Map toggle: **On Hole** / **All Players** — "On Hole" hides fully-submitted teams to reduce clutter.
+  - Clicking a ball dot shows the player's 6-digit ball code + "Fill correction form" button that auto-populates the code field.
+  - Map popups: dark text, forced via inline styles and CSS override.
+- **Admin correction**: "Distance Drove" field = raw yards; penalty is subtracted server-side to get final score.
 - Demo scan mode — no ball code needed, calculates distance client-side
 - End tournament — locks scoring, Klaviyo notifications
 - CSV export of all player/team data
@@ -86,11 +89,11 @@ Key `events` columns (recent additions auto-migrate on startup):
 ---
 
 ### Known Issues / Next Up
-1. **Polygon vertex editing UX** — after drawing a polygon the user can click it and drag vertices to adjust; this works but there's no clear on-screen hint that it's possible
-2. **CTP scoring distance** — the per-tee distance is calculated and shown in admin but not yet factored into CTP scoring (CTP uses ball-to-pin haversine directly, which is correct)
-3. **GPS trace on desktop** — trace tool designed for walking on-course; desktop users need to use freehand drawing instead
-4. **Demo mode CTP** — demo scan only supports Longest Drive, not Closest to Pin
-5. **Penalty display on result screen** — scan.html result card shows raw yardage only for demo mode (client-side calc); server-scan result correctly shows penalty breakdown
+1. **Polygon vertex editing UX** — after drawing a polygon the user can click it and drag vertices to adjust; works but there's no on-screen hint
+2. **GPS trace on desktop** — trace tool designed for walking on-course; desktop users need to use freehand drawing instead
+3. **Demo mode CTP** — demo scan only supports Longest Drive, not Closest to Pin
+4. **Mobile optimization review** — user requested a full review of all pages at 375px; not yet done
+5. **Penalty display formula** — uses a red badge (`raw − pen = final`) that shows on both dark and gold backgrounds; consistent across LD and CTP rows
 
 ---
 
