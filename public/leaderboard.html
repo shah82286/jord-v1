@@ -27,7 +27,7 @@
     transition: background 0.4s, color 0.4s;
   }
   .live-badge.is-ended {
-    background: rgba(201,162,74,0.18); color: #C9A24A;
+    background: rgba(190,255,58,0.15); color: #BEFF3A;
   }
   .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #5CB85C; animation: pulse 1.6s ease-in-out infinite; }
 
@@ -58,7 +58,7 @@
   .leg-rough::before   { background: rgba(234,179,8,0.7); }
   .leg-oob::before     { background: rgba(220,38,38,0.7); }
   .leg-green::before   { background: rgba(59,130,246,0.7); }
-  .leg-ld::before      { background: #C9A24A; border-radius: 50% !important; }
+  .leg-ld::before      { background: #BEFF3A; border-radius: 50% !important; }
   .leg-cp::before      { background: #4A90E4; border-radius: 50% !important; }
 
   .lb-inner { max-width: 960px; margin: 0 auto; }
@@ -483,7 +483,7 @@
       /* Tee markers */
       (ev.tee_boxes || []).forEach(function (t) {
         var tEl = document.createElement('div');
-        tEl.style.cssText = 'background:#C9A24A;color:#1a1a1a;border:2px solid #fff;border-radius:50%;width:24px;height:24px;display:grid;place-items:center;font-size:12px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.3)';
+        tEl.style.cssText = 'background:#BEFF3A;color:#1a1a1a;border:2px solid #fff;border-radius:50%;width:24px;height:24px;display:grid;place-items:center;font-size:12px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.3)';
         tEl.textContent = 'T';
         new mapboxgl.Marker({ element: tEl }).setLngLat([t.lon, t.lat])
           .setPopup(new mapboxgl.Popup().setText(t.name + ' Tee')).addTo(lbMap);
@@ -520,12 +520,12 @@
       });
     });
 
-    var locColor = { fairway: '#4CAF50', rough: '#C9A24A', oob: '#C0392B', lost: '#C0392B' };
+    var locColor = { fairway: '#4CAF50', rough: '#BEFF3A', oob: '#C0392B', lost: '#C0392B' };
 
     allBalls.forEach(function (b) {
       var el = document.createElement('div');
       var isLD = b.type === 'ld';
-      var bg = isLD ? (locColor[b.loc] || '#C9A24A') : '#4A90E4';
+      var bg = isLD ? (locColor[b.loc] || '#BEFF3A') : '#4A90E4';
       var border = b.rank === 1 ? '#FFD700' : '#fff';
       el.style.cssText = 'width:20px;height:20px;border-radius:50%;border:2px solid ' + border + ';background:' + bg + ';box-shadow:0 2px 4px rgba(0,0,0,0.4);cursor:pointer;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;';
       el.title = b.player + ' · ' + b.team;

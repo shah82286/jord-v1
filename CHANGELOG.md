@@ -2,6 +2,39 @@
 
 ---
 
+## v1.5.0 — 2026-04-28
+### Session 5 — Rumble Brand Color Theme
+
+#### What Changed
+- Full platform retheme to match Rumble Golf Co. brand identity
+- Replaced warm cream/gold palette with deep forest green + neon lime-green
+- New `:root` variables in `public/css/jord.css`:
+  - `--bg` / `--jord-fairway` → `#0C2010` (deep forest green background)
+  - `--surface` → `#142B17`, `--surface-2` → `#1C3A20` (dark green card surfaces)
+  - `--jord-gold` / `--accent` / `--primary` → `#BEFF3A` (neon lime-green)
+  - `--jord-gold-2` → `#A8E62E` (darker lime for hovers)
+  - `--ink` → `#F0F7E8` (soft light text), `--ink-2` → `#7FA882` (muted green)
+  - `--danger` → `#FF4C4C` (brighter red on dark bg)
+  - `--border` uses `rgba(190,255,58,0.12)` (lime tint instead of old green)
+- `.theme-dark` (TV leaderboard) updated to match — same green family, even richer
+- `.lb-row.is-leader` and `.theme-dark .lb-row.is-leader` text changed from `var(--jord-charcoal)` to `var(--primary-ink)` so leader-row text stays dark on the bright lime background
+- `.btn-accent` text color changed to `var(--primary-ink)` (consistent)
+- All hardcoded `#C9A24A` (old gold) in admin.html, leaderboard.html, scan.html, test.html, mapdiag.html → `#BEFF3A`
+- All hardcoded `rgba(201,162,74,…)` tint backgrounds → `rgba(190,255,58,…)`
+- Print button in admin QR modal updated from dark-green to lime
+
+#### Files Changed
+| File | What changed |
+|------|-------------|
+| `public/css/jord.css` | Full `:root` palette swap; `.theme-dark` update; `.is-leader` text fix; `.btn-accent` text fix |
+| `public/admin.html` | All `#C9A24A` → `#BEFF3A`; accent tint backgrounds updated; print button rethemed |
+| `public/leaderboard.html` | All `#C9A24A` → `#BEFF3A`; badge rgba updated |
+| `public/scan.html` | All `#C9A24A` → `#BEFF3A` (shot line, tee marker, ball marker) |
+| `public/test.html` | All `#C9A24A` → `#BEFF3A`; accent tint updated |
+| `public/mapdiag.html` | `#C9A24A` → `#BEFF3A` |
+
+---
+
 ## v1.3.0 — 2026-04-27
 ### Session 4 — Course Map Overhaul, Two-Hole Setup, GPS Accuracy, Mobile Optimization
 

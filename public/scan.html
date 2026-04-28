@@ -439,7 +439,7 @@
     ydsPanel.style.cssText = 'text-align:center;padding:16px 16px 48px;background:linear-gradient(to top,rgba(0,0,0,0.92) 0%,rgba(0,0,0,0) 100%);flex-shrink:0;position:relative';
     var ydsEl = document.createElement('div');
     ydsEl.id = 'flyover-yards';
-    ydsEl.style.cssText = 'font-family:var(--font-display);font-size:min(24vw,120px);font-weight:700;line-height:1;color:#C9A24A;text-shadow:0 4px 24px rgba(0,0,0,0.7)';
+    ydsEl.style.cssText = 'font-family:var(--font-display);font-size:min(24vw,120px);font-weight:700;line-height:1;color:#BEFF3A;text-shadow:0 4px 24px rgba(0,0,0,0.7)';
     ydsEl.textContent = '—';
     var ydsLbl = document.createElement('div');
     ydsLbl.style.cssText = 'font-size:22px;color:rgba(255,255,255,0.6);margin-top:8px;font-weight:600;letter-spacing:0.04em';
@@ -532,17 +532,17 @@
 
         /* Animated shot line */
         map.addSource('shot', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [[data.tee_lon, data.tee_lat]] } } });
-        map.addLayer({ id: 'shot', type: 'line', source: 'shot', paint: { 'line-color': '#C9A24A', 'line-width': 4 } });
+        map.addLayer({ id: 'shot', type: 'line', source: 'shot', paint: { 'line-color': '#BEFF3A', 'line-width': 4 } });
 
         /* Tee marker */
         var tEl = document.createElement('div');
-        tEl.style.cssText = 'width:30px;height:30px;border-radius:50%;background:#C9A24A;border:3px solid #fff;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;box-shadow:0 3px 10px rgba(0,0,0,0.7)';
+        tEl.style.cssText = 'width:30px;height:30px;border-radius:50%;background:#BEFF3A;border:3px solid #fff;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;box-shadow:0 3px 10px rgba(0,0,0,0.7)';
         tEl.textContent = 'T';
         new mapboxgl.Marker({ element: tEl }).setLngLat([data.tee_lon, data.tee_lat]).addTo(map);
 
         /* Ball landing marker — hidden until animation ends */
         var bEl = document.createElement('div');
-        bEl.style.cssText = 'width:26px;height:26px;border-radius:50%;background:#fff;border:4px solid #C9A24A;box-shadow:0 3px 12px rgba(0,0,0,0.7);opacity:0;transform:scale(0.1);transition:opacity 0.4s,transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275)';
+        bEl.style.cssText = 'width:26px;height:26px;border-radius:50%;background:#fff;border:4px solid #BEFF3A;box-shadow:0 3px 12px rgba(0,0,0,0.7);opacity:0;transform:scale(0.1);transition:opacity 0.4s,transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275)';
         new mapboxgl.Marker({ element: bEl }).setLngLat([data.ball_lon, data.ball_lat]).addTo(map);
 
         /* Draw line tee → ball over 2000 ms */
@@ -614,15 +614,15 @@
 
         /* Complete shot line (static) */
         map2.addSource('shot', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [[data.tee_lon, data.tee_lat], [data.ball_lon, data.ball_lat]] } } });
-        map2.addLayer({ id: 'shot', type: 'line', source: 'shot', paint: { 'line-color': '#C9A24A', 'line-width': 3 } });
+        map2.addLayer({ id: 'shot', type: 'line', source: 'shot', paint: { 'line-color': '#BEFF3A', 'line-width': 3 } });
 
         var tEl = document.createElement('div');
-        tEl.style.cssText = 'width:22px;height:22px;border-radius:50%;background:#C9A24A;border:2px solid #fff;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;box-shadow:0 2px 5px rgba(0,0,0,0.6)';
+        tEl.style.cssText = 'width:22px;height:22px;border-radius:50%;background:#BEFF3A;border:2px solid #fff;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;box-shadow:0 2px 5px rgba(0,0,0,0.6)';
         tEl.textContent = 'T';
         new mapboxgl.Marker({ element: tEl }).setLngLat([data.tee_lon, data.tee_lat]).addTo(map2);
 
         var bEl = document.createElement('div');
-        bEl.style.cssText = 'width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid #C9A24A;box-shadow:0 2px 6px rgba(0,0,0,0.6)';
+        bEl.style.cssText = 'width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid #BEFF3A;box-shadow:0 2px 6px rgba(0,0,0,0.6)';
         new mapboxgl.Marker({ element: bEl }).setLngLat([data.ball_lon, data.ball_lat]).addTo(map2);
       });
     });

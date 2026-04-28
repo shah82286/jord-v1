@@ -28,7 +28,7 @@
   .map-legend { display: flex; flex-wrap: wrap; gap: var(--s-3); font-size: 12px; color: var(--ink-2); margin-top: var(--s-2); }
   .map-legend span { display: inline-flex; align-items: center; gap: 6px; }
   .map-legend span::before { content: ''; display: inline-block; width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
-  .legend-tee::before { background: #C9A24A; }
+  .legend-tee::before { background: #BEFF3A; }
   .legend-fairway::before { background: #22C55E; }
   .legend-rough::before { background: #EAB308; }
   .legend-oob::before   { background: #DC2626; }
@@ -99,7 +99,7 @@
 
   /* ── Ended lock ── */
   .ended-banner {
-    background: rgba(201,162,74,0.1); border: 1px solid var(--accent);
+    background: rgba(190,255,58,0.1); border: 1px solid var(--accent);
     border-radius: var(--r-md); padding: 14px 18px;
     display: flex; justify-content: space-between; align-items: center; gap: var(--s-3);
     margin-bottom: var(--s-3);
@@ -1227,7 +1227,7 @@
       const group = isLd ? ldTees : ctpTees;
       const num = group.indexOf(t) + 1;
       const elDiv = document.createElement('div');
-      elDiv.style.cssText = `background:${isLd ? '#C9A24A' : '#3B82F6'};color:${isLd ? '#1a1a1a' : '#fff'};border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:grid;place-items:center;font-size:11px;font-weight:700;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,0.3);`;
+      elDiv.style.cssText = `background:${isLd ? '#BEFF3A' : '#3B82F6'};color:${isLd ? '#1a1a1a' : '#fff'};border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:grid;place-items:center;font-size:11px;font-weight:700;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,0.3);`;
       elDiv.textContent = `T${num}`;
       elDiv.title = `T${num} ${t.name} (${isLd ? 'LD' : 'CTP'}) — drag to reposition`;
       const m = new mapboxgl.Marker({ element: elDiv, draggable: true })
@@ -1475,7 +1475,7 @@
   .qr-card.assigned { background: #f0f8f0; border-color: #a0d4a0; }
   .qr-label { font-size: 13px; font-weight: 700; word-break: break-all; margin-top: 2px; }
   .qr-sub { font-size: 10px; color: #666; margin-top: 3px; }
-  .print-btn { padding: 8px 20px; background: #0F3D2E; color: #fff; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-bottom: 20px; }
+  .print-btn { padding: 8px 20px; background: #BEFF3A; color: #0C2010; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-bottom: 20px; }
   @media print { .print-btn { display: none; } }
 </style></head><body>
 <h1>${currentEvent.name}</h1>

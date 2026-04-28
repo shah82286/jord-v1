@@ -26,7 +26,7 @@ Default password: `jord2026` (change in `.env`)
 
 ---
 
-### Current State (as of v1.5.0 — 2026-04-28)
+### Current State (as of v1.5.0 — 2026-04-28, theme updated)
 
 #### What's fully working
 - Tournament event creation with Longest Drive and/or Closest to Pin contests
@@ -65,6 +65,12 @@ Key `events` columns (recent additions auto-migrate on startup):
 - `ctp_pin_lat`, `ctp_pin_lon` — CTP hole pin coordinates
 - `ctp_green_polygon` — CTP green boundary GeoJSON string
 - `ctp_hole_distance_yards` — CTP tee-to-pin distance
+
+#### Color theme (v1.5.0)
+- Platform uses a **Rumble Golf Co. inspired dark palette**: deep forest green backgrounds, neon lime-green accent
+- CSS variables in `public/css/jord.css` `:root`: `--bg: #0C2010`, `--surface: #142B17`, `--primary / --accent: #BEFF3A`, `--ink: #F0F7E8`
+- All hardcoded gold `#C9A24A` has been replaced with `#BEFF3A` across all HTML files
+- `.is-leader` leaderboard row gradient uses lime; text uses `var(--primary-ink)` = `#0C2010` (dark on bright)
 
 #### Key architectural decisions
 - **Polygon colors**: MapboxDraw polygon fill styles now use the `kindColor` Mapbox expression directly (reads `user_kind` / `kind` property). `syncZoneLayers()` also maintains 5 dedicated GeoJSON sources (`zone-fairway`, `zone-rough`, etc.) as a secondary colored-fill mechanism.

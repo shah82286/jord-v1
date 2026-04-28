@@ -5,34 +5,34 @@
    ───────────────────────────────────────────────────────────────────────── */
 
 :root {
-  /* Brand */
-  --jord-fairway:      #0F3D2E;   /* deep fairway green — primary */
-  --jord-fairway-2:    #1B5E45;   /* lighter fairway for hovers */
-  --jord-cream:        #F4EFE3;   /* warm off-white background */
-  --jord-cream-2:      #ECE5D2;   /* slightly deeper cream */
-  --jord-charcoal:     #1A1A1A;   /* near-black text */
-  --jord-charcoal-2:   #3A3A3A;   /* secondary text */
-  --jord-gold:         #C9A24A;   /* accent — winner / highlight */
-  --jord-gold-2:       #B58E37;
-  --jord-flag-red:     #C0392B;   /* danger / alerts */
-  --jord-sand:         #E8DCC0;   /* bunker — surfaces */
-  --jord-sky:          #4A90A4;   /* secondary accent */
+  /* Brand — Rumble-inspired dark forest green + neon lime */
+  --jord-fairway:      #0C2010;   /* deepest forest green — page background */
+  --jord-fairway-2:    #1C3A20;   /* mid forest green — hover states */
+  --jord-cream:        #0C2010;   /* replaced: page bg is now dark green */
+  --jord-cream-2:      #142B17;   /* replaced: surface shade */
+  --jord-charcoal:     #F0F7E8;   /* replaced: primary text is now light */
+  --jord-charcoal-2:   #7FA882;   /* replaced: secondary text — muted green */
+  --jord-gold:         #BEFF3A;   /* replaced: neon lime-green accent */
+  --jord-gold-2:       #A8E62E;   /* replaced: darker lime for hover */
+  --jord-flag-red:     #FF4C4C;   /* danger / alerts — brighter on dark bg */
+  --jord-sand:         #1C3A20;   /* replaced: surface variant */
+  --jord-sky:          #5EC46A;   /* secondary accent — medium green */
 
   /* Semantic */
-  --bg:           var(--jord-cream);
-  --surface:      #FFFFFF;
-  --surface-2:    var(--jord-cream-2);
-  --ink:          var(--jord-charcoal);
-  --ink-2:        var(--jord-charcoal-2);
-  --primary:      var(--jord-fairway);
-  --primary-ink:  #FFFFFF;
-  --accent:       var(--jord-gold);
-  --danger:       var(--jord-flag-red);
-  --border:       rgba(15, 61, 46, 0.14);
-  --border-2:     rgba(15, 61, 46, 0.28);
-  --shadow-sm:    0 1px 2px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.06);
-  --shadow-md:    0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
-  --shadow-lg:    0 16px 40px rgba(0,0,0,0.12), 0 6px 12px rgba(0,0,0,0.06);
+  --bg:           #0C2010;
+  --surface:      #142B17;
+  --surface-2:    #1C3A20;
+  --ink:          #F0F7E8;
+  --ink-2:        #7FA882;
+  --primary:      #BEFF3A;
+  --primary-ink:  #0C2010;
+  --accent:       #BEFF3A;
+  --danger:       #FF4C4C;
+  --border:       rgba(190, 255, 58, 0.12);
+  --border-2:     rgba(190, 255, 58, 0.24);
+  --shadow-sm:    0 1px 2px rgba(0,0,0,0.20), 0 1px 3px rgba(0,0,0,0.30);
+  --shadow-md:    0 4px 12px rgba(0,0,0,0.30), 0 2px 4px rgba(0,0,0,0.20);
+  --shadow-lg:    0 16px 40px rgba(0,0,0,0.40), 0 6px 12px rgba(0,0,0,0.25);
 
   /* Type */
   --font-display: 'Playfair Display', 'Georgia', 'Times New Roman', serif;
@@ -54,15 +54,16 @@
 
 /* Optional dark mode (used for TV-mode leaderboard) */
 .theme-dark {
-  --bg:        #0B1F18;
-  --surface:   #102A21;
-  --surface-2: #16382B;
-  --ink:       #F4EFE3;
-  --ink-2:     #B8C7BF;
-  --primary:   var(--jord-gold);
-  --primary-ink: #0B1F18;
-  --border:    rgba(244, 239, 227, 0.12);
-  --border-2:  rgba(244, 239, 227, 0.24);
+  --bg:        #070F08;
+  --surface:   #0C2010;
+  --surface-2: #142B17;
+  --ink:       #F0F7E8;
+  --ink-2:     #7FA882;
+  --primary:   #BEFF3A;
+  --primary-ink: #070F08;
+  --accent:    #BEFF3A;
+  --border:    rgba(190, 255, 58, 0.12);
+  --border-2:  rgba(190, 255, 58, 0.24);
 }
 
 /* ─── Reset ───────────────────────────────────────────────────────────── */
@@ -166,7 +167,7 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
 .btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .btn-primary    { background: var(--primary); color: var(--primary-ink); }
 .btn-primary:hover  { background: var(--jord-fairway-2); }
-.btn-accent     { background: var(--accent); color: var(--jord-charcoal); }
+.btn-accent     { background: var(--accent); color: var(--primary-ink); }
 .btn-accent:hover   { background: var(--jord-gold-2); }
 .btn-ghost      { background: transparent; color: var(--ink); border-color: var(--border-2); }
 .btn-ghost:hover{ background: var(--surface-2); }
@@ -314,10 +315,10 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
 .lb-row:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
 .lb-row.is-leader {
   background: linear-gradient(95deg, var(--accent) 0%, var(--jord-gold-2) 100%);
-  color: var(--jord-charcoal); border-color: var(--jord-gold-2);
+  color: var(--primary-ink); border-color: var(--jord-gold-2);
 }
 .lb-row.is-leader .lb-rank,
-.lb-row.is-leader .lb-meta { color: var(--jord-charcoal); }
+.lb-row.is-leader .lb-meta { color: var(--primary-ink); }
 .lb-rank {
   font-family: var(--font-display); font-size: 36px; font-weight: 700;
   text-align: center; color: var(--ink-2); line-height: 1;
@@ -346,7 +347,7 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
 
 /* TV mode (full screen) */
 .theme-dark .lb-row { background: var(--surface); border-color: var(--border-2); }
-.theme-dark .lb-row.is-leader { background: linear-gradient(95deg, var(--accent), var(--jord-gold-2)); color: var(--jord-charcoal); }
+.theme-dark .lb-row.is-leader { background: linear-gradient(95deg, var(--accent), var(--jord-gold-2)); color: var(--primary-ink); }
 .tv-mode .lb-row { padding: var(--s-5); margin-bottom: var(--s-4); }
 .tv-mode .lb-rank  { font-size: 56px; }
 .tv-mode .lb-name  { font-size: 32px; }
