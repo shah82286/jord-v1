@@ -95,11 +95,39 @@ Key `events` columns (recent additions auto-migrate on startup):
 ---
 
 ### Known Issues / Next Up
+
+#### 🔴 PRIORITY: Penalty scoring display bug (picked up next session)
+The user reported: **"100 − 20 does not equal 100 — it should be 80."**
+
+We reviewed the full scoring flow but stopped before fixing because we needed one clarifying answer first. **At the start of the next session, ask the user:**
+
+> "When you look at the main leaderboard, does the big score number say **100** (and you expect 80), or does it say **80** but the −20 badge below it is confusing you?"
+
+That answer determines which of these bugs to fix:
+
+**Option A — Big number is wrong (100, should be 80)**
+- `ld_final_yards` may be stored as raw (not penalty-applied). Fix: verify the scan save logic in `server.js` around line 797–802, and the DB values.
+
+**Option B — Big number is correct (80) but badge is confusing**
+- The red badge `−20 yd penalty` below the score reads like the deduction is still coming. Fix: change badge label to `"20 yd penalty already deducted"` or remove it and fold the breakdown into the per-player rows only.
+
+**Also confirmed needs fixing regardless:**
+- The **admin Players tab** shows zero scoring info per player — no yards, no penalty, no location. Needs a score column added to each player row.
+- The penalty badge is visible in **all score displays across the platform** (leaderboard, admin, monitor map popups). Once the correct fix for Option A or B is confirmed, all of these need to reflect the final (post-penalty) number consistently.
+
+**How the scoring math actually works (verified by code review):**
+- Scan: `rawYards` (GPS haversine) → `penaltyYards` (per location/rules) → `finalYards = raw − penalty` → saved to `ld_raw_yards`, `ld_penalty_yards`, `ld_final_yards`
+- Leaderboard SQL: `SUM(ld_final_yards) AS total_yards` — should be post-penalty
+- Admin correction form: "Distance Drove" field = RAW yards; penalty entered separately; server computes `scored = raw − penalty` and saves correctly
+- CTP penalty is **added** (larger distance = worse); `cp_distance_ft = raw_ft + penalty_ft`
+
+---
+
+#### Other known issues
 1. **Polygon vertex editing UX** — after drawing a polygon the user can click it and drag vertices to adjust; works but there's no on-screen hint
 2. **GPS trace on desktop** — trace tool designed for walking on-course; desktop users need to use freehand drawing instead
 3. **Demo mode CTP** — demo scan only supports Longest Drive, not Closest to Pin
 4. **Mobile optimization review** — user requested a full review of all pages at 375px; not yet done
-5. **Penalty display formula** — uses a red badge (`raw − pen = final`) that shows on both dark and gold backgrounds; consistent across LD and CTP rows
 
 ---
 
