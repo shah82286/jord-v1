@@ -26,7 +26,7 @@ Default password: `jord2026` (change in `.env`)
 
 ---
 
-### Current State (as of v1.5.0 — 2026-04-28, theme updated)
+### Current State (as of v1.6.0 — 2026-04-29)
 
 #### What's fully working
 - Tournament event creation with Longest Drive and/or Closest to Pin contests
@@ -57,6 +57,12 @@ Default password: `jord2026` (change in `.env`)
 - End tournament — locks scoring, Klaviyo notifications
 - CSV export of all player/team data
 - Full mobile responsive design across all pages
+- **ngrok phone testing** — full player experience testable on iPhone via ngrok HTTPS tunnel
+  - `ngrok http 3000` exposes localhost; Safari GPS works because HTTPS
+  - Test page at `/test.html` auto-generates QR codes for every page using current origin (works on both localhost and ngrok URL)
+  - QR codes generated for: Admin, Ball Scan (player), Rep Monitor (uses first active event), per-event Leaderboard + Monitor + Register + Submit Shot
+  - `/qr.html` — standalone scan-to-open QR for the scan page
+  - **GPS note**: iPhone Safari blocks GPS on plain HTTP (local IP). Always use ngrok URL for full phone GPS testing.
 
 #### Database schema
 Tables: `events`, `tee_boxes`, `balls`, `teams`, `rep_alerts`, `admin_corrections`, `sms_log`

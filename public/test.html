@@ -53,11 +53,22 @@
         </div>
         <div class="qr-box">
           <img id="qr-scan" width="200" height="200" alt="Scan QR">
-          <div class="qr-label">Ball Scan</div>
+          <div class="qr-label">Ball Scan (Player)</div>
           <div class="qr-url" id="qr-scan-url"></div>
+        </div>
+        <div class="qr-box" id="qr-monitor-box">
+          <div id="qr-monitor-loading" style="width:200px;height:200px;display:grid;place-items:center;color:var(--ink-2);font-size:12px">Loading events…</div>
+          <img id="qr-monitor" width="200" height="200" alt="Monitor QR" style="display:none">
+          <div class="qr-label">Rep Monitor</div>
+          <div class="qr-url" id="qr-monitor-url">Requires an active event</div>
         </div>
       </div>
       <div class="mt-4" style="background:rgba(190,255,58,0.1);border:1px solid var(--accent);border-radius:var(--r-md);padding:12px 16px;font-size:13px">
+        <strong>📍 iPhone GPS note:</strong> Safari requires <strong>HTTPS</strong> for location access.
+        GPS works automatically via ngrok (<code>https://…ngrok-free.app</code>).
+        On local Wi-Fi (<code>http://192.168.x.x</code>) GPS will be blocked by iOS — use ngrok for full phone testing.
+      </div>
+      <div class="mt-3" style="background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:var(--r-md);padding:12px 16px;font-size:13px">
         <strong>Can't connect?</strong> Make sure both devices are on the same Wi-Fi. On Windows, search <em>"Allow an app through Windows Firewall"</em> and make sure Node.js is allowed on Private networks.
       </div>
     </div>
@@ -281,7 +292,8 @@
   document.getElementById('sim-event').addEventListener('change', function () {
     loadSimEvent(this.value);
   });
-  var localBase = window.location.origin; // fallback
+  /* Use current origin so QR codes work on both localhost AND ngrok */
+  var localBase = window.location.origin;
 
   function qrSrc(url, size) {
     return '/api/qr?size=' + (size || 200) + '&data=' + encodeURIComponent(url);
@@ -293,19 +305,20 @@
     fetch('/api/config').then(r => r.json()).catch(() => ({}))
   ]);
   mapboxToken = cfg.mapbox_token || '';
-  localBase = 'http://' + info.localIP + ':' + info.port;
 
   /* Connect section */
   document.getElementById('connect-loading').style.display = 'none';
   document.getElementById('connect-info').style.display = '';
   document.getElementById('ip-url').textContent = localBase;
 
-  var adminUrl = localBase + '/admin';
-  var scanUrl  = localBase + '/scan';
+  var adminUrl   = localBase + '/admin';
+  var scanUrl    = localBase + '/scan';
+  var monitorUrl = localBase + '/monitor';
   document.getElementById('qr-admin-url').textContent = adminUrl;
   document.getElementById('qr-scan-url').textContent  = scanUrl;
   document.getElementById('qr-admin').src = qrSrc(adminUrl, 200);
   document.getElementById('qr-scan').src  = qrSrc(scanUrl, 200);
+  /* Monitor QR updated after events load — needs event ID */
 
   /* ── GPS simulator map ── */
   function updateGenerateBtn() {
@@ -435,6 +448,18 @@
       }
 
       var wrap = document.getElementById('events-links');
+      /* Wire Monitor QR in connect section to first active (or any) event */
+      var topMonEvent = events.find(function(e){ return e.status === 'active'; }) || events[0];
+      if (topMonEvent) {
+        var topMonUrl = localBase + '/monitor/' + topMonEvent.id;
+        document.getElementById('qr-monitor-loading').style.display = 'none';
+        document.getElementById('qr-monitor').style.display = '';
+        document.getElementById('qr-monitor').src = qrSrc(topMonUrl, 200);
+        document.getElementById('qr-monitor-url').textContent = topMonUrl;
+      } else {
+        document.getElementById('qr-monitor-loading').textContent = 'No events yet';
+      }
+
       if (!events.length) {
         wrap.innerHTML = '<p style="color:var(--ink-2);font-size:13px">No events yet — create one in admin first.</p>';
         document.getElementById('demo-noevent').style.display = '';
@@ -442,6 +467,7 @@
         events.forEach(function (ev) {
           var lbUrl  = localBase + '/leaderboard/' + ev.id;
           var regUrl = localBase + '/register/' + ev.id;
+          var monUrl = localBase + '/monitor/' + ev.id;
           var row = document.createElement('div');
           row.className = 'ev-row';
           row.innerHTML =
@@ -451,12 +477,14 @@
             + (ev.venue ? '<div style="font-size:12px;color:var(--ink-2);margin-top:2px">' + ev.venue + '</div>' : '') + '</div>'
             + '<div style="display:flex;gap:8px;flex-wrap:wrap">'
             + '<a href="' + lbUrl + '" target="_blank" class="btn btn-ghost" style="font-size:12px">📺 Leaderboard</a>'
+            + '<a href="' + monUrl + '" target="_blank" class="btn btn-ghost" style="font-size:12px">🖥 Monitor</a>'
             + '<a href="' + regUrl + '" target="_blank" class="btn btn-ghost" style="font-size:12px">📱 Register</a>'
             + '</div></div>'
             + '<div class="ev-qr-row">'
-            + '<div class="ev-qr-item"><img src="' + qrSrc(lbUrl, 130) + '" width="130" height="130" alt="Leaderboard QR"><div class="qr-sub">Leaderboard</div></div>'
-            + '<div class="ev-qr-item"><img src="' + qrSrc(regUrl, 130) + '" width="130" height="130" alt="Registration QR"><div class="qr-sub">Registration</div></div>'
-            + '<div class="ev-qr-item"><img src="' + qrSrc(localBase + '/scan', 130) + '" width="130" height="130" alt="Submit Shot QR"><div class="qr-sub" style="color:var(--accent);font-weight:700">Submit My Shot</div></div>'
+            + '<div class="ev-qr-item"><img src="' + qrSrc(lbUrl, 130) + '" width="130" height="130" alt="Leaderboard QR"><div class="qr-sub">📺 Leaderboard</div></div>'
+            + '<div class="ev-qr-item"><img src="' + qrSrc(monUrl, 130) + '" width="130" height="130" alt="Monitor QR"><div class="qr-sub">🖥 Rep Monitor</div></div>'
+            + '<div class="ev-qr-item"><img src="' + qrSrc(regUrl, 130) + '" width="130" height="130" alt="Registration QR"><div class="qr-sub">📝 Register</div></div>'
+            + '<div class="ev-qr-item"><img src="' + qrSrc(localBase + '/scan', 130) + '" width="130" height="130" alt="Submit Shot QR"><div class="qr-sub" style="color:var(--accent);font-weight:700">⛳ Submit Shot</div></div>'
             + '</div>';
           wrap.appendChild(row);
         });
