@@ -206,7 +206,7 @@
         <nav class="editor-nav col gap-1">
           <div class="nav-item is-active" data-panel="settings"><span class="nav-icon">⚙️</span> Settings</div>
           <div class="nav-item" data-panel="map"><span class="nav-icon">🗺</span> Course map</div>
-          <div class="nav-item" data-panel="balls"><span class="nav-icon">🏐</span> Ball pool</div>
+          <div class="nav-item" data-panel="balls"><span class="nav-icon">🏐</span> Ball Codes</div>
           <div class="nav-item" data-panel="players"><span class="nav-icon">👥</span> Players & teams</div>
           <div class="nav-item" data-panel="alerts"><span class="nav-icon">🚨</span> Alerts</div>
         </nav>
@@ -377,7 +377,7 @@
 
           <!-- Ball pool panel -->
           <div class="panel card" data-panel="balls">
-            <h3 class="card-title">Ball pool</h3>
+            <h3 class="card-title">Ball Codes</h3>
             <p class="card-sub">Add the JORD drop codes for this tournament. Each player registers their assigned code on-course. Unassigned codes can be removed; assigned codes are locked.</p>
             <div class="stat-grid mb-3">
               <div class="stat" title="Total number of drop codes added to this tournament pool"><div class="stat-label">Total</div><div class="stat-value" id="stat-balls-total">0</div></div>
@@ -389,7 +389,7 @@
               <textarea class="input pool-input" id="pool-input" placeholder="ABC123&#10;XYZ789&#10;or paste comma-separated..." title="Paste drop codes here — one per line or comma-separated. Click 'Add to pool' to save."></textarea>
             </div>
             <div class="row gap-2" style="flex-wrap:wrap">
-              <button class="btn btn-primary" id="btn-add-balls" title="Add the codes typed above to this tournament's ball pool">Add to pool</button>
+              <button class="btn btn-primary" id="btn-add-balls" title="Add the codes typed above to this tournament's ball pool">Add ball code</button>
               <label class="btn btn-ghost" id="btn-import-csv-label" title="Upload a CSV file. The first column (or any column named 'code' or 'drop_code') will be imported as drop codes." style="cursor:pointer">
                 📥 Import CSV
                 <input type="file" id="import-csv-file" accept=".csv,.txt" style="display:none">
@@ -399,7 +399,7 @@
             </div>
 
             <div style="display:flex;align-items:center;gap:var(--s-2);margin-top:var(--s-5);margin-bottom:var(--s-2);flex-wrap:wrap">
-              <h4 style="margin:0;flex:1">Pool contents</h4>
+              <h4 style="margin:0;flex:1">Ball codes in pool</h4>
               <input id="ball-search" class="input" type="search" placeholder="Search code, player or team…" style="max-width:220px;font-size:13px;padding:7px 10px">
             </div>
             <div style="border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden">
@@ -1522,6 +1522,22 @@
       const ldScore = t.ld && t.ld.total_yards > 0 ? t.ld.total_yards + ' yd' : '—';
       const cpScore = t.cp && t.cp.best_ft != null ? t.cp.best_ft + ' ft' : null;
 
+      // Delete entire team button (stop propagation so it doesn't toggle expand)
+      const deleteTeamBtn = el('button', {
+        class: 'btn btn-danger',
+        style: { fontSize: '11px', padding: '3px 10px', marginLeft: 'var(--s-2)' },
+        title: 'Remove entire team',
+        on: { click: async (e) => {
+          e.stopPropagation();
+          if (!confirm('Remove team "' + t.team_name + '" and unassign all ' + balls.length + ' player' + (balls.length !== 1 ? 's' : '') + '? Their ball codes will return to the available pool.')) return;
+          try {
+            await JORD.api('/api/events/' + currentEvent.id + '/teams/' + t.id, { method: 'DELETE' });
+            JORD.success('Team removed');
+            loadTeams();
+          } catch (err) { JORD.error(err.message); }
+        }}
+      }, 'Remove Team');
+
       // Header
       const arrow = el('span', { class: 'expand-arrow' }, '▶');
       const header = el('div', { class: 'team-card-header' },
@@ -1529,7 +1545,8 @@
         el('strong', { style: { flex: '1', fontSize: '15px' } }, t.team_name),
         el('span', { style: { fontSize: '12px', color: 'var(--ink-2)' } }, balls.length + ' player' + (balls.length !== 1 ? 's' : '')),
         el('span', { style: { fontFamily: 'var(--font-mono)', fontSize: '13px', marginLeft: 'var(--s-2)' } }, ldScore),
-        cpScore ? el('span', { style: { fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--ink-2)', marginLeft: 'var(--s-1)' } }, '· ' + cpScore) : null
+        cpScore ? el('span', { style: { fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--ink-2)', marginLeft: 'var(--s-1)' } }, '· ' + cpScore) : null,
+        deleteTeamBtn
       );
       header.addEventListener('click', () => card.classList.toggle('is-open'));
       card.appendChild(header);
@@ -1549,8 +1566,23 @@
 
       for (const b of balls) {
         const playerWrap = el('div', null);
-
         const editWrap = el('div', { class: 'player-edit-wrap' });
+
+        const removeBtn = el('button', {
+          class: 'btn btn-danger',
+          style: { fontSize: '11px', padding: '3px 8px' },
+          title: 'Remove player from team',
+          on: { click: async (e) => {
+            e.stopPropagation();
+            const name = (b.player_name && b.player_name.trim()) ? b.player_name : b.drop_code;
+            if (!confirm('Remove ' + name + ' from this team? Their ball code (' + b.drop_code + ') will return to the available pool.')) return;
+            try {
+              await JORD.api('/api/events/' + currentEvent.id + '/balls/' + b.drop_code + '/unassign', { method: 'PATCH' });
+              JORD.success(name + ' removed');
+              loadTeams();
+            } catch (err) { JORD.error(err.message); }
+          }}
+        }, '✕');
 
         const infoRow = el('div', { class: 'player-row' },
           el('span', { style: { color: 'var(--ink-2)', fontSize: '12px' } }, b.player_index ?? '—'),
@@ -1559,12 +1591,15 @@
             : el('span', { style: { color: 'var(--ink-3)', fontStyle: 'italic' } }, 'unregistered')),
           el('span', { class: 'player-code-col', style: { fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--ink-2)' } }, b.drop_code),
           el('span', { class: 'player-email-col', style: { fontSize: '12px', color: 'var(--ink-2)' } }, [b.email, b.phone].filter(Boolean).join(' · ') || '—'),
-          el('button', { class: 'btn btn-ghost', style: { fontSize: '11px', padding: '4px 10px' },
-            on: { click: () => {
-              editWrap.classList.toggle('is-open');
-              if (editWrap.classList.contains('is-open')) buildEditForm(editWrap, b);
-            }}
-          }, 'Edit')
+          el('div', { style: { display: 'flex', gap: 'var(--s-1)' } },
+            el('button', { class: 'btn btn-ghost', style: { fontSize: '11px', padding: '4px 10px' },
+              on: { click: () => {
+                editWrap.classList.toggle('is-open');
+                if (editWrap.classList.contains('is-open')) buildEditForm(editWrap, b);
+              }}
+            }, 'Edit'),
+            removeBtn
+          )
         );
 
         playerWrap.appendChild(infoRow);

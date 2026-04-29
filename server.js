@@ -631,6 +631,35 @@ app.delete('/api/events/:eventId/balls/:code', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
+// Unassign a ball from its team — clears player info + team_id, keeps ball in pool
+// Auto-deletes the team record if no balls remain on it
+app.patch('/api/events/:eventId/balls/:code/unassign', requireAuth, (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const ball = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(code, req.params.eventId);
+  if (!ball) return res.status(404).json({ error: 'Ball not found' });
+  const teamId = ball.team_id;
+  db.prepare('UPDATE balls SET team_id=NULL, first_name=NULL, last_name=NULL, email=NULL, phone=NULL, player_index=NULL WHERE drop_code=? AND event_id=?')
+    .run(code, req.params.eventId);
+  if (teamId) {
+    const { cnt } = db.prepare('SELECT COUNT(*) as cnt FROM balls WHERE team_id=?').get(teamId);
+    if (cnt === 0) db.prepare('DELETE FROM teams WHERE id=?').run(teamId);
+  }
+  broadcast(req.params.eventId);
+  res.json({ success: true });
+});
+
+// Delete an entire team — unassigns all its balls, then removes the team record
+app.delete('/api/events/:eventId/teams/:teamId', requireAuth, (req, res) => {
+  const { eventId, teamId } = req.params;
+  const team = db.prepare('SELECT * FROM teams WHERE id=? AND event_id=?').get(teamId, eventId);
+  if (!team) return res.status(404).json({ error: 'Team not found' });
+  db.prepare('UPDATE balls SET team_id=NULL, first_name=NULL, last_name=NULL, email=NULL, phone=NULL, player_index=NULL WHERE team_id=? AND event_id=?')
+    .run(teamId, eventId);
+  db.prepare('DELETE FROM teams WHERE id=?').run(teamId);
+  broadcast(eventId);
+  res.json({ success: true });
+});
+
 // Edit player info on a ball (name, email, phone)
 app.patch('/api/events/:eventId/balls/:code/player', requireAuth, (req, res) => {
   const code = req.params.code.toUpperCase();
@@ -1071,7 +1100,7 @@ app.get('/api/events/:eventId/export.csv', requireAuth, (req, res) => {
 
 // ─── PAGES ───────────────────────────────────────────────────────────────────
 const pages = { '/admin': 'admin.html', '/register/:id': 'register.html',
-  '/scan/:code': 'scan.html', '/leaderboard/:id': 'leaderboard.html',
+  '/scan': 'scan.html', '/scan/:code': 'scan.html', '/leaderboard/:id': 'leaderboard.html',
   '/dashboard/:eid/:code': 'dashboard.html', '/monitor/:id': 'monitor.html',
   '/test': 'test.html' };
 Object.entries(pages).forEach(([route, file]) => {
