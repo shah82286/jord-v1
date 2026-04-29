@@ -160,7 +160,6 @@
     </div>
     <button class="btn btn-ghost" id="btn-map" style="font-size:13px;padding:9px 14px" title="Toggle course map">🗺 Map</button>
     <button class="btn btn-ghost" id="btn-tv" style="font-size:13px;padding:9px 14px">⛶ TV Mode</button>
-    <button class="btn btn-ghost" id="btn-fs" style="font-size:13px;padding:9px 14px" title="Fullscreen">⤢</button>
   </div>
 </div>
 
@@ -589,17 +588,24 @@
     }
   });
 
-  /* TV mode */
+  /* TV mode — toggles large layout AND native fullscreen together */
   document.getElementById('btn-tv').addEventListener('click', function () {
     document.getElementById('pg').classList.toggle('is-tv');
     var on = document.getElementById('pg').classList.contains('is-tv');
     document.getElementById('btn-tv').textContent = on ? '✕ Exit TV' : '⛶ TV Mode';
+    if (on) {
+      document.documentElement.requestFullscreen().catch(function(){});
+    } else {
+      if (document.fullscreenElement) document.exitFullscreen();
+    }
   });
 
-  /* Fullscreen */
-  document.getElementById('btn-fs').addEventListener('click', function () {
-    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(function(){});
-    else document.exitFullscreen();
+  /* Sync TV button if user exits fullscreen via Escape key */
+  document.addEventListener('fullscreenchange', function () {
+    if (!document.fullscreenElement) {
+      document.getElementById('pg').classList.remove('is-tv');
+      document.getElementById('btn-tv').textContent = '⛶ TV Mode';
+    }
   });
 })();
 </script>
