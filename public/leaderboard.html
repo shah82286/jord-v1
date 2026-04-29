@@ -101,7 +101,7 @@
     .lb-topbar { padding: 10px 14px; flex-wrap: wrap; gap: 6px; }
     .lb-scores-col { padding: 12px 14px; }
     .lb-content { flex-direction: column; }
-    .lb-map-col { width: 100%; border-left: none; border-top: 1px solid var(--border); height: 280px; flex-shrink: 0; }
+    .lb-map-col { width: 100%; border-left: none; border-top: 1px solid var(--border); height: 300px; flex-shrink: 0; }
     .lb-map-col.is-open { display: flex; }
     .rank-cell { width: 48px; }
     .rank-num { font-size: 28px; }
@@ -114,6 +114,33 @@
     .rank-num { font-size: 22px; }
     .score-big { font-size: 20px; }
     .lb-name { font-size: 16px !important; }
+  }
+
+  /* Mobile — map expanded: full-page scroll, big map, scores below */
+  .mobile-map-open { overflow-y: auto !important; height: auto !important; }
+  @media (max-width: 700px) {
+    .mobile-map-open .lb-content { overflow-y: visible; height: auto; flex-direction: column; }
+    .mobile-map-open .lb-map-col { height: 58vh; min-height: 320px; flex-shrink: 0; }
+    .mobile-map-open .lb-scores-col { overflow-y: visible; }
+    .mobile-map-open .lb-map-header::after {
+      content: '▲ Scroll down for scores'; font-size: 11px; color: var(--ink-2); margin-left: auto;
+    }
+  }
+
+  /* Tournament stats card */
+  .end-stats-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s-3);
+    margin-bottom: var(--s-5);
+  }
+  .end-stat {
+    background: var(--surface-2); border-radius: var(--r-md);
+    padding: var(--s-3) var(--s-4); text-align: center;
+  }
+  .end-stat-val { font-family: var(--font-display); font-size: 28px; font-weight: 700; color: var(--primary); line-height: 1; }
+  .end-stat-lbl { font-size: 11px; color: var(--ink-2); margin-top: 4px; text-transform: uppercase; letter-spacing: .05em; }
+  @media (max-width: 500px) {
+    .end-stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .end-stat-val { font-size: 22px; }
   }
 
   /* Selected team card — blue ring visible on both dark and gold leader background */

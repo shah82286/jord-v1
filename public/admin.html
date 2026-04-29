@@ -439,6 +439,7 @@
 
 <script src="https://api.mapbox.com/mapbox-gl-js/v2.15.0/mapbox-gl.js"></script>
 <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 <script src="/js/jord.js"></script>
 <script>
 (async function () {
@@ -778,6 +779,57 @@
     }
   }
 
+  /* ── Zone clipping: fairway > rough > oob (no overlaps) ── */
+  let _clipTimer = null;
+  function scheduleClipZones() {
+    clearTimeout(_clipTimer);
+    _clipTimer = setTimeout(clipZones, 200);
+  }
+
+  function clipZones() {
+    if (!draw || !window.turf) return;
+
+    function featuresOfKind(kind) {
+      return draw.getAll().features.filter(f =>
+        (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon') &&
+        (f.properties.kind || f.properties.user_kind || '') === kind
+      );
+    }
+
+    function unionAll(features) {
+      if (!features.length) return null;
+      try {
+        return features.reduce((acc, f) =>
+          acc ? turf.union(acc, turf.feature(f.geometry)) : turf.feature(f.geometry), null);
+      } catch (e) { return null; }
+    }
+
+    function clipKind(targetKind, maskFeature) {
+      if (!maskFeature) return;
+      featuresOfKind(targetKind).forEach(f => {
+        try {
+          const clipped = turf.difference(turf.feature(f.geometry), maskFeature);
+          const props = { ...f.properties, kind: targetKind };
+          draw.delete(f.id);
+          if (clipped?.geometry) draw.add({ type: 'Feature', geometry: clipped.geometry, properties: props });
+        } catch (e) {}
+      });
+    }
+
+    const fairwayUnion = unionAll(featuresOfKind('fairway'));
+    clipKind('rough', fairwayUnion);
+
+    const roughUnion = unionAll(featuresOfKind('rough'));
+    let playable = null;
+    try {
+      if (fairwayUnion && roughUnion) playable = turf.union(fairwayUnion, roughUnion);
+      else playable = fairwayUnion || roughUnion;
+    } catch (e) { playable = fairwayUnion || roughUnion; }
+    clipKind('oob', playable);
+
+    syncZoneLayers();
+  }
+
   function updatePinCoordsDisplay() {
     const latEl = $('#pin-lat-display'), lonEl = $('#pin-lon-display'), lbl = $('#pin-coords-hole-label');
     if (!latEl) return;
@@ -902,10 +954,10 @@
       loadPolygon(currentEvent.ctp_green_polygon, 'ctp_green');
       syncZoneLayers();
 
-      // Keep zone layers in sync with any MapboxDraw edits
-      map.on('draw.create', syncZoneLayers);
+      // Keep zone layers in sync; clip overlapping zones after any edit
+      map.on('draw.create', () => { syncZoneLayers(); scheduleClipZones(); });
+      map.on('draw.update', () => { syncZoneLayers(); scheduleClipZones(); });
       map.on('draw.delete', syncZoneLayers);
-      map.on('draw.update', syncZoneLayers);
 
       drawTeeMarkers();
       drawPinMarker();

@@ -20,6 +20,28 @@
     .loc-btn { padding: var(--s-3); }
   }
 
+  /* 6-box code entry */
+  .code-boxes {
+    display: flex; gap: 8px; justify-content: center;
+    max-width: 360px; margin: var(--s-4) auto;
+  }
+  .code-box {
+    flex: 1; min-width: 0; height: 68px;
+    text-align: center;
+    font-family: var(--font-mono); font-size: 28px; font-weight: 700;
+    border: 2px solid var(--border-2); border-radius: var(--r-md);
+    background: var(--surface-2); color: var(--ink);
+    text-transform: uppercase; caret-color: var(--primary);
+    transition: border-color 0.15s, background 0.15s;
+    -webkit-appearance: none; appearance: none;
+  }
+  .code-box:focus { outline: none; border-color: var(--primary); background: var(--surface); }
+  .code-box.has-value { border-color: var(--primary); background: rgba(190,255,58,0.07); }
+  @media (max-width: 380px) {
+    .code-boxes { gap: 5px; }
+    .code-box { font-size: 22px; height: 58px; }
+  }
+
   /* GPS status */
   .gps-bar {
     display: flex; align-items: center; gap: 10px;
@@ -83,6 +105,48 @@
   var scanner    = null;
   var demoMode   = false;
 
+  /* ─── Zone detection (point-in-polygon, ray casting) ─── */
+  function pointInPolygon(lat, lon, polygonData) {
+    if (!polygonData) return false;
+    try {
+      var geom = typeof polygonData === 'string' ? JSON.parse(polygonData) : polygonData;
+      var ring = geom.coordinates[0];
+      var inside = false;
+      for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        var xi = ring[i][0], yi = ring[i][1];
+        var xj = ring[j][0], yj = ring[j][1];
+        if (((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi))
+          inside = !inside;
+      }
+      return inside;
+    } catch (e) { return false; }
+  }
+
+  function detectZone(lat, lon) {
+    if (!ballData) return null;
+    var hasZones = ballData.fairway_polygon || ballData.rough_polygon || ballData.oob_polygon;
+    if (!hasZones) return null; // no zones mapped — show manual picker
+    if (pointInPolygon(lat, lon, ballData.fairway_polygon)) return 'fairway';
+    if (pointInPolygon(lat, lon, ballData.rough_polygon))   return 'rough';
+    if (pointInPolygon(lat, lon, ballData.oob_polygon))     return 'oob';
+    return 'oob'; // outside all mapped zones = OOB
+  }
+
+  function autoSelectZone(lat, lon) {
+    var zone = detectZone(lat, lon);
+    if (!zone) return; // no zones mapped, leave picker empty
+    var btn = document.querySelector('[data-loc="' + zone + '"]');
+    if (btn) { btn.click(); }
+    var note = document.getElementById('zone-auto-note');
+    if (note) {
+      note.style.display = '';
+      // Lost ball is always manual — remind player it's available if needed
+      note.textContent = zone === 'oob'
+        ? '🚫 Outside mapped zones — marked Out of Bounds. Tap Lost Ball if you can\'t find it.'
+        : '📍 Zone auto-detected from course map — tap another if incorrect';
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', function () {
     JORD.renderTopbar('Ball Scan');
     var params = new URLSearchParams(window.location.search);
@@ -106,11 +170,7 @@
     if (!isNaN(testLat) && !isNaN(testLon)) {
       gpsPos = { lat: testLat, lon: testLon, acc: 1 };
       setGPS('locked', '🧪', 'Test mode — location simulated');
-      // Pre-select location type if provided
-      if (testLoc) {
-        var locBtn = document.querySelector('[data-loc="' + testLoc + '"]');
-        if (locBtn) { locBtn.click(); }
-      }
+      autoSelectZone(testLat, testLon);
       enableSubmit();
       return;
     }
@@ -119,6 +179,7 @@
       function (pos) {
         gpsPos = { lat: pos.coords.latitude, lon: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) };
         setGPS('locked', '📍', 'Location locked — you\'re good to go!');
+        autoSelectZone(gpsPos.lat, gpsPos.lon);
         enableSubmit();
       },
       function (err) {
@@ -296,6 +357,12 @@
       grid.appendChild(btn);
     });
     card.appendChild(grid);
+
+    var zoneNote = document.createElement('div');
+    zoneNote.id = 'zone-auto-note';
+    zoneNote.style.cssText = 'display:none;font-size:12px;color:var(--ink-2);text-align:center;margin-top:6px';
+    zoneNote.textContent = '📍 Zone auto-detected from course map — tap another if incorrect';
+    card.appendChild(zoneNote);
 
     var submitBtn = document.createElement('button');
     submitBtn.id = 'submit-btn';
@@ -767,45 +834,117 @@
     header.className = 'text-center mb-5';
     header.innerHTML = '<img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077" alt="JORD Golf" style="height:56px;width:auto;margin:0 auto var(--s-3);display:block">'
       + '<div class="brand-name">JORD GOLF</div>'
-      + '<div class="brand-sub" style="margin-top:4px">Submit Your Shot</div>';
+      + '<div class="brand-sub" style="margin-top:4px">Enter Your Ball Code</div>';
     card.appendChild(header);
 
-    /* Code input */
-    var codeLabel = document.createElement('label');
-    codeLabel.style.cssText = 'display:block;font-size:15px;font-weight:700;margin-bottom:6px';
-    codeLabel.textContent = 'Your ball code';
+    /* Label + hint */
+    var codeLabel = document.createElement('div');
+    codeLabel.style.cssText = 'font-size:15px;font-weight:700;text-align:center;margin-bottom:4px';
+    codeLabel.textContent = 'Your 6-character ball code';
     card.appendChild(codeLabel);
 
     var codeHint = document.createElement('div');
     codeHint.className = 'hint';
-    codeHint.style.marginBottom = '10px';
-    codeHint.textContent = '6-digit code on your ball — e.g. ABC123';
+    codeHint.style.cssText = 'text-align:center;margin-bottom:12px';
+    codeHint.textContent = 'Found on your ball or in your confirmation text';
     card.appendChild(codeHint);
 
-    var codeInput = document.createElement('input');
-    codeInput.className = 'input input-code';
-    codeInput.placeholder = 'ABC123';
-    codeInput.maxLength = 12;
-    codeInput.autocomplete = 'off';
-    codeInput.style.cssText = 'font-size:28px;letter-spacing:0.12em;text-align:center;padding:14px;width:100%;box-sizing:border-box';
-    card.appendChild(codeInput);
+    /* 6-box container */
+    var boxWrap = document.createElement('div');
+    boxWrap.className = 'code-boxes';
+    card.appendChild(boxWrap);
 
+    var boxes = [];
+    for (var i = 0; i < 6; i++) {
+      var box = document.createElement('input');
+      box.className = 'code-box';
+      box.type = 'text';
+      box.inputMode = 'text';
+      box.autocomplete = 'off';
+      box.autocorrect = 'off';
+      box.autocapitalize = 'none';
+      box.spellcheck = false;
+      box.maxLength = 1;
+      box.setAttribute('aria-label', 'Code character ' + (i + 1));
+      boxWrap.appendChild(box);
+      boxes.push(box);
+    }
+
+    /* Submit button */
     var goBtn = document.createElement('button');
     goBtn.className = 'btn btn-primary btn-block btn-lg mt-4';
     goBtn.textContent = 'Submit My Shot →';
     goBtn.disabled = true;
     card.appendChild(goBtn);
 
-    codeInput.addEventListener('input', function () {
-      codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-      goBtn.disabled = codeInput.value.length < 4;
+    /* ── Box interaction helpers ── */
+    function getCode() {
+      return boxes.map(function (b) { return b.value; }).join('');
+    }
+
+    function refreshBtn() {
+      var code = getCode();
+      var allFilled = code.length === 6 && /^[A-Z0-9]{6}$/.test(code);
+      goBtn.disabled = !allFilled;
+    }
+
+    function focusBox(idx) {
+      if (idx >= 0 && idx < 6) boxes[idx].focus();
+    }
+
+    boxes.forEach(function (box, idx) {
+      /* Intercept paste on any box — distribute across all 6 */
+      box.addEventListener('paste', function (e) {
+        e.preventDefault();
+        var text = (e.clipboardData || window.clipboardData).getData('text');
+        var clean = text.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+        for (var j = 0; j < 6; j++) {
+          boxes[j].value = clean[j] || '';
+          boxes[j].classList.toggle('has-value', !!boxes[j].value);
+        }
+        refreshBtn();
+        /* Focus the box after the last pasted char, or the last box */
+        focusBox(Math.min(clean.length, 5));
+      });
+
+      box.addEventListener('keydown', function (e) {
+        if (e.key === 'Backspace') {
+          if (box.value === '') {
+            /* Move back and clear the previous box */
+            if (idx > 0) {
+              boxes[idx - 1].value = '';
+              boxes[idx - 1].classList.remove('has-value');
+              focusBox(idx - 1);
+            }
+          } else {
+            box.value = '';
+            box.classList.remove('has-value');
+          }
+          refreshBtn();
+          e.preventDefault();
+          return;
+        }
+        if (e.key === 'ArrowLeft')  { focusBox(idx - 1); e.preventDefault(); return; }
+        if (e.key === 'ArrowRight') { focusBox(idx + 1); e.preventDefault(); return; }
+        if (e.key === 'Enter' && !goBtn.disabled) { goBtn.click(); e.preventDefault(); return; }
+      });
+
+      box.addEventListener('input', function () {
+        /* Sanitise — keep only last alphanumeric char typed */
+        var val = box.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        box.value = val ? val.slice(-1) : '';
+        box.classList.toggle('has-value', !!box.value);
+        refreshBtn();
+        if (box.value && idx < 5) focusBox(idx + 1);
+      });
+
+      /* Select-all on focus so re-typing a box replaces the char */
+      box.addEventListener('focus', function () { box.select(); });
     });
-    codeInput.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' && !goBtn.disabled) goBtn.click();
-    });
+
     goBtn.addEventListener('click', function () {
-      var code = codeInput.value.trim();
-      if (!code || code.length < 4) return;
+      var code = getCode();
+      if (!/^[A-Z0-9]{6}$/.test(code)) return;
       if (scanner) { try { scanner.stop(); } catch (e) {} }
       loadBall(code);
     });
@@ -843,7 +982,7 @@
       });
     });
 
-    setTimeout(function () { codeInput.focus(); }, 100);
+    setTimeout(function () { boxes[0].focus(); }, 100);
   }
 
   /* ─── Helpers ─── */

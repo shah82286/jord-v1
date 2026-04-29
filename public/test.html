@@ -69,6 +69,14 @@
     <p class="card-sub">Search your backyard address, click the map to mark where a ball "landed", enter a ball code, then generate a test scan link. Open that link on your phone to submit the shot as if you were on course.</p>
 
     <div class="field mt-3">
+      <label>Event <span style="font-weight:400;color:var(--ink-2)">(loads course zones on map)</span></label>
+      <select id="sim-event" class="select">
+        <option value="">— select event —</option>
+      </select>
+      <div id="sim-event-hint" style="font-size:12px;color:var(--ink-3);margin-top:4px">Log in to admin first to see your events.</div>
+    </div>
+
+    <div class="field mt-3">
       <label>Search location</label>
       <div style="display:flex;gap:8px">
         <input id="sim-search" class="input" placeholder="e.g. 123 Oak St, Atlanta GA" style="flex:1">
@@ -94,21 +102,12 @@
       </div>
     </div>
 
-    <div class="field-grid mt-4">
-      <div class="field">
-        <label>Ball drop code</label>
-        <input id="sim-code" class="input input-code" placeholder="ABC123" maxlength="12" style="text-transform:uppercase">
-        <div class="hint">From your ball pool in admin</div>
-      </div>
-      <div class="field">
-        <label>Location type</label>
-        <select id="sim-type" class="select">
-          <option value="fairway">Fairway</option>
-          <option value="rough">Rough</option>
-          <option value="oob">Out of Bounds</option>
-        </select>
-      </div>
+    <div class="field mt-4">
+      <label>Ball drop code</label>
+      <input id="sim-code" class="input input-code" placeholder="ABC123" maxlength="12" style="text-transform:uppercase">
+      <div class="hint">From your ball pool in admin</div>
     </div>
+    <div style="margin-top:var(--s-2);font-size:12px;color:var(--ink-3)">Zone (fairway / rough / OOB) will be auto-detected from your course map.</div>
 
     <button class="btn btn-primary mt-3" id="sim-generate" disabled>Generate test scan link →</button>
 
@@ -202,6 +201,86 @@
 (async function () {
   var simLat = null, simLon = null, simMap = null, simMarker = null;
   var mapboxToken = '';
+  var simEventData = null;
+  var simMapLoaded = false;
+
+  /* ── Point-in-polygon (ray casting) ── */
+  function pointInPoly(lat, lon, polygonData) {
+    if (!polygonData) return false;
+    try {
+      var geom = typeof polygonData === 'string' ? JSON.parse(polygonData) : polygonData;
+      var ring = geom.coordinates[0];
+      var inside = false;
+      for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        var xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+        if (((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi)) inside = !inside;
+      }
+      return inside;
+    } catch (e) { return false; }
+  }
+
+  function detectSimZone(lat, lon) {
+    if (!simEventData) return null;
+    if (pointInPoly(lat, lon, simEventData.fairway_polygon)) return { key: 'fairway', label: 'Fairway',        color: '#22C55E' };
+    if (pointInPoly(lat, lon, simEventData.rough_polygon))   return { key: 'rough',   label: 'Rough',          color: '#EAB308' };
+    if (pointInPoly(lat, lon, simEventData.oob_polygon))     return { key: 'oob',     label: 'Out of Bounds',  color: '#DC2626' };
+    return null;
+  }
+
+  var SIM_ZONES = [
+    { id: 'sz-fairway', key: 'fairway_polygon',     color: '#22C55E', label: 'Fairway'  },
+    { id: 'sz-rough',   key: 'rough_polygon',       color: '#EAB308', label: 'Rough'    },
+    { id: 'sz-oob',     key: 'oob_polygon',         color: '#DC2626', label: 'OOB'      },
+    { id: 'sz-green',   key: 'ctp_green_polygon',   color: '#3B82F6', label: 'Green'    }
+  ];
+
+  function clearSimPolygons() {
+    if (!simMap || !simMapLoaded) return;
+    SIM_ZONES.forEach(function (z) {
+      if (simMap.getLayer(z.id + '-fill')) simMap.removeLayer(z.id + '-fill');
+      if (simMap.getLayer(z.id + '-line')) simMap.removeLayer(z.id + '-line');
+      if (simMap.getSource(z.id)) simMap.removeSource(z.id);
+    });
+  }
+
+  function renderSimPolygons() {
+    if (!simMap || !simMapLoaded || !simEventData) return;
+    clearSimPolygons();
+    SIM_ZONES.forEach(function (z) {
+      var poly = simEventData[z.key];
+      if (!poly) return;
+      try {
+        var geom = typeof poly === 'string' ? JSON.parse(poly) : poly;
+        simMap.addSource(z.id, { type: 'geojson', data: { type: 'Feature', geometry: geom } });
+        simMap.addLayer({ id: z.id + '-fill', type: 'fill',   source: z.id, paint: { 'fill-color': z.color, 'fill-opacity': 0.25 } });
+        simMap.addLayer({ id: z.id + '-line', type: 'line',   source: z.id, paint: { 'line-color': z.color, 'line-width': 2.5, 'line-opacity': 0.9 } });
+      } catch (e) {}
+    });
+  }
+
+  async function loadSimEvent(eventId) {
+    simEventData = null;
+    clearSimPolygons();
+    if (!eventId) return;
+    try {
+      simEventData = await JORD.api('/api/events/' + eventId);
+      renderSimPolygons();
+      // Fly map to event area if tee boxes exist
+      if (simMap && simMapLoaded && simEventData.fairway_polygon) {
+        try {
+          var geom = JSON.parse(simEventData.fairway_polygon);
+          var coords = geom.coordinates[0];
+          var lons = coords.map(function(c) { return c[0]; });
+          var lats = coords.map(function(c) { return c[1]; });
+          simMap.fitBounds([[Math.min.apply(null,lons), Math.min.apply(null,lats)], [Math.max.apply(null,lons), Math.max.apply(null,lats)]], { padding: 60, duration: 800 });
+        } catch (e) {}
+      }
+    } catch (e) { console.warn('Could not load event:', e); }
+  }
+
+  document.getElementById('sim-event').addEventListener('change', function () {
+    loadSimEvent(this.value);
+  });
   var localBase = window.location.origin; // fallback
 
   function qrSrc(url, size) {
@@ -278,13 +357,23 @@
     });
     simMap.addControl(new mapboxgl.NavigationControl(), 'top-right');
 
+    simMap.on('load', function () {
+      simMapLoaded = true;
+      if (simEventData) renderSimPolygons();
+    });
+
     simMap.on('click', function (e) {
       simLat = e.lngLat.lat;
       simLon = e.lngLat.lng;
-      document.getElementById('coord-display').textContent = 'Selected: ' + simLat.toFixed(6) + ', ' + simLon.toFixed(6);
+      var zone = detectSimZone(simLat, simLon);
+      var zoneLabel = zone ? zone.label : 'Outside mapped zones';
+      var zoneColor = zone ? zone.color : 'var(--ink-2)';
+      document.getElementById('coord-display').innerHTML =
+        'Selected: ' + simLat.toFixed(6) + ', ' + simLon.toFixed(6) +
+        ' &nbsp;·&nbsp; <span style="color:' + zoneColor + ';font-weight:700">' + zoneLabel + '</span>';
       if (simMarker) simMarker.remove();
       var el = document.createElement('div');
-      el.style.cssText = 'width:22px;height:22px;border-radius:50%;background:#BEFF3A;border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.5)';
+      el.style.cssText = 'width:22px;height:22px;border-radius:50%;background:' + (zone ? zone.color : '#BEFF3A') + ';border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.5)';
       simMarker = new mapboxgl.Marker({ element: el }).setLngLat([simLon, simLat]).addTo(simMap);
       updateGenerateBtn();
       updateDemoBtn();
@@ -311,8 +400,7 @@
   document.getElementById('sim-generate').addEventListener('click', function () {
     var code = document.getElementById('sim-code').value.trim();
     if (!code || simLat === null || simLon === null) return;
-    var locType = document.getElementById('sim-type').value;
-    var link = localBase + '/scan/' + code + '?testLat=' + simLat.toFixed(6) + '&testLon=' + simLon.toFixed(6) + '&testLoc=' + locType;
+    var link = localBase + '/scan/' + code + '?testLat=' + simLat.toFixed(6) + '&testLon=' + simLon.toFixed(6);
     document.getElementById('sim-link-text').textContent = link;
     document.getElementById('sim-result').style.display = '';
     document.getElementById('qr-sim').src = qrSrc(link, 200);
@@ -331,6 +419,21 @@
     try {
       var events = await JORD.api('/api/events');
       document.getElementById('events-loading').style.display = 'none';
+
+      /* Populate Step 2 event selector */
+      var simSel = document.getElementById('sim-event');
+      var simHint = document.getElementById('sim-event-hint');
+      if (events.length) {
+        simHint.style.display = 'none';
+        events.forEach(function (ev) {
+          var opt = document.createElement('option');
+          opt.value = ev.id; opt.textContent = ev.name;
+          simSel.appendChild(opt);
+        });
+        /* Auto-select if only one event */
+        if (events.length === 1) { simSel.value = events[0].id; loadSimEvent(events[0].id); }
+      }
+
       var wrap = document.getElementById('events-links');
       if (!events.length) {
         wrap.innerHTML = '<p style="color:var(--ink-2);font-size:13px">No events yet — create one in admin first.</p>';
