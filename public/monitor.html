@@ -313,16 +313,34 @@
 
   function centerMapOnCourse(ev) {
     if (!map || mapCentered) return;
-    var tees = (ev.tee_boxes || []);
-    if (tees.length) {
-      map.flyTo({ center: [tees[0].lon, tees[0].lat], zoom: 16 });
-      mapCentered = true;
-    } else if (ev.pin_lat) {
-      map.flyTo({ center: [ev.pin_lon, ev.pin_lat], zoom: 16 });
-      mapCentered = true;
-    } else if (ev.ctp_pin_lat) {
-      map.flyTo({ center: [ev.ctp_pin_lon, ev.ctp_pin_lat], zoom: 16 });
-      mapCentered = true;
+
+    /* Collect every known location point for this hole */
+    var points = [];
+    (ev.tee_boxes || []).forEach(function (t) {
+      if (t.lat && t.lon) points.push([t.lon, t.lat]);
+    });
+    if (ev.pin_lat && ev.pin_lon)         points.push([ev.pin_lon,     ev.pin_lat]);
+    if (ev.ctp_pin_lat && ev.ctp_pin_lon) points.push([ev.ctp_pin_lon, ev.ctp_pin_lat]);
+    if (!points.length) return;
+
+    mapCentered = true;
+
+    function doCenter() {
+      if (points.length === 1) {
+        map.flyTo({ center: points[0], zoom: 17 });
+      } else {
+        var bounds = points.reduce(function (b, p) {
+          return b.extend(p);
+        }, new mapboxgl.LngLatBounds(points[0], points[0]));
+        map.fitBounds(bounds, { padding: 80, maxZoom: 18, duration: 1200 });
+      }
+    }
+
+    /* Wait for style if it hasn't finished loading yet */
+    if (map.isStyleLoaded()) {
+      doCenter();
+    } else {
+      map.once('load', doCenter);
     }
   }
 
