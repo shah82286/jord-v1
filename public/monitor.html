@@ -556,6 +556,31 @@
       });
     });
 
+    /* Reset scan button — clears yardage so player can scan again */
+    var resetBtn = document.createElement('button');
+    resetBtn.className = 'btn btn-ghost btn-block mt-2';
+    resetBtn.style.cssText = 'color:var(--danger);border-color:var(--danger)';
+    resetBtn.textContent = '↺ Reset Scan (let player scan again)';
+    resetBtn.addEventListener('click', function () {
+      var code = codeInput.value.trim().toUpperCase();
+      if (!code) { errEl.textContent = 'Enter a drop code first.'; return; }
+      if (!confirm('Reset scan for ' + code + '? This clears their yardage so they can scan again.')) return;
+      resetBtn.disabled = true; resetBtn.textContent = 'Resetting…';
+      JORD.api('/api/events/' + eid + '/balls/' + code + '/reset-scan', {
+        method: 'PATCH',
+        body: { game: gameSelect.value }
+      })
+      .then(function () {
+        JORD.success('✅ Scan reset — ' + code + ' can scan again');
+        codeInput.value = ''; errEl.textContent = '';
+        resetBtn.disabled = false; resetBtn.textContent = '↺ Reset Scan (let player scan again)';
+      })
+      .catch(function (e) {
+        errEl.textContent = e.message || 'Error';
+        resetBtn.disabled = false; resetBtn.textContent = '↺ Reset Scan (let player scan again)';
+      });
+    });
+
     card.appendChild(gameField);
     card.appendChild(codeField);
     card.appendChild(scoreField);
@@ -563,6 +588,7 @@
     card.appendChild(locField);
     card.appendChild(reasonField);
     card.appendChild(submitBtn);
+    card.appendChild(resetBtn);
     card.appendChild(errEl);
     return card;
   }

@@ -953,6 +953,26 @@ app.post('/api/admin/null-ball', requireAuth, (req, res) => {
   res.json({ success: true });
 });
 
+// Reset a ball's scan data so the player can scan again fresh
+app.patch('/api/events/:eventId/balls/:code/reset-scan', requireAuth, (req, res) => {
+  const code = req.params.code.toUpperCase();
+  const ball = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(code, req.params.eventId);
+  if (!ball) return res.status(404).json({ error: 'Ball not found' });
+  const { game } = req.body; // 'ld' | 'cp' | omit for both
+  if (!game || game === 'ld') {
+    db.prepare(`UPDATE balls SET ld_lat=NULL, ld_lon=NULL, ld_raw_yards=NULL, ld_penalty_yards=NULL,
+                ld_final_yards=NULL, ld_location_type=NULL, ld_scanned_at=NULL, ld_manual_entry=0
+                WHERE drop_code=? AND event_id=?`).run(code, req.params.eventId);
+  }
+  if (!game || game === 'cp') {
+    db.prepare(`UPDATE balls SET cp_lat=NULL, cp_lon=NULL, cp_distance_ft=NULL, cp_penalty_ft=NULL,
+                cp_valid=NULL, cp_scanned_at=NULL
+                WHERE drop_code=? AND event_id=?`).run(code, req.params.eventId);
+  }
+  broadcast(req.params.eventId);
+  res.json({ success: true });
+});
+
 // ─── REP ALERTS ──────────────────────────────────────────────────────────────
 app.post('/api/alerts', (req, res) => {
   const { event_id, drop_code, team_name, player_name, lat, lon, message } = req.body;

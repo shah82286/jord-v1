@@ -1591,13 +1591,28 @@
             : el('span', { style: { color: 'var(--ink-3)', fontStyle: 'italic' } }, 'unregistered')),
           el('span', { class: 'player-code-col', style: { fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--ink-2)' } }, b.drop_code),
           el('span', { class: 'player-email-col', style: { fontSize: '12px', color: 'var(--ink-2)' } }, [b.email, b.phone].filter(Boolean).join(' · ') || '—'),
-          el('div', { style: { display: 'flex', gap: 'var(--s-1)' } },
+          el('div', { style: { display: 'flex', gap: 'var(--s-1)', flexWrap: 'wrap' } },
             el('button', { class: 'btn btn-ghost', style: { fontSize: '11px', padding: '4px 10px' },
               on: { click: () => {
                 editWrap.classList.toggle('is-open');
                 if (editWrap.classList.contains('is-open')) buildEditForm(editWrap, b);
               }}
             }, 'Edit'),
+            b.scanned ? el('button', {
+              class: 'btn btn-ghost',
+              style: { fontSize: '11px', padding: '4px 8px', color: 'var(--danger)', borderColor: 'var(--danger)' },
+              title: 'Clear this scan so the player can scan again',
+              on: { click: async (e) => {
+                e.stopPropagation();
+                const name = (b.player_name && b.player_name.trim()) ? b.player_name : b.drop_code;
+                if (!confirm('Reset scan for ' + name + '? This clears their yardage so they can scan again.')) return;
+                try {
+                  await JORD.api('/api/events/' + currentEvent.id + '/balls/' + b.drop_code + '/reset-scan', { method: 'PATCH', body: {} });
+                  JORD.success('Scan reset — ' + name + ' can scan again');
+                  loadTeams();
+                } catch (err) { JORD.error(err.message); }
+              }}
+            }, '↺ Reset') : null,
             removeBtn
           )
         );
