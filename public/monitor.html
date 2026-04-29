@@ -66,6 +66,28 @@
   .mapboxgl-popup-content strong { color: #0a0a0a !important; }
   .mapboxgl-popup-content span   { color: #1a1a1a !important; }
   .mapboxgl-popup-content button { color: #333 !important; }
+
+  /* Expandable team standings */
+  .mon-team-row {
+    display: flex; align-items: center; gap: var(--s-2);
+    padding: 10px var(--s-3); border-bottom: 1px solid var(--border);
+    cursor: pointer; user-select: none; transition: background var(--t-fast);
+  }
+  .mon-team-row:hover { background: var(--surface-2); }
+  .mon-team-row.is-open { background: var(--surface-2); }
+  .mon-team-arrow { font-size: 10px; color: var(--ink-2); transition: transform var(--t-fast); min-width: 12px; }
+  .mon-team-row.is-open .mon-team-arrow { transform: rotate(90deg); }
+  .mon-team-body { display: none; border-bottom: 2px solid var(--border); }
+  .mon-team-body.is-open { display: block; }
+  .mon-player-row {
+    display: flex; align-items: center; gap: var(--s-2);
+    padding: 7px var(--s-3) 2px calc(var(--s-3) + 20px);
+    font-size: 13px;
+  }
+  .mon-player-actions {
+    display: flex; gap: var(--s-1);
+    padding: 2px var(--s-3) 8px calc(var(--s-3) + 20px);
+  }
 </style>
 </head>
 <body>
@@ -412,25 +434,93 @@
     setStat('alerts',  (d.alerts || []).length);
     setStat('teams',   (d.ld || d.cp || []).length);
 
-    /* Mini leaderboard */
+    /* Mini leaderboard — expandable teams */
     var lb = document.getElementById('mon-lb');
     if (!lb) return;
+
+    /* Preserve which teams are currently open across SSE refreshes */
+    var openIds = {};
+    lb.querySelectorAll('.mon-team-row.is-open').forEach(function (el) { openIds[el.dataset.teamId] = true; });
+
     lb.innerHTML = '';
     var rows = d.ld || d.cp || [];
     if (!rows.length) { lb.innerHTML = '<p class="text-muted small">No teams yet.</p>'; return; }
-    var tbl = document.createElement('table');
-    tbl.className = 'table';
-    tbl.innerHTML = '<thead><tr><th>#</th><th>Team</th><th>Score</th><th>Scanned</th></tr></thead>';
-    var tbody = document.createElement('tbody');
-    rows.slice(0, 10).forEach(function (t) {
-      var tr = document.createElement('tr');
-      var score = d.ld ? (t.total_yards != null ? t.total_yards + ' yd' : '—') : (t.best_ft != null ? t.best_ft + ' ft' : '—');
-      var scannedCnt = d.ld ? (t.scanned_count + '/' + t.total_balls) : (t.scanned + '/' + t.total);
-      tr.innerHTML = '<td><strong>' + t.rank + '</strong></td><td>' + t.team_name + '</td><td style="font-family:var(--font-mono);font-weight:700">' + score + '</td><td style="color:var(--ink-2)">' + scannedCnt + '</td>';
-      tbody.appendChild(tr);
+    var isLD = !!d.ld;
+
+    rows.forEach(function (t) {
+      var score = isLD ? (t.total_yards != null ? t.total_yards + ' yd' : '—') : (t.best_ft != null ? t.best_ft + ' ft' : '—');
+      var scannedCnt = isLD ? (t.scanned_count + '/' + t.total_balls) : (t.scanned + '/' + t.total);
+
+      /* Team header row */
+      var teamRow = document.createElement('div');
+      teamRow.className = 'mon-team-row' + (openIds[t.id] ? ' is-open' : '');
+      teamRow.dataset.teamId = t.id;
+      teamRow.innerHTML =
+        '<span class="mon-team-arrow">▶</span>'
+        + '<span style="min-width:28px;font-weight:700;color:var(--ink-2)">' + t.rank + '</span>'
+        + '<span style="flex:1;font-weight:600">' + t.team_name + '</span>'
+        + '<span style="font-family:var(--font-mono);font-weight:700;margin-right:var(--s-3)">' + score + '</span>'
+        + '<span style="font-size:12px;color:var(--ink-2)">' + scannedCnt + '</span>';
+      teamRow.addEventListener('click', function () { teamRow.classList.toggle('is-open'); bodyDiv.classList.toggle('is-open'); });
+
+      /* Expandable player body */
+      var bodyDiv = document.createElement('div');
+      bodyDiv.className = 'mon-team-body' + (openIds[t.id] ? ' is-open' : '');
+
+      (t.balls || []).forEach(function (b) {
+        var playerScore = isLD
+          ? (b.final_yards != null ? b.final_yards + ' yd' : (b.scanned ? '0 yd' : '—'))
+          : (b.distance_ft != null ? b.distance_ft + ' ft' : '—');
+        var locBadge = b.location_type
+          ? '<span style="font-size:10px;padding:1px 6px;border-radius:3px;background:var(--surface-2);margin-left:4px">' + b.location_type + '</span>'
+          : '';
+
+        var pRow = document.createElement('div');
+        pRow.className = 'mon-player-row';
+        pRow.innerHTML =
+          '<span style="font-size:12px;color:var(--ink-2);min-width:16px">' + (b.player_index || '') + '</span>'
+          + '<span style="flex:1;font-size:13px">' + (b.player_name || '<em style="color:var(--ink-2)">unregistered</em>') + '</span>'
+          + '<span style="font-family:var(--font-mono);font-size:11px;color:var(--ink-2);margin-right:var(--s-2)">' + b.drop_code + '</span>'
+          + '<span style="font-size:12px;font-weight:600">' + playerScore + locBadge + '</span>';
+
+        /* Action buttons row */
+        var actRow = document.createElement('div');
+        actRow.className = 'mon-player-actions';
+
+        /* Fill correction form */
+        var fillBtn = document.createElement('button');
+        fillBtn.className = 'btn btn-ghost';
+        fillBtn.style.cssText = 'font-size:11px;padding:3px 8px';
+        fillBtn.textContent = 'Correct';
+        fillBtn.addEventListener('click', function () {
+          var c = document.getElementById('corr-code');
+          if (c) { c.value = b.drop_code; c.closest('.card').scrollIntoView({ behavior: 'smooth' }); }
+        });
+        actRow.appendChild(fillBtn);
+
+        /* Reset scan */
+        if (b.scanned) {
+          var rstBtn = document.createElement('button');
+          rstBtn.className = 'btn btn-ghost';
+          rstBtn.style.cssText = 'font-size:11px;padding:3px 8px;color:var(--danger);border-color:var(--danger)';
+          rstBtn.textContent = '↺ Reset';
+          rstBtn.addEventListener('click', function () {
+            var name = b.player_name || b.drop_code;
+            if (!confirm('Reset scan for ' + name + '? Clears yardage so they can scan again.')) return;
+            JORD.api('/api/events/' + eid + '/balls/' + b.drop_code + '/reset-scan', { method: 'PATCH', body: {} })
+              .then(function () { JORD.success('↺ ' + name + ' scan reset'); })
+              .catch(function (e) { JORD.error(e.message); });
+          });
+          actRow.appendChild(rstBtn);
+        }
+
+        bodyDiv.appendChild(pRow);
+        bodyDiv.appendChild(actRow);
+      });
+
+      lb.appendChild(teamRow);
+      lb.appendChild(bodyDiv);
     });
-    tbl.appendChild(tbody);
-    lb.appendChild(tbl);
   }
 
   function setStat(id, val) {

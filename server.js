@@ -815,6 +815,9 @@ app.post('/api/scan/ld/:code', (req, res) => {
     }
   }
 
+  // Always floor penalty to whole yards — no fractional penalties
+  penaltyYards = Math.floor(penaltyYards);
+
   const finalYards = location_type === 'fairway'
     ? rawYards
     : location_type === 'rough' && ball.allow_rough
