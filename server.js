@@ -1061,8 +1061,8 @@ app.get('/api/config', (req, res) => {
   res.json({ mapbox_token: MAPBOX_TOKEN, version: '1.0.0', build_date: '2026-04-26' });
 });
 
-// ─── SERVER INFO (local IP for phone testing) ────────────────────────────────
-app.get('/api/server-info', (req, res) => {
+// ─── SERVER INFO (local IP + ngrok tunnel URL for phone testing) ─────────────
+app.get('/api/server-info', async (req, res) => {
   const os = require('os');
   const ifaces = os.networkInterfaces();
   let localIP = 'localhost';
@@ -1072,7 +1072,16 @@ app.get('/api/server-info', (req, res) => {
     }
     if (localIP !== 'localhost') break;
   }
-  res.json({ localIP, port: PORT, appUrl: APP_URL });
+
+  let ngrokUrl = null;
+  try {
+    const r = await fetch('http://localhost:4040/api/tunnels', { signal: AbortSignal.timeout(800) });
+    const data = await r.json();
+    const tunnel = (data.tunnels || []).find(t => t.proto === 'https');
+    if (tunnel) ngrokUrl = tunnel.public_url;
+  } catch {}
+
+  res.json({ localIP, port: PORT, appUrl: APP_URL, ngrokUrl });
 });
 
 // ─── QR CODE IMAGE (server-generated PNG) ────────────────────────────────────

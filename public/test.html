@@ -306,6 +306,9 @@
   ]);
   mapboxToken = cfg.mapbox_token || '';
 
+  /* Use ngrok URL for QR codes if tunnel is running — otherwise current origin */
+  if (info.ngrokUrl) localBase = info.ngrokUrl;
+
   /* Connect section */
   document.getElementById('connect-loading').style.display = 'none';
   document.getElementById('connect-info').style.display = '';

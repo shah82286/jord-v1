@@ -771,7 +771,7 @@
     const all = draw.getAll().features;
     for (const kind of Object.keys(ZONE_COLORS)) {
       const src = map.getSource(`zone-${kind}`);
-      if (!src) return;
+      if (!src) continue;
       src.setData({ type: 'FeatureCollection', features: all.filter(f => {
         const k = f.properties.kind || f.properties.user_kind || '';
         return k === kind;
@@ -869,20 +869,24 @@
     const kindColor = ['match', kindKey,
       'fairway', '#22C55E', 'rough', '#EAB308', 'oob', '#DC2626', 'green', '#3B82F6', 'ctp_green', '#3B82F6', '#888888'];
     const drawStyles = [
+      /* Inactive fill/stroke hidden — zone layers below handle all static color rendering.
+         This prevents double-fill stacking and ensures MultiPolygons (from turf.difference) render correctly. */
       { id: 'gl-draw-polygon-fill-inactive', type: 'fill',
         filter: ['all', ['==', 'active', 'false'], ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
-        paint: { 'fill-color': kindColor, 'fill-opacity': 0.38 } },
-      { id: 'gl-draw-polygon-fill-active', type: 'fill',
-        filter: ['all', ['==', 'active', 'true'], ['==', '$type', 'Polygon']],
-        paint: { 'fill-color': kindColor, 'fill-opacity': 0.5 } },
+        paint: { 'fill-color': kindColor, 'fill-opacity': 0 } },
       { id: 'gl-draw-polygon-stroke-inactive', type: 'line',
         filter: ['all', ['==', 'active', 'false'], ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': kindColor, 'line-width': 2, 'line-opacity': 0.8 } },
+        paint: { 'line-color': kindColor, 'line-width': 2, 'line-opacity': 0 } },
+      /* Active (selected/editing) — show fill + dashed stroke as editing feedback */
+      { id: 'gl-draw-polygon-fill-active', type: 'fill',
+        filter: ['all', ['==', 'active', 'true'], ['==', '$type', 'Polygon']],
+        paint: { 'fill-color': kindColor, 'fill-opacity': 0.5 } },
       { id: 'gl-draw-polygon-stroke-active', type: 'line',
         filter: ['all', ['==', 'active', 'true'], ['==', '$type', 'Polygon']],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': kindColor, 'line-dasharray': [0.2, 2], 'line-width': 2.5 } },
+      /* Vertex editing handles */
       { id: 'gl-draw-polygon-midpoint', type: 'circle',
         filter: ['all', ['==', '$type', 'Point'], ['==', 'meta', 'midpoint']],
         paint: { 'circle-radius': 3, 'circle-color': '#fbb03b' } },
@@ -937,8 +941,12 @@
       map.addLayer({ id: 'gps-trace-layer', type: 'line', source: 'gps-trace',
         paint: { 'line-color': '#fbb03b', 'line-width': 3, 'line-dasharray': [2, 1] } });
 
-      // Dedicated colored fill layers for each zone — inserted below MapboxDraw's UI layers
-      for (const [kind, color] of Object.entries(ZONE_COLORS)) {
+      /* Zone layers — added in priority order (oob lowest, fairway highest) so fairway
+         visually sits on top of rough on top of oob. All inserted below draw's vertex/handle layers. */
+      const ZONE_LAYER_ORDER = ['oob', 'rough', 'fairway', 'green', 'ctp_green'];
+      for (const kind of ZONE_LAYER_ORDER) {
+        const color = ZONE_COLORS[kind];
+        if (!color) continue;
         map.addSource(`zone-${kind}`, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         map.addLayer({ id: `zone-fill-${kind}`, type: 'fill', source: `zone-${kind}`,
           paint: { 'fill-color': color, 'fill-opacity': 0.45 } }, 'gl-draw-polygon-fill-inactive');
@@ -1026,7 +1034,12 @@
         freehandPoints = []; return;
       }
       const closed = [...freehandPoints, freehandPoints[0]];
-      const feat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closed] }, properties: { kind: currentDrawKind } };
+      let feat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closed] }, properties: { kind: currentDrawKind } };
+      /* Simplify — reduces freehand noise from hundreds of points to ~10-30 clean vertices */
+      if (window.turf) {
+        try { feat = turf.simplify(feat, { tolerance: 0.000015, highQuality: true }); } catch {}
+      }
+      feat.properties = { kind: currentDrawKind };
       const ids = draw.add(feat);
       freehandPoints = [];
       syncZoneLayers();
@@ -1240,11 +1253,16 @@
       }
       const kind = currentHoleTab === 'ctp' ? 'ctp_green' : $('#tool-trace-kind').value;
       const closedPts = [...tracePoints, tracePoints[0]];
-      draw.add({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [closedPts] }, properties: { kind } });
+      let traceFeat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closedPts] }, properties: { kind } };
+      if (window.turf) {
+        try { traceFeat = turf.simplify(traceFeat, { tolerance: 0.000015, highQuality: true }); } catch {}
+      }
+      traceFeat.properties = { kind };
+      draw.add(traceFeat);
       syncZoneLayers();
       map.getSource('gps-trace').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
       tracePoints = [];
-      JORD.success(`${kind} boundary traced (${closedPts.length - 1} points) — Save map to save`);
+      JORD.success(`${kind} boundary traced (${closedPts.length - 1} points simplified) — Save map to save`);
     };
 
     // ── Hole tab switching ──

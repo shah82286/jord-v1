@@ -70,9 +70,10 @@
 <script>
 (function () {
   var eid = JORD.path(1);
-  var eventInfo  = null;
-  var players    = [];   /* {code, first, last, email, phone, tee_box_id} */
-  var MAX        = 4;
+  var eventInfo         = null;
+  var players           = [];   /* {code, first, last, email, phone, tee_box_id} */
+  var MAX               = 4;
+  var submittingWithFewer = false;
 
   /* ── Bootstrap ── */
   document.addEventListener('DOMContentLoaded', function () {
@@ -112,7 +113,7 @@
   function renderStep() {
     var root = getRoot();
     var playerIndex = players.length + 1;
-    var isTeamStep  = false;
+    var onTeamStep  = players.length >= MAX || submittingWithFewer;
 
     root.innerHTML = '';
 
@@ -124,17 +125,16 @@
       + '<p class="text-muted" style="margin-top:4px;font-size:14px">Register your team below. Each player needs their unique drop code.</p>';
     root.appendChild(evHead);
 
-    /* Step bar */
+    /* Step bar — 4 player pips + 1 team pip */
     var bar = document.createElement('div');
     bar.className = 'step-bar';
     for (var i = 0; i < MAX; i++) {
       var pip = document.createElement('div');
-      pip.className = 'step-pip' + (i < players.length ? ' done' : (i === players.length ? ' active' : ''));
+      pip.className = 'step-pip' + (i < players.length ? ' done' : (i === players.length && !onTeamStep ? ' active' : ''));
       bar.appendChild(pip);
     }
-    /* Team step pip */
     var teamPip = document.createElement('div');
-    teamPip.className = 'step-pip';
+    teamPip.className = 'step-pip' + (onTeamStep ? ' active' : '');
     teamPip.style.flex = '1';
     bar.appendChild(teamPip);
     root.appendChild(bar);
@@ -143,7 +143,7 @@
     if (players.length > 0) {
       var doneList = document.createElement('div');
       doneList.className = 'players-done';
-      players.forEach(function (p, i) {
+      players.forEach(function (p) {
         var chip = document.createElement('div');
         chip.className = 'player-chip';
         chip.innerHTML = '<span style="font-size:18px">✅</span>'
@@ -154,26 +154,68 @@
       root.appendChild(doneList);
     }
 
-    /* Add-more button */
-    if (players.length > 0 && players.length < MAX) {
-      var moreBtn = document.createElement('button');
-      moreBtn.className = 'add-more mb-4';
-      moreBtn.innerHTML = '＋ Add Player ' + (players.length + 1);
-      moreBtn.addEventListener('click', function () {
-        showPlayerForm(root, playerIndex);
-        moreBtn.style.display = 'none';
-      });
-      root.appendChild(moreBtn);
-    }
-
-    /* Player form */
+    /* ── Main content ── */
     if (players.length === 0) {
+      /* First player — show form straight away */
       showPlayerForm(root, 1);
-    }
 
-    /* Team name step (available after at least 1 player) */
-    if (players.length > 0) {
-      showTeamForm(root);
+    } else if (onTeamStep) {
+      /* All 4 entered, or user chose to submit with fewer — show team name */
+      showTeamForm(root, submittingWithFewer);
+
+    } else {
+      /* Between 1–3 players — show action buttons */
+      var actions = document.createElement('div');
+
+      /* Primary: Add next player */
+      var addBtn = document.createElement('button');
+      addBtn.className = 'btn btn-primary btn-block btn-lg';
+      addBtn.innerHTML = '＋ Add Player ' + playerIndex;
+      addBtn.addEventListener('click', function () {
+        actions.remove();
+        showPlayerForm(root, playerIndex);
+      });
+      actions.appendChild(addBtn);
+
+      /* Divider */
+      var orDiv = document.createElement('div');
+      orDiv.style.cssText = 'display:flex;align-items:center;gap:12px;margin:var(--s-3) 0;color:var(--ink-3);font-size:13px';
+      orDiv.innerHTML = '<div style="flex:1;height:1px;background:var(--border)"></div>or<div style="flex:1;height:1px;background:var(--border)"></div>';
+      actions.appendChild(orDiv);
+
+      /* Secondary: Submit with fewer */
+      var fewerBtn = document.createElement('button');
+      fewerBtn.className = 'btn btn-ghost btn-block';
+      fewerBtn.textContent = 'Submit with ' + players.length + ' player' + (players.length > 1 ? 's' : '') + ' →';
+      fewerBtn.addEventListener('click', function () {
+        /* Inline confirmation — no popup */
+        actions.innerHTML = '';
+        var warn = document.createElement('div');
+        warn.style.cssText = 'background:rgba(234,179,8,0.12);border:1px solid rgba(234,179,8,0.45);border-radius:var(--r-md);padding:16px;margin-bottom:var(--s-3)';
+        warn.innerHTML = '<div style="font-weight:700;margin-bottom:6px">⚠️ Submitting with ' + players.length + ' of ' + MAX + ' players</div>'
+          + '<div style="font-size:13px;color:var(--ink-2)">Most teams have 4 players. You can have extra players added later through the admin panel.</div>';
+        actions.appendChild(warn);
+
+        var confirmRow = document.createElement('div');
+        confirmRow.className = 'row gap-3';
+
+        var yesBtn = document.createElement('button');
+        yesBtn.className = 'btn btn-primary grow';
+        yesBtn.textContent = 'Continue with ' + players.length + ' →';
+        yesBtn.addEventListener('click', function () { submittingWithFewer = true; renderStep(); });
+
+        var noBtn = document.createElement('button');
+        noBtn.className = 'btn btn-ghost';
+        noBtn.textContent = 'Add more players';
+        noBtn.addEventListener('click', renderStep);
+
+        confirmRow.appendChild(yesBtn);
+        confirmRow.appendChild(noBtn);
+        actions.appendChild(confirmRow);
+      });
+      actions.appendChild(fewerBtn);
+
+      root.appendChild(actions);
     }
   }
 
@@ -341,10 +383,12 @@
     root.appendChild(form);
   }
 
-  function showTeamForm(root) {
+  function showTeamForm(root, withFewer) {
     var teamCard = document.createElement('div');
     teamCard.className = 'card';
-    teamCard.innerHTML = '<h3 class="card-title">Team Name</h3><p class="card-sub">Give your team a name. Then submit to complete registration.</p>';
+    teamCard.innerHTML = '<h3 class="card-title">Team Name</h3>'
+      + '<p class="card-sub">Last step — give your team a name and complete registration.</p>'
+      + (withFewer ? '<div style="background:rgba(234,179,8,0.12);border:1px solid rgba(234,179,8,0.45);border-radius:var(--r-md);padding:10px 14px;font-size:13px;margin-bottom:var(--s-3)">Registering with <strong>' + players.length + '</strong> of 4 players. Additional players can be added by the admin.</div>' : '');
 
     var teamField = document.createElement('div');
     teamField.className = 'field';

@@ -362,7 +362,7 @@
             scoreHtml = '<span style="color:var(--ink-3);font-size:12px">not scored</span>';
           } else if (hasPenalty) {
             scoreHtml = b.final_yards + ' yd'
-              + '<div style="font-size:10px;color:#fff;background:#b91c1c;font-weight:700;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block">'
+              + '<div style="font-size:10px;color:#fff;background:#b91c1c;font-weight:700;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block;white-space:nowrap">'
               + b.raw_yards + ' &minus; ' + b.penalty_yards + ' = ' + b.final_yards + '</div>';
           } else {
             scoreHtml = b.final_yards != null ? b.final_yards + ' yd' : '—';
@@ -377,7 +377,7 @@
           var cpScoreHtml;
           if (cpHasPen) {
             cpScoreHtml = b.distance_ft + ' ft'
-              + '<div style="font-size:10px;color:#fff;background:#b91c1c;font-weight:700;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block">'
+              + '<div style="font-size:10px;color:#fff;background:#b91c1c;font-weight:700;border-radius:3px;padding:1px 5px;margin-top:3px;display:inline-block;white-space:nowrap">'
               + b.raw_ft + ' + ' + b.penalty_ft + ' ft off-green</div>';
           } else {
             cpScoreHtml = b.distance_ft != null ? b.distance_ft + ' ft' : '—';
