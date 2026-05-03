@@ -129,6 +129,31 @@
   var markers = {};
   var snap = null;
   var mapViewMode = 'active'; /* 'active' = teams still on hole | 'all' = everyone */
+  var mapTeamFilter = null;   /* null = all teams; string = team name to focus */
+
+  /* Persistent team color palette — assigned on first appearance, kept for session */
+  var TEAM_COLORS = ['#E91E63','#2196F3','#FF9800','#9C27B0','#00BCD4','#FF5722','#4CAF50','#CDDC39','#795548','#607D8B','#F44336','#3F51B5'];
+  var teamColorMap = {};
+  var teamColorIdx = 0;
+  function getTeamColor(name) {
+    if (!teamColorMap[name]) teamColorMap[name] = TEAM_COLORS[teamColorIdx++ % TEAM_COLORS.length];
+    return teamColorMap[name];
+  }
+
+  function setTeamFilter(teamName) {
+    mapTeamFilter = teamName;
+    var info = document.getElementById('map-filter-info');
+    var nameEl = document.getElementById('map-filter-name');
+    if (info) info.style.display = teamName ? 'flex' : 'none';
+    if (nameEl) nameEl.textContent = teamName ? ('Focusing: ' + teamName) : '';
+    document.querySelectorAll('.map-focus-btn').forEach(function (btn) {
+      var active = btn.dataset.team === mapTeamFilter;
+      btn.style.background = active ? 'var(--primary)' : 'transparent';
+      btn.style.color = active ? '#0C2010' : 'var(--ink-2)';
+      btn.style.borderColor = active ? 'var(--primary)' : 'var(--border)';
+    });
+    if (snap) updateMapDots(snap);
+  }
 
   /* ── Gate ── */
   document.getElementById('gate-form').addEventListener('submit', function (e) {
@@ -252,6 +277,21 @@
     toggleWrap.appendChild(makeToggleBtn('On Hole', 'active'));
     toggleWrap.appendChild(makeToggleBtn('All Players', 'all'));
     mapHeader.appendChild(toggleWrap);
+
+    /* Team filter indicator */
+    var filterInfo = document.createElement('div');
+    filterInfo.id = 'map-filter-info';
+    filterInfo.style.cssText = 'display:none;align-items:center;gap:6px;font-size:12px;color:var(--ink-2);flex-shrink:0';
+    var filterName = document.createElement('span');
+    filterName.id = 'map-filter-name';
+    filterName.style.cssText = 'font-weight:600;color:var(--ink)';
+    var allBtn = document.createElement('button');
+    allBtn.textContent = '× All Teams';
+    allBtn.style.cssText = 'font-size:11px;padding:2px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:var(--ink-2);cursor:pointer';
+    allBtn.addEventListener('click', function () { setTeamFilter(null); });
+    filterInfo.appendChild(filterName);
+    filterInfo.appendChild(allBtn);
+    mapHeader.appendChild(filterInfo);
     mapCard.appendChild(mapHeader);
 
     var mapBox = document.createElement('div');
@@ -261,10 +301,9 @@
 
     var legend = document.createElement('div');
     legend.className = 'legend';
-    legend.innerHTML = '<div class="legend-item"><div class="dot" style="background:#4CAF50"></div>Fairway</div>'
-      + '<div class="legend-item"><div class="dot" style="background:#FFC107"></div>Rough</div>'
-      + '<div class="legend-item"><div class="dot" style="background:#C0392B"></div>OOB / Lost</div>'
-      + '<div class="legend-item"><div class="dot" style="background:#9E9E9E"></div>Not scanned</div>';
+    legend.innerHTML = '<div class="legend-item"><div class="dot" style="background:var(--primary)"></div>Each color = one team</div>'
+      + '<div class="legend-item"><div class="dot" style="background:#9E9E9E"></div>Not yet scanned</div>'
+      + '<div class="legend-item" style="color:var(--ink-3)">Tap 📍 by a team name to focus map</div>';
     mapCard.appendChild(legend);
 
     left.appendChild(mapCard);
@@ -319,7 +358,7 @@
     mapboxgl.accessToken = mapboxToken;
     map = new mapboxgl.Map({
       container: 'mon-map',
-      style: 'mapbox://styles/mapbox/satellite-streets-v12',
+      style: JORD.satelliteStyle(),
       center: [-98.5, 39.5],
       zoom: 4
     });
@@ -366,19 +405,16 @@
     }
   }
 
-  var dotColors = { fairway: '#4CAF50', rough: '#FFC107', oob: '#C0392B', lost: '#C0392B' };
-
   function updateMapDots(d) {
     if (!map) return;
     var allBalls = [];
     ((d.ld || []).concat(d.cp || [])).forEach(function (team) {
+      var teamColor = getTeamColor(team.team_name);
       var teamBalls = team.balls || [];
-      /* In 'active' mode, hide teams where every ball has been submitted */
       if (mapViewMode === 'active' && teamBalls.length > 0 && teamBalls.every(function (b) { return b.scanned; })) return;
-      teamBalls.forEach(function (b) { allBalls.push({ team: team.team_name, ball: b }); });
+      teamBalls.forEach(function (b) { allBalls.push({ team: team.team_name, color: teamColor, ball: b }); });
     });
 
-    /* Remove old markers */
     Object.values(markers).forEach(function (m) { m.remove(); });
     markers = {};
 
@@ -388,9 +424,10 @@
       var lon = b.lat || b.lon ? b.lon : null;
       if (!lat || !lon) return;
 
-      var color = dotColors[b.location_type] || '#9E9E9E';
+      var dimmed = mapTeamFilter && item.team !== mapTeamFilter;
+      var color = b.scanned ? item.color : '#9E9E9E';
       var el = document.createElement('div');
-      el.style.cssText = 'width:14px;height:14px;border-radius:50%;background:' + color + ';border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer';
+      el.style.cssText = 'width:14px;height:14px;border-radius:50%;background:' + color + ';border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer;transition:opacity 0.2s;opacity:' + (dimmed ? '0.18' : '1');
       el.title = (b.player_name || b.drop_code) + ' — ' + item.team;
 
       var popup = new mapboxgl.Popup({ offset: 12 }).setHTML(
@@ -408,11 +445,22 @@
       markers[b.drop_code] = marker;
     });
 
-    /* Auto-fit if markers exist */
-    var coords = Object.keys(markers).map(function (k) { return markers[k].getLngLat(); });
-    if (coords.length > 1) {
-      var bounds = coords.reduce(function (b, c) { return b.extend(c); }, new mapboxgl.LngLatBounds(coords[0], coords[0]));
-      map.fitBounds(bounds, { padding: 60, maxZoom: 17 });
+    /* Fit bounds — zoom to filtered team if active, otherwise fit all */
+    if (mapTeamFilter) {
+      var focused = allBalls.filter(function (item) { return item.team === mapTeamFilter && item.ball.lat && item.ball.lon; });
+      if (focused.length === 1) {
+        map.flyTo({ center: [focused[0].ball.lon, focused[0].ball.lat], zoom: 17 });
+      } else if (focused.length > 1) {
+        var fc = focused.map(function (item) { return [item.ball.lon, item.ball.lat]; });
+        var fb = fc.reduce(function (b, c) { return b.extend(c); }, new mapboxgl.LngLatBounds(fc[0], fc[0]));
+        map.fitBounds(fb, { padding: 80, maxZoom: 18 });
+      }
+    } else {
+      var coords = Object.keys(markers).map(function (k) { return markers[k].getLngLat(); });
+      if (coords.length > 1) {
+        var bounds = coords.reduce(function (b, c) { return b.extend(c); }, new mapboxgl.LngLatBounds(coords[0], coords[0]));
+        map.fitBounds(bounds, { padding: 60, maxZoom: 17 });
+      }
     }
   }
 
@@ -452,16 +500,24 @@
       var scannedCnt = isLD ? (t.scanned_count + '/' + t.total_balls) : (t.scanned + '/' + t.total);
 
       /* Team header row */
+      var tColor = getTeamColor(t.team_name);
       var teamRow = document.createElement('div');
       teamRow.className = 'mon-team-row' + (openIds[t.id] ? ' is-open' : '');
       teamRow.dataset.teamId = t.id;
       teamRow.innerHTML =
         '<span class="mon-team-arrow">▶</span>'
-        + '<span style="min-width:28px;font-weight:700;color:var(--ink-2)">' + t.rank + '</span>'
+        + '<span style="width:10px;height:10px;border-radius:50%;background:' + tColor + ';flex-shrink:0;display:inline-block;margin-right:4px"></span>'
+        + '<span style="min-width:24px;font-weight:700;color:var(--ink-2)">' + t.rank + '</span>'
         + '<span style="flex:1;font-weight:600">' + t.team_name + '</span>'
-        + '<span style="font-family:var(--font-mono);font-weight:700;margin-right:var(--s-3)">' + score + '</span>'
-        + '<span style="font-size:12px;color:var(--ink-2)">' + scannedCnt + '</span>';
+        + '<span style="font-family:var(--font-mono);font-weight:700;margin-right:var(--s-2)">' + score + '</span>'
+        + '<span style="font-size:12px;color:var(--ink-2);margin-right:var(--s-2)">' + scannedCnt + '</span>'
+        + '<button class="map-focus-btn" data-team="' + t.team_name.replace(/"/g, '&quot;') + '" title="Focus map on this team"'
+        + ' style="font-size:11px;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:' + (mapTeamFilter === t.team_name ? 'var(--primary)' : 'transparent') + ';color:' + (mapTeamFilter === t.team_name ? '#0C2010' : 'var(--ink-2)') + ';cursor:pointer;flex-shrink:0">📍</button>';
       teamRow.addEventListener('click', function () { teamRow.classList.toggle('is-open'); bodyDiv.classList.toggle('is-open'); });
+      teamRow.querySelector('.map-focus-btn').addEventListener('click', function (e) {
+        e.stopPropagation();
+        setTeamFilter(mapTeamFilter === t.team_name ? null : t.team_name);
+      });
 
       /* Expandable player body */
       var bodyDiv = document.createElement('div');
@@ -504,9 +560,9 @@
           rstBtn.className = 'btn btn-ghost';
           rstBtn.style.cssText = 'font-size:11px;padding:3px 8px;color:var(--danger);border-color:var(--danger)';
           rstBtn.textContent = '↺ Reset';
-          rstBtn.addEventListener('click', function () {
+          rstBtn.addEventListener('click', async function () {
             var name = b.player_name || b.drop_code;
-            if (!confirm('Reset scan for ' + name + '? Clears yardage so they can scan again.')) return;
+            if (!await JORD.confirm('Reset scan for ' + name + '? Clears yardage so they can scan again.', { okText: 'Reset scan', danger: true })) return;
             JORD.api('/api/events/' + eid + '/balls/' + b.drop_code + '/reset-scan', { method: 'PATCH', body: {} })
               .then(function () { JORD.success('↺ ' + name + ' scan reset'); })
               .catch(function (e) { JORD.error(e.message); });
@@ -651,10 +707,10 @@
     resetBtn.className = 'btn btn-ghost btn-block mt-2';
     resetBtn.style.cssText = 'color:var(--danger);border-color:var(--danger)';
     resetBtn.textContent = '↺ Reset Scan (let player scan again)';
-    resetBtn.addEventListener('click', function () {
+    resetBtn.addEventListener('click', async function () {
       var code = codeInput.value.trim().toUpperCase();
       if (!code) { errEl.textContent = 'Enter a drop code first.'; return; }
-      if (!confirm('Reset scan for ' + code + '? This clears their yardage so they can scan again.')) return;
+      if (!await JORD.confirm('Reset scan for ' + code + '? This clears their yardage so they can scan again.', { okText: 'Reset scan', danger: true })) return;
       resetBtn.disabled = true; resetBtn.textContent = 'Resetting…';
       JORD.api('/api/events/' + eid + '/balls/' + code + '/reset-scan', {
         method: 'PATCH',

@@ -27,19 +27,26 @@
   }
   .code-box {
     flex: 1; min-width: 0; height: 68px;
-    text-align: center;
+    display: flex; align-items: center; justify-content: center;
     font-family: var(--font-mono); font-size: 28px; font-weight: 700;
     border: 2px solid var(--border-2); border-radius: var(--r-md);
     background: var(--surface-2); color: var(--ink);
-    text-transform: uppercase; caret-color: var(--primary);
+    text-transform: uppercase; user-select: none; cursor: text;
     transition: border-color 0.15s, background 0.15s;
-    -webkit-appearance: none; appearance: none;
+    position: relative;
   }
-  .code-box:focus { outline: none; border-color: var(--primary); background: var(--surface); }
   .code-box.has-value { border-color: var(--primary); background: rgba(190,255,58,0.07); }
+  .code-box.is-cursor { border-color: var(--primary); background: var(--surface); }
+  .code-box.is-cursor::after {
+    content: ''; position: absolute;
+    width: 2px; height: 36px; background: var(--primary);
+    animation: blink-cursor 1s step-end infinite;
+  }
+  @keyframes blink-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
   @media (max-width: 380px) {
     .code-boxes { gap: 5px; }
     .code-box { font-size: 22px; height: 58px; }
+    .code-box.is-cursor::after { height: 28px; }
   }
 
   /* GPS status */
@@ -106,44 +113,82 @@
   var demoMode   = false;
 
   /* ─── Zone detection (point-in-polygon, ray casting) ─── */
+  function checkRing(lat, lon, geom) {
+    if (!geom || geom.type !== 'Polygon') return false;
+    var ring = geom.coordinates[0];
+    var inside = false;
+    for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      var xi = ring[i][0], yi = ring[i][1];
+      var xj = ring[j][0], yj = ring[j][1];
+      if (((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi))
+        inside = !inside;
+    }
+    return inside;
+  }
+
   function pointInPolygon(lat, lon, polygonData) {
     if (!polygonData) return false;
     try {
       var geom = typeof polygonData === 'string' ? JSON.parse(polygonData) : polygonData;
-      var ring = geom.coordinates[0];
-      var inside = false;
-      for (var i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-        var xi = ring[i][0], yi = ring[i][1];
-        var xj = ring[j][0], yj = ring[j][1];
-        if (((yi > lat) !== (yj > lat)) && (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi))
-          inside = !inside;
-      }
-      return inside;
+      if (geom.type === 'FeatureCollection')
+        return (geom.features || []).some(function (f) { return checkRing(lat, lon, f.geometry); });
+      if (geom.type === 'Feature') geom = geom.geometry;
+      return checkRing(lat, lon, geom);
     } catch (e) { return false; }
   }
 
   function detectZone(lat, lon) {
     if (!ballData) return null;
     var hasZones = ballData.fairway_polygon || ballData.rough_polygon || ballData.oob_polygon;
-    if (!hasZones) return null; // no zones mapped — show manual picker
+    if (!hasZones) return null; // no zones mapped — leave picker manual
     if (pointInPolygon(lat, lon, ballData.fairway_polygon)) return 'fairway';
     if (pointInPolygon(lat, lon, ballData.rough_polygon))   return 'rough';
     if (pointInPolygon(lat, lon, ballData.oob_polygon))     return 'oob';
-    return 'oob'; // outside all mapped zones = OOB
+    return 'oob_outside'; // outside all mapped zones
   }
 
   function autoSelectZone(lat, lon) {
     var zone = detectZone(lat, lon);
-    if (!zone) return; // no zones mapped, leave picker empty
-    var btn = document.querySelector('[data-loc="' + zone + '"]');
-    if (btn) { btn.click(); }
+    if (!zone) return; // no zones mapped — leave manual picker open
+    var locKey = zone === 'oob_outside' ? 'oob' : zone;
+    var btn = document.querySelector('[data-loc="' + locKey + '"]');
+    if (btn) btn.click();
+
+    /* Lock buttons: for OOB zones keep Lost Ball enabled; for fairway/rough lock all */
+    var isOobZone = locKey === 'oob';
+    document.querySelectorAll('.loc-btn').forEach(function (b) {
+      var keep = b.dataset.loc === locKey || (isOobZone && b.dataset.loc === 'lost');
+      b.disabled = !keep;
+      b.style.opacity = keep ? '1' : '0.3';
+      b.style.cursor = keep ? 'pointer' : 'default';
+    });
+
     var note = document.getElementById('zone-auto-note');
-    if (note) {
+    if (!note) return;
+    note.style.display = '';
+    if (zone === 'oob_outside') {
+      note.style.cssText = 'font-size:13px;color:#b91c1c;background:rgba(185,28,28,0.12);border:1px solid rgba(185,28,28,0.35);border-radius:6px;padding:9px 12px;text-align:center;margin-top:8px;line-height:1.4';
+      note.textContent = '🚫 Outside all course zones — marked Out of Bounds. Choose Lost Ball if you can\'t find it. Contact a rep to change zone.';
+    } else if (zone === 'oob') {
+      note.style.cssText = 'font-size:13px;color:#b91c1c;background:rgba(185,28,28,0.12);border:1px solid rgba(185,28,28,0.35);border-radius:6px;padding:9px 12px;text-align:center;margin-top:8px;line-height:1.4';
+      note.textContent = '🚫 Out of Bounds zone detected. Choose Lost Ball if you can\'t find it. Contact a rep to change zone.';
+    } else {
+      var zoneLabel = { fairway: 'Fairway', rough: 'Rough' }[zone] || zone;
+      note.style.cssText = 'font-size:13px;color:#166534;background:rgba(22,101,52,0.1);border:1px solid rgba(22,101,52,0.3);border-radius:6px;padding:9px 12px;text-align:center;margin-top:8px;line-height:1.4';
+      note.textContent = '✅ ' + zoneLabel + ' detected from course map — zone locked in. Contact a rep if incorrect.';
+    }
+  }
+
+  function checkCTPZone(lat, lon) {
+    var green = ballData.ctp_green_polygon || ballData.green_polygon;
+    if (!green) return; // no green mapped — no check possible
+    var note = document.getElementById('ctp-zone-note');
+    if (!note) return;
+    if (!pointInPolygon(lat, lon, green)) {
       note.style.display = '';
-      // Lost ball is always manual — remind player it's available if needed
-      note.textContent = zone === 'oob'
-        ? '🚫 Outside mapped zones — marked Out of Bounds. Tap Lost Ball if you can\'t find it.'
-        : '📍 Zone auto-detected from course map — tap another if incorrect';
+      var penalty = ballData.cp_off_green_penalty_ft > 0 ? ' A ' + ballData.cp_off_green_penalty_ft + ' ft penalty will be applied.' : '';
+      note.style.cssText = 'font-size:13px;color:#b91c1c;background:rgba(185,28,28,0.12);border:1px solid rgba(185,28,28,0.35);border-radius:6px;padding:9px 12px;text-align:center;margin-top:8px;line-height:1.4';
+      note.textContent = '🚫 Out of Bounds — your ball is not located within the designated green zone for Closest to the Pin.' + penalty;
     }
   }
 
@@ -171,6 +216,7 @@
       gpsPos = { lat: testLat, lon: testLon, acc: 1 };
       setGPS('locked', '🧪', 'Test mode — location simulated');
       autoSelectZone(testLat, testLon);
+      if (ballData && ballData.has_closest_pin) checkCTPZone(testLat, testLon);
       enableSubmit();
       return;
     }
@@ -180,6 +226,7 @@
         gpsPos = { lat: pos.coords.latitude, lon: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) };
         setGPS('locked', '📍', 'Location locked — you\'re good to go!');
         autoSelectZone(gpsPos.lat, gpsPos.lon);
+        if (ballData && ballData.has_closest_pin) checkCTPZone(gpsPos.lat, gpsPos.lon);
         enableSubmit();
       },
       function (err) {
@@ -300,6 +347,12 @@
       + '<div class="code-tag">' + ballData.drop_code + '</div>';
 
     /* Status badge */
+    if (ballData.event_status === 'setup') {
+      infoCard.innerHTML += '<div class="badge badge-accent mt-3">Not Started Yet</div>';
+      root.appendChild(infoCard);
+      root.appendChild(buildErrorEl('This tournament hasn\'t started yet. Come back when it\'s live!'));
+      return;
+    }
     if (ballData.event_status === 'ended') {
       infoCard.innerHTML += '<div class="badge badge-accent mt-3">Tournament Ended</div>';
       root.appendChild(infoCard);
@@ -391,6 +444,26 @@
     card.innerHTML = '<h3 class="card-title">Closest to the Pin</h3>'
       + '<p class="card-sub">Stand at your ball on the green, then submit — GPS will capture the distance.</p>';
 
+    var ctpZoneNote = document.createElement('div');
+    ctpZoneNote.id = 'ctp-zone-note';
+    ctpZoneNote.style.display = 'none';
+    card.appendChild(ctpZoneNote);
+
+    // Optional manual distance override
+    var manualWrap = document.createElement('div');
+    manualWrap.className = 'mt-3';
+    manualWrap.innerHTML = '<label style="font-size:0.85rem;color:var(--ink-muted);display:block;margin-bottom:4px;">Rangefinder distance (ft) — optional override</label>';
+    var manualInput = document.createElement('input');
+    manualInput.type = 'number';
+    manualInput.id = 'ctp-manual-ft';
+    manualInput.className = 'input';
+    manualInput.placeholder = 'e.g. 12.5';
+    manualInput.min = '0';
+    manualInput.step = '0.1';
+    manualInput.inputMode = 'decimal';
+    manualWrap.appendChild(manualInput);
+    card.appendChild(manualWrap);
+
     var submitBtn = document.createElement('button');
     submitBtn.id = 'submit-btn';
     submitBtn.className = 'btn btn-primary btn-block btn-lg mt-4';
@@ -404,7 +477,8 @@
 
     submitBtn.addEventListener('click', function () {
       if (!gpsPos) { errEl.textContent = 'Waiting for GPS lock…'; return; }
-      doSubmitCP(submitBtn, errEl);
+      var manualVal = parseFloat(manualInput.value);
+      doSubmitCP(submitBtn, errEl, isNaN(manualVal) || manualVal <= 0 ? null : manualVal);
     });
 
     card.appendChild(submitBtn);
@@ -463,12 +537,14 @@
   }
 
   /* ─── Submit CP ─── */
-  function doSubmitCP(btn, errEl) {
+  function doSubmitCP(btn, errEl, manualFt) {
     btn.disabled = true; btn.textContent = 'Submitting…';
+    var payload = { lat: gpsPos.lat, lon: gpsPos.lon };
+    if (manualFt != null) payload.manual_ft = manualFt;
     fetch('/api/scan/cp/' + ballData.drop_code, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lat: gpsPos.lat, lon: gpsPos.lon })
+      body: JSON.stringify(payload)
     })
     .then(function (r) { return r.json(); })
     .then(function (data) {
@@ -574,7 +650,7 @@
     loadMapboxThen(token, function () {
       var map = new mapboxgl.Map({
         container: mapDiv,
-        style: 'mapbox://styles/mapbox/satellite-v9',
+        style: JORD.satelliteStyle(),
         center: [(data.tee_lon + data.ball_lon) / 2, (data.tee_lat + data.ball_lat) / 2],
         zoom: 15,
         interactive: false
@@ -659,7 +735,7 @@
     loadMapboxThen(token, function () {
       var map2 = new mapboxgl.Map({
         container: mapEl,
-        style: 'mapbox://styles/mapbox/satellite-v9',
+        style: JORD.satelliteStyle(),
         center: [(data.tee_lon + data.ball_lon) / 2, (data.tee_lat + data.ball_lat) / 2],
         zoom: 15,
         interactive: false
@@ -715,6 +791,17 @@
   }
 
   function getEncouragement(finalYards, locType) {
+    if (locType === 'rough' && ballData && !ballData.allow_rough) {
+      return 'Your ball found the rough — only fairway drives score in this event. Keep the next one on the short stuff! 🌿';
+    }
+    if ((locType === 'oob' || locType === 'lost') && ballData && !ballData.allow_oob) {
+      var msgs = [
+        'Ball went out of bounds — OOB shots don\'t score in this event. It happens to the best of them! 😅',
+        'One for the highlight reel — the wrong reel, but still. Shake it off and come back strong! 💪',
+        'The trees needed a high-five. OOB doesn\'t score here, but you\'re still in it! 🌳'
+      ];
+      return msgs[Math.floor(Math.random() * msgs.length)];
+    }
     if (locType === 'oob' || locType === 'lost') {
       var msgs = [
         'Even pros stripe one OOB sometimes — you\'re in good company! 😅',
@@ -737,7 +824,10 @@
     var locType = data.location_type;
     var locLabel = { fairway: '🟩 Fairway', rough: '🌿 Rough', oob: '🚫 Out of Bounds', lost: '❓ Lost Ball' }[locType] || locType;
     var isOob = locType === 'oob' || locType === 'lost';
-    var scoreColor = isOob ? 'var(--danger)' : 'var(--accent)';
+    var roughNotScored = locType === 'rough' && ballData && !ballData.allow_rough;
+    var oobNotScored   = isOob && ballData && !ballData.allow_oob;
+    var notScored      = roughNotScored || oobNotScored;
+    var scoreColor     = (isOob || notScored) ? 'var(--danger)' : 'var(--accent)';
     var evId = data.event_id || (ballData && ballData.event_id) || '';
     var phone = (ballData && ballData.admin_phone) || null;
     var encouragement = getEncouragement(data.final_yards || 0, locType);
@@ -747,7 +837,17 @@
     card.style.cssText = 'opacity:0;transition:opacity 0.5s;margin-top:var(--s-3)';
 
     /* Top icon */
-    var icon = isOob ? '😬' : (data.final_yards >= 250 ? '🔥' : (data.final_yards >= 150 ? '💪' : '🏌️'));
+    var icon = (isOob || notScored) ? '😬' : (data.final_yards >= 250 ? '🔥' : (data.final_yards >= 150 ? '💪' : '🏌️'));
+
+    /* Rule explanation — shown when a zone type is not scored in this tournament */
+    var ruleNote = '';
+    if (roughNotScored) {
+      ruleNote = '<div style="font-size:13px;color:#b45309;background:rgba(234,179,8,0.12);border:1px solid rgba(234,179,8,0.35);border-radius:6px;padding:9px 12px;margin-top:var(--s-3);line-height:1.5;text-align:left">'
+        + '📋 <strong>Why 0 yards?</strong> Rough drives are not scored in this tournament — only fairway drives count toward the leaderboard.</div>';
+    } else if (oobNotScored) {
+      ruleNote = '<div style="font-size:13px;color:#b45309;background:rgba(234,179,8,0.12);border:1px solid rgba(234,179,8,0.35);border-radius:6px;padding:9px 12px;margin-top:var(--s-3);line-height:1.5;text-align:left">'
+        + '📋 <strong>Why 0 yards?</strong> Out of Bounds shots are not scored in this tournament — only fairway drives count toward the leaderboard.</div>';
+    }
 
     card.innerHTML = '<div style="font-size:52px;margin-bottom:8px">' + icon + '</div>'
 
@@ -760,6 +860,9 @@
 
       /* Location badge */
       + '<div class="result-loc mt-3"><span class="badge badge-primary">' + locLabel + '</span></div>'
+
+      /* Rule explanation (why score is 0) */
+      + ruleNote
 
       /* Penalty breakdown */
       + (data.penalty_yards > 0
@@ -849,26 +952,35 @@
     codeHint.textContent = 'Found on your ball or in your confirmation text';
     card.appendChild(codeHint);
 
-    /* 6-box container */
+    /* 6-box container — visual divs only, single hidden input captures keystrokes */
     var boxWrap = document.createElement('div');
     boxWrap.className = 'code-boxes';
+    boxWrap.style.position = 'relative';
     card.appendChild(boxWrap);
 
     var boxes = [];
     for (var i = 0; i < 6; i++) {
-      var box = document.createElement('input');
+      var box = document.createElement('div');
       box.className = 'code-box';
-      box.type = 'text';
-      box.inputMode = 'text';
-      box.autocomplete = 'off';
-      box.autocorrect = 'off';
-      box.autocapitalize = 'none';
-      box.spellcheck = false;
-      box.maxLength = 1;
       box.setAttribute('aria-label', 'Code character ' + (i + 1));
       boxWrap.appendChild(box);
       boxes.push(box);
     }
+
+    /* Single hidden input — keyboard never resets between characters */
+    var realInput = document.createElement('input');
+    realInput.type = 'text';
+    realInput.autocomplete = 'off';
+    realInput.autocorrect = 'off';
+    realInput.autocapitalize = 'characters';
+    realInput.spellcheck = false;
+    realInput.maxLength = 6;
+    realInput.setAttribute('aria-label', 'Ball code');
+    realInput.style.cssText = 'position:absolute;opacity:0.001;pointer-events:none;width:1px;height:1px;top:0;left:0;font-size:16px;border:none;outline:none;background:transparent';
+    boxWrap.appendChild(realInput);
+
+    /* Tap anywhere on card → focus hidden input */
+    boxWrap.addEventListener('click', function () { realInput.focus(); });
 
     /* Submit button */
     var goBtn = document.createElement('button');
@@ -877,69 +989,45 @@
     goBtn.disabled = true;
     card.appendChild(goBtn);
 
-    /* ── Box interaction helpers ── */
-    function getCode() {
-      return boxes.map(function (b) { return b.value; }).join('');
+    /* ── Helpers ── */
+    function getCode() { return realInput.value; }
+
+    function updateBoxes() {
+      var val = realInput.value;
+      var focused = document.activeElement === realInput;
+      boxes.forEach(function (b, i) {
+        b.textContent = val[i] || '';
+        b.classList.toggle('has-value', i < val.length);
+        b.classList.toggle('is-cursor', focused && i === val.length && i < 6);
+      });
     }
 
     function refreshBtn() {
       var code = getCode();
-      var allFilled = code.length === 6 && /^[A-Z0-9]{6}$/.test(code);
-      goBtn.disabled = !allFilled;
+      goBtn.disabled = !(code.length === 6 && /^[A-Z0-9]{6}$/.test(code));
     }
 
-    function focusBox(idx) {
-      if (idx >= 0 && idx < 6) boxes[idx].focus();
-    }
+    realInput.addEventListener('input', function () {
+      realInput.value = realInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+      updateBoxes();
+      refreshBtn();
+    });
 
-    boxes.forEach(function (box, idx) {
-      /* Intercept paste on any box — distribute across all 6 */
-      box.addEventListener('paste', function (e) {
-        e.preventDefault();
-        var text = (e.clipboardData || window.clipboardData).getData('text');
-        var clean = text.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
-        for (var j = 0; j < 6; j++) {
-          boxes[j].value = clean[j] || '';
-          boxes[j].classList.toggle('has-value', !!boxes[j].value);
-        }
-        refreshBtn();
-        /* Focus the box after the last pasted char, or the last box */
-        focusBox(Math.min(clean.length, 5));
-      });
+    realInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && !goBtn.disabled) { goBtn.click(); e.preventDefault(); }
+    });
 
-      box.addEventListener('keydown', function (e) {
-        if (e.key === 'Backspace') {
-          if (box.value === '') {
-            /* Move back and clear the previous box */
-            if (idx > 0) {
-              boxes[idx - 1].value = '';
-              boxes[idx - 1].classList.remove('has-value');
-              focusBox(idx - 1);
-            }
-          } else {
-            box.value = '';
-            box.classList.remove('has-value');
-          }
-          refreshBtn();
-          e.preventDefault();
-          return;
-        }
-        if (e.key === 'ArrowLeft')  { focusBox(idx - 1); e.preventDefault(); return; }
-        if (e.key === 'ArrowRight') { focusBox(idx + 1); e.preventDefault(); return; }
-        if (e.key === 'Enter' && !goBtn.disabled) { goBtn.click(); e.preventDefault(); return; }
-      });
+    realInput.addEventListener('paste', function (e) {
+      e.preventDefault();
+      var text = (e.clipboardData || window.clipboardData).getData('text');
+      realInput.value = text.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+      updateBoxes();
+      refreshBtn();
+    });
 
-      box.addEventListener('input', function () {
-        /* Sanitise — keep only last alphanumeric char typed */
-        var val = box.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-        box.value = val ? val.slice(-1) : '';
-        box.classList.toggle('has-value', !!box.value);
-        refreshBtn();
-        if (box.value && idx < 5) focusBox(idx + 1);
-      });
-
-      /* Select-all on focus so re-typing a box replaces the char */
-      box.addEventListener('focus', function () { box.select(); });
+    realInput.addEventListener('focus', updateBoxes);
+    realInput.addEventListener('blur', function () {
+      boxes.forEach(function (b) { b.classList.remove('is-cursor'); });
     });
 
     goBtn.addEventListener('click', function () {
@@ -982,7 +1070,7 @@
       });
     });
 
-    setTimeout(function () { boxes[0].focus(); }, 100);
+    setTimeout(function () { realInput.focus(); }, 100);
   }
 
   /* ─── Helpers ─── */

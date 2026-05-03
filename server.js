@@ -207,40 +207,48 @@ function haversineFeet(lat1, lon1, lat2, lon2) {
  */
 function perpendicularDistanceToPolygon(pointLat, pointLon, polygonGeoJSON) {
   try {
-    const coords = JSON.parse(polygonGeoJSON).coordinates[0];
+    const geo = JSON.parse(polygonGeoJSON);
+    const rings = [];
+    if (geo.type === 'FeatureCollection') {
+      for (const f of geo.features) { if (f.geometry?.type === 'Polygon') rings.push(f.geometry.coordinates[0]); }
+    } else if (geo.type === 'Polygon') { rings.push(geo.coordinates[0]); }
     let minDist = Infinity;
-    for (let i = 0; i < coords.length - 1; i++) {
-      const [lon1, lat1] = coords[i];
-      const [lon2, lat2] = coords[i+1];
-      // Point to line segment distance
-      const dx = lon2 - lon1, dy = lat2 - lat1;
-      const lenSq = dx*dx + dy*dy;
-      let t = lenSq > 0 ? ((pointLon - lon1)*dx + (pointLat - lat1)*dy) / lenSq : 0;
-      t = Math.max(0, Math.min(1, t));
-      const nearLon = lon1 + t*dx, nearLat = lat1 + t*dy;
-      const dist = haversineYards(pointLat, pointLon, nearLat, nearLon);
-      if (dist < minDist) minDist = dist;
+    for (const coords of rings) {
+      for (let i = 0; i < coords.length - 1; i++) {
+        const [lon1, lat1] = coords[i];
+        const [lon2, lat2] = coords[i+1];
+        const dx = lon2 - lon1, dy = lat2 - lat1;
+        const lenSq = dx*dx + dy*dy;
+        let t = lenSq > 0 ? ((pointLon - lon1)*dx + (pointLat - lat1)*dy) / lenSq : 0;
+        t = Math.max(0, Math.min(1, t));
+        const nearLon = lon1 + t*dx, nearLat = lat1 + t*dy;
+        const dist = haversineYards(pointLat, pointLon, nearLat, nearLon);
+        if (dist < minDist) minDist = dist;
+      }
     }
-    return minDist;
+    return minDist === Infinity ? 0 : minDist;
   } catch { return 0; }
 }
 
-/**
- * Check if a point is inside a GeoJSON polygon
- * Uses ray casting algorithm
- */
 function pointInPolygon(lat, lon, polygonGeoJSON) {
   try {
-    const coords = JSON.parse(polygonGeoJSON).coordinates[0];
-    let inside = false;
-    for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
-      const [xi, yi] = coords[i]; // [lon, lat]
-      const [xj, yj] = coords[j];
-      const intersect = ((yi > lat) !== (yj > lat)) &&
-        (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
-      if (intersect) inside = !inside;
+    const geo = JSON.parse(polygonGeoJSON);
+    const rings = [];
+    if (geo.type === 'FeatureCollection') {
+      for (const f of geo.features) { if (f.geometry?.type === 'Polygon') rings.push(f.geometry.coordinates[0]); }
+    } else if (geo.type === 'Polygon') { rings.push(geo.coordinates[0]); }
+    for (const coords of rings) {
+      let inside = false;
+      for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
+        const [xi, yi] = coords[i];
+        const [xj, yj] = coords[j];
+        const intersect = ((yi > lat) !== (yj > lat)) &&
+          (lon < (xj - xi) * (lat - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+      }
+      if (inside) return true;
     }
-    return inside;
+    return false;
   } catch { return false; }
 }
 
@@ -463,7 +471,7 @@ app.get('/api/events/:id/public', (req, res) => {
   const { id, name, venue, status, has_longest_drive, has_closest_pin,
           allow_rough, rough_penalty_mode, rough_fixed_yards,
           allow_oob, oob_penalty_mode, oob_fixed_yards, hole_distance_yards,
-          fairway_polygon, rough_polygon, oob_polygon, green_polygon,
+          fairway_polygon, rough_polygon, oob_polygon, green_polygon, ctp_green_polygon,
           pin_lat, pin_lon, admin_phone,
           ctp_pin_lat, ctp_pin_lon, cp_off_green_penalty_ft } = ev;
   res.json({ id, name, venue, status, has_longest_drive, has_closest_pin,
@@ -472,6 +480,7 @@ app.get('/api/events/:id/public', (req, res) => {
              hole_distance_yards: hole_distance_yards || 300,
              fairway_polygon: fairway_polygon || null, rough_polygon: rough_polygon || null,
              oob_polygon: oob_polygon || null, green_polygon: green_polygon || null,
+             ctp_green_polygon: ctp_green_polygon || null,
              pin_lat: pin_lat || null, pin_lon: pin_lon || null,
              ctp_pin_lat: ctp_pin_lat || null, ctp_pin_lon: ctp_pin_lon || null,
              cp_off_green_penalty_ft: cp_off_green_penalty_ft || 0,
@@ -706,6 +715,10 @@ app.post('/api/events/:eventId/register-player', (req, res) => {
 
   if (!drop_code || !first_name || !last_name) return res.status(400).json({ error: 'drop_code, first_name, last_name required' });
 
+  const event = db.prepare('SELECT status FROM events WHERE id=?').get(eventId);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+  if (event.status !== 'active') return res.status(403).json({ error: event.status === 'setup' ? 'Tournament has not started yet' : 'Tournament has ended' });
+
   const code = drop_code.trim().toUpperCase();
   const ball = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(code, eventId);
   if (!ball) return res.status(404).json({ error: `Code ${code} not found in this tournament's ball pool` });
@@ -725,6 +738,10 @@ app.post('/api/events/:eventId/finalize-team', (req, res) => {
 
   if (!team_name || !drop_codes?.length) return res.status(400).json({ error: 'team_name and drop_codes required' });
 
+  const event = db.prepare('SELECT status FROM events WHERE id=?').get(eventId);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+  if (event.status !== 'active') return res.status(403).json({ error: event.status === 'setup' ? 'Tournament has not started yet' : 'Tournament has ended' });
+
   const teamId = uid('TEAM');
   db.prepare('INSERT INTO teams (id,event_id,team_name) VALUES (?,?,?)').run(teamId, eventId, team_name.trim());
   db.prepare(`UPDATE balls SET team_id=? WHERE drop_code IN (${drop_codes.map(()=>'?').join(',')}) AND event_id=?`)
@@ -739,7 +756,8 @@ app.get('/api/ball/:code', (req, res) => {
   const ball = db.prepare(`
     SELECT b.*, t.team_name, e.name AS event_name, e.venue, e.status AS event_status,
            e.has_longest_drive, e.has_closest_pin, e.allow_rough, e.allow_oob,
-           e.fairway_polygon, e.green_polygon, e.pin_lat, e.pin_lon,
+           e.fairway_polygon, e.rough_polygon, e.oob_polygon, e.green_polygon, e.pin_lat, e.pin_lon,
+           e.ctp_green_polygon, e.cp_off_green_penalty_ft,
            e.hole_distance_yards, e.oob_penalty_mode, e.rough_penalty_mode,
            e.admin_phone
     FROM balls b
@@ -756,7 +774,7 @@ app.get('/api/ball/:code', (req, res) => {
     : db.prepare('SELECT * FROM tee_boxes WHERE event_id=? AND hole_type=? LIMIT 1')
         .get(ball.event_id, 'longest_drive');
 
-  const { fairway_polygon, green_polygon, pin_lat, pin_lon, ...pub } = ball;
+  const { fairway_polygon, rough_polygon, oob_polygon, green_polygon, pin_lat, pin_lon, ...pub } = ball;
   res.json({
     ...pub,
     player_name:       `${ball.first_name||''} ${ball.last_name||''}`.trim(),
@@ -765,6 +783,8 @@ app.get('/api/ball/:code', (req, res) => {
     has_green_map:     !!green_polygon,
     has_pin:           !!(pin_lat && pin_lon),
     fairway_polygon:   fairway_polygon || null,
+    rough_polygon:     rough_polygon   || null,
+    oob_polygon:       oob_polygon     || null,
     green_polygon:     green_polygon   || null,
     pin_lat, pin_lon
   });
@@ -781,7 +801,8 @@ app.post('/api/scan/ld/:code', (req, res) => {
     SELECT b.*, e.allow_rough, e.allow_oob,
            e.hole_distance_yards, e.oob_penalty_mode, e.rough_penalty_mode,
            e.rough_fixed_yards, e.oob_fixed_yards,
-           e.fairway_polygon, e.rough_polygon, e.oob_polygon, e.id AS event_id
+           e.fairway_polygon, e.rough_polygon, e.oob_polygon, e.id AS event_id,
+           e.status AS event_status
     FROM balls b
     JOIN events e ON e.id=b.event_id
     LEFT JOIN tee_boxes tb ON tb.id=b.tee_box_id
@@ -789,6 +810,7 @@ app.post('/api/scan/ld/:code', (req, res) => {
   `).get(code);
 
   if (!ball) return res.status(404).json({ error: 'Ball not found' });
+  if (ball.event_status !== 'active') return res.status(403).json({ error: ball.event_status === 'setup' ? 'Tournament has not started yet' : 'Tournament has ended' });
 
   // Get tee box coords
   const teeBox = ball.tee_box_id
@@ -860,7 +882,7 @@ app.post('/api/scan/ld/:code', (req, res) => {
 // ─── CLOSEST TO PIN SCAN ─────────────────────────────────────────────────────
 app.post('/api/scan/cp/:code', (req, res) => {
   const code = req.params.code.toUpperCase();
-  const { lat, lon } = req.body;
+  const { lat, lon, manual_ft } = req.body;
   if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
 
   const ball = db.prepare(`
@@ -869,15 +891,17 @@ app.post('/api/scan/cp/:code', (req, res) => {
       COALESCE(e.ctp_pin_lon, e.pin_lon) AS pin_lon,
       COALESCE(e.ctp_green_polygon, e.green_polygon) AS green_polygon,
       COALESCE(e.cp_off_green_penalty_ft, 0) AS cp_off_green_penalty_ft,
-      e.id AS event_id
+      e.id AS event_id, e.status AS event_status
     FROM balls b JOIN events e ON e.id=b.event_id
     WHERE b.drop_code=? ORDER BY b.added_at DESC LIMIT 1
   `).get(code);
 
   if (!ball) return res.status(404).json({ error: 'Ball not found' });
+  if (ball.event_status !== 'active') return res.status(403).json({ error: ball.event_status === 'setup' ? 'Tournament has not started yet' : 'Tournament has ended' });
   if (!ball.pin_lat || !ball.pin_lon) return res.status(400).json({ error: 'Pin location not set for this event' });
 
-  const rawFt = haversineFeet(parseFloat(lat), parseFloat(lon), ball.pin_lat, ball.pin_lon);
+  const gpsRawFt = haversineFeet(parseFloat(lat), parseFloat(lon), ball.pin_lat, ball.pin_lon);
+  const rawFt = (manual_ft != null && parseFloat(manual_ft) > 0) ? parseFloat(manual_ft) : gpsRawFt;
   const onGreen = ball.green_polygon ? pointInPolygon(parseFloat(lat), parseFloat(lon), ball.green_polygon) : true;
   const penaltyFt = (!onGreen && ball.cp_off_green_penalty_ft > 0) ? ball.cp_off_green_penalty_ft : 0;
   const distFt = rawFt + penaltyFt;

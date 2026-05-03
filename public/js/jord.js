@@ -128,6 +128,19 @@
     });
   };
 
+  APP.prompt = function (msg, { placeholder = '', defaultValue = '', okText = 'OK' } = {}) {
+    return new Promise((resolve) => {
+      const input = APP.el('input', { class: 'input', type: 'text', placeholder, value: defaultValue, style: { marginTop: '10px' } });
+      const body  = APP.el('div', null, APP.el('p', { style: { marginBottom: '8px' } }, msg), input);
+      const okBtn = APP.el('button', { class: 'btn btn-primary', on: { click: () => { m.close(); resolve(input.value.trim() || null); } } }, okText);
+      const noBtn = APP.el('button', { class: 'btn btn-ghost',   on: { click: () => { m.close(); resolve(null); } } }, 'Cancel');
+      const footer = APP.el('div', { class: 'row gap-3' }, noBtn, okBtn);
+      const m = APP.modal({ title: msg, body, footer });
+      input.focus();
+      input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { m.close(); resolve(input.value.trim() || null); } });
+    });
+  };
+
   /* ─── QR Scanner (uses jsQR via CDN) ─────────────────────────────── */
   APP.QRScanner = class {
     constructor(container, onCode) {
@@ -257,6 +270,23 @@
     return new URL(window.location.href).searchParams.get(key) || fallback;
   };
   APP.path = (i) => window.location.pathname.split('/').filter(Boolean)[i];
+
+  /* ─── ESRI World Imagery style (drop-in Mapbox GL JS style object) ─── */
+  APP.satelliteStyle = function () {
+    return {
+      version: 8,
+      glyphs: 'mapbox://fonts/mapbox/{fontstack}/{range}',
+      sources: {
+        'esri-satellite': {
+          type: 'raster',
+          tiles: ['https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'],
+          tileSize: 256,
+          attribution: 'Tiles &copy; Esri &mdash; Esri, Maxar, GeoEye, Earthstar Geographics, CNES/Airbus DS, USDA, USGS'
+        }
+      },
+      layers: [{ id: 'esri-satellite', type: 'raster', source: 'esri-satellite' }]
+    };
+  };
 
   global.JORD = APP;
 })(window);

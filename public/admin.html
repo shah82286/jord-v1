@@ -29,10 +29,24 @@
   .map-legend span { display: inline-flex; align-items: center; gap: 6px; }
   .map-legend span::before { content: ''; display: inline-block; width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
   .legend-tee::before { background: #BEFF3A; }
-  .legend-fairway::before { background: #22C55E; }
+  /* Force all map popups to be legible regardless of page theme */
+  .mapboxgl-popup-content {
+    background: #fff !important;
+    color: #1a1a1a !important;
+    font-size: 13px;
+    line-height: 1.6;
+    padding: 10px 14px;
+    border-radius: 8px;
+    min-width: 120px;
+  }
+  .mapboxgl-popup-content strong { color: #0a0a0a !important; }
+  .mapboxgl-popup-content em     { color: #555 !important; }
+  .mapboxgl-popup-content span   { color: #1a1a1a !important; }
+  .mapboxgl-popup-tip { border-top-color: #fff !important; border-bottom-color: #fff !important; }
+  .legend-fairway::before { background: #3B82F6; }
   .legend-rough::before { background: #EAB308; }
   .legend-oob::before   { background: #DC2626; }
-  .legend-green::before { background: #3B82F6; }
+  .legend-green::before { background: #22C55E; }
   .legend-pin::before { background: #C0392B; border-radius: 50% !important; }
   .pool-input { font-family: var(--font-mono); min-height: 180px; resize: vertical; }
 
@@ -93,7 +107,7 @@
     .ball-row .ball-team-col, #ball-list-header .ball-team-col { display: none; }
     /* Players — hide email/code columns on small screens */
     .player-row { grid-template-columns: 20px 1fr auto; }
-    .player-row .player-code-col, .player-row .player-email-col { display: none; }
+    .player-row .player-code-col, .player-row .player-email-col, .player-row .player-score-col { display: none; }
     .player-edit-grid { grid-template-columns: 1fr; }
   }
 
@@ -114,10 +128,10 @@
 
   /* ── Draw tool color tabs ── */
   .draw-kind-btn { border-left: 3px solid transparent; }
-  .draw-kind-btn.dk-fairway { border-color: #22C55E; }
+  .draw-kind-btn.dk-fairway { border-color: #3B82F6; }
   .draw-kind-btn.dk-rough   { border-color: #EAB308; }
   .draw-kind-btn.dk-oob     { border-color: #DC2626; }
-  .draw-kind-btn.dk-green   { border-color: #3B82F6; }
+  .draw-kind-btn.dk-green   { border-color: #22C55E; }
   .draw-kind-btn.is-drawing { box-shadow: inset 0 0 0 2px currentColor; }
 
   /* ── Pin coords display ── */
@@ -298,7 +312,6 @@
 
               <div class="row gap-3 mt-3">
                 <button class="btn btn-primary" type="submit" title="Save all tournament settings">Save settings</button>
-                <button class="btn btn-ghost" type="button" id="btn-activate" title="Change status to Active — this opens the tournament for live scanning">Activate tournament</button>
               </div>
             </form>
           </div>
@@ -316,10 +329,10 @@
 
             <div class="map-tools">
               <button class="btn btn-ghost" id="tool-tee" title="Add a tee box for this hole at the map center. Drag it to position.">＋ Tee box</button>
-              <button class="btn btn-ghost draw-kind-btn dk-fairway ld-only" id="tool-fairway" title="Click and drag to draw the fairway boundary.">🟢 Fairway</button>
+              <button class="btn btn-ghost draw-kind-btn dk-fairway ld-only" id="tool-fairway" title="Click and drag to draw the fairway boundary.">🔵 Fairway</button>
               <button class="btn btn-ghost draw-kind-btn dk-rough   ld-only" id="tool-rough"   title="Click and drag to draw the rough boundary.">🟡 Rough</button>
               <button class="btn btn-ghost draw-kind-btn dk-oob     ld-only" id="tool-oob"     title="Click and drag to draw out-of-bounds boundary.">🔴 OOB</button>
-              <button class="btn btn-ghost draw-kind-btn dk-green"            id="tool-green"   title="Click and drag to draw the green boundary.">🔵 Green</button>
+              <button class="btn btn-ghost draw-kind-btn dk-green"            id="tool-green"   title="Click and drag to draw the green boundary.">🟢 Green</button>
               <button class="btn btn-ghost" id="tool-pin" title="Click to activate, then click the map to place the pin for this hole.">📍 Set Pin</button>
               <button class="btn btn-ghost" id="tool-grab-pin" title="Place your phone at the hole flag, then press this to capture the exact pin location via GPS.">📡 Grab GPS Pin</button>
               <button class="btn btn-ghost" id="tool-clear" title="Click a zone to select it, then press Clear to remove just that zone. With nothing selected, clears all zones for this hole.">✖ Clear</button>
@@ -474,6 +487,17 @@
   async function init() {
     try { const cfg = await JORD.api('/api/config'); mapboxToken = cfg.mapbox_token || ''; } catch {}
     await loadEvents();
+    /* Restore last open event + panel from URL hash (e.g. #123/map) */
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+      const [eventId, panel] = hash.split('/');
+      if (eventId) {
+        try {
+          await openEvent(parseInt(eventId));
+          if (panel) showPanel(panel);
+        } catch { history.replaceState(null, '', window.location.pathname); }
+      }
+    }
   }
 
   // ── Events list ──
@@ -519,7 +543,7 @@
   }
 
   $('#btn-new-event').addEventListener('click', async () => {
-    const name = prompt('Tournament name?');
+    const name = await JORD.prompt('Tournament name?', { placeholder: 'e.g. Spring Classic 2026', okText: 'Create' });
     if (!name) return;
     const now = new Date().toISOString().slice(0, 16);
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 16);
@@ -549,6 +573,7 @@
     $('#view-editor').classList.add('hidden');
     if (map) { map.remove(); map = null; }
     loadEvents();
+    history.replaceState(null, '', window.location.pathname);
   }
   $('#btn-back').addEventListener('click', (e) => { e.preventDefault(); backToList(); });
 
@@ -562,26 +587,39 @@
     $('#btn-view-monitor').onclick = () => window.open(`/monitor/${currentEvent.id}`);
     $('#btn-export').onclick = () => window.open(`/api/events/${currentEvent.id}/export.csv?token=${encodeURIComponent(JORD.getToken())}`);
 
-    const isEnded = currentEvent.status === 'ended';
-    const endBtn = $('#btn-end-event');
-    endBtn.textContent = isEnded ? '🔓 Re-open tournament' : 'End tournament';
-    endBtn.className   = isEnded ? 'btn btn-ghost' : 'btn btn-danger';
-    endBtn.title       = isEnded
-      ? 'Re-activate this tournament so you can make edits, then close it again when done'
-      : 'End the tournament — balls are converted to drop mode and players are notified';
-    endBtn.onclick = isEnded
-      ? async () => {
-          if (!await JORD.confirm('Re-open this tournament? Status will change back to Active.', { okText: 'Re-open' })) return;
-          currentEvent = await JORD.api(`/api/events/${currentEvent.id}/reopen`, { method: 'POST' });
-          JORD.success('Tournament re-opened');
-          fillHeader();
-        }
-      : async () => {
-          if (!await JORD.confirm('End tournament? Used balls will convert to drop mode and players will be notified.', { okText: 'End it', danger: true })) return;
-          await JORD.api(`/api/events/${currentEvent.id}/end`, { method: 'POST' });
-          JORD.success('Tournament ended');
-          backToList();
-        };
+    const status  = currentEvent.status;
+    const endBtn  = $('#btn-end-event');
+
+    if (status === 'setup') {
+      endBtn.textContent = '▶ Start tournament';
+      endBtn.className   = 'btn btn-primary';
+      endBtn.title       = 'Activate this tournament — opens it for live scanning';
+      endBtn.onclick     = async () => {
+        currentEvent = await JORD.api(`/api/events/${currentEvent.id}`, { method: 'PATCH', body: { status: 'active' } });
+        JORD.success('Tournament started');
+        fillHeader();
+      };
+    } else if (status === 'active') {
+      endBtn.textContent = 'End tournament';
+      endBtn.className   = 'btn btn-danger';
+      endBtn.title       = 'End the tournament — balls are converted to drop mode and players are notified';
+      endBtn.onclick     = async () => {
+        if (!await JORD.confirm('End tournament? Used balls will convert to drop mode and players will be notified.', { okText: 'End it', danger: true })) return;
+        await JORD.api(`/api/events/${currentEvent.id}/end`, { method: 'POST' });
+        JORD.success('Tournament ended');
+        backToList();
+      };
+    } else {
+      endBtn.textContent = '🔓 Re-open tournament';
+      endBtn.className   = 'btn btn-ghost';
+      endBtn.title       = 'Re-activate this tournament so you can make edits, then close it again when done';
+      endBtn.onclick     = async () => {
+        if (!await JORD.confirm('Re-open this tournament? Status will change back to Active.', { okText: 'Re-open' })) return;
+        currentEvent = await JORD.api(`/api/events/${currentEvent.id}/reopen`, { method: 'POST' });
+        JORD.success('Tournament re-opened');
+        fillHeader();
+      };
+    }
 
     $('#btn-register-link').href = `/register/${currentEvent.id}`;
     $('#btn-register-link').target = '_blank';
@@ -642,6 +680,7 @@
     if (name === 'players') loadTeams();
     if (name === 'alerts') loadAlerts();
     if (name === 'balls') loadBalls();
+    if (currentEvent) history.replaceState(null, '', '#' + currentEvent.id + '/' + name);
   }
   $$('.editor-nav .nav-item').forEach(n => n.addEventListener('click', () => showPanel(n.dataset.panel)));
 
@@ -707,12 +746,6 @@
     JORD.success('Settings saved');
     fillHeader();
   });
-  $('#btn-activate').addEventListener('click', async () => {
-    currentEvent = await JORD.api('/api/events/' + currentEvent.id, { method: 'PATCH', body: { status: 'active' } });
-    JORD.success('Tournament activated');
-    fillHeader();
-  });
-
   // ── Map ──
   function haversineYardsClient(lat1, lon1, lat2, lon2) {
     const R = 6371000;
@@ -764,7 +797,7 @@
     }
   }
 
-  const ZONE_COLORS = { fairway: '#22C55E', rough: '#EAB308', oob: '#DC2626', green: '#3B82F6', ctp_green: '#3B82F6' };
+  const ZONE_COLORS = { fairway: '#3B82F6', rough: '#EAB308', oob: '#DC2626', green: '#22C55E', ctp_green: '#22C55E' };
 
   function syncZoneLayers() {
     if (!map || !draw) return;
@@ -867,21 +900,20 @@
     // ['coalesce'] tries user_kind first (MapboxDraw's prefixed form) then kind (raw property)
     const kindKey = ['coalesce', ['get', 'user_kind'], ['get', 'kind']];
     const kindColor = ['match', kindKey,
-      'fairway', '#22C55E', 'rough', '#EAB308', 'oob', '#DC2626', 'green', '#3B82F6', 'ctp_green', '#3B82F6', '#888888'];
+      'fairway', '#3B82F6', 'rough', '#EAB308', 'oob', '#DC2626', 'green', '#22C55E', 'ctp_green', '#22C55E', '#888888'];
     const drawStyles = [
-      /* Inactive fill/stroke hidden — zone layers below handle all static color rendering.
-         This prevents double-fill stacking and ensures MultiPolygons (from turf.difference) render correctly. */
+      /* Inactive — transparent fill so zone-* layers show through unobstructed */
       { id: 'gl-draw-polygon-fill-inactive', type: 'fill',
         filter: ['all', ['==', 'active', 'false'], ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
-        paint: { 'fill-color': kindColor, 'fill-opacity': 0 } },
+        paint: { 'fill-color': '#000000', 'fill-opacity': 0 } },
       { id: 'gl-draw-polygon-stroke-inactive', type: 'line',
         filter: ['all', ['==', 'active', 'false'], ['==', '$type', 'Polygon'], ['!=', 'mode', 'static']],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': kindColor, 'line-width': 2, 'line-opacity': 0 } },
-      /* Active (selected/editing) — show fill + dashed stroke as editing feedback */
+        paint: { 'line-color': kindColor, 'line-width': 2, 'line-opacity': 0.8 } },
+      /* Active (selected/editing) — white tint so user can see "selected" state */
       { id: 'gl-draw-polygon-fill-active', type: 'fill',
         filter: ['all', ['==', 'active', 'true'], ['==', '$type', 'Polygon']],
-        paint: { 'fill-color': kindColor, 'fill-opacity': 0.5 } },
+        paint: { 'fill-color': '#ffffff', 'fill-opacity': 0.15 } },
       { id: 'gl-draw-polygon-stroke-active', type: 'line',
         filter: ['all', ['==', 'active', 'true'], ['==', '$type', 'Polygon']],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
@@ -900,7 +932,7 @@
 
     map = new mapboxgl.Map({
       container: 'map',
-      style: 'mapbox://styles/mapbox/satellite-streets-v12',
+      style: JORD.satelliteStyle(),
       center, zoom
     });
 
@@ -928,7 +960,16 @@
 
     function loadPolygon(geojsonStr, kind) {
       if (!geojsonStr) return;
-      try { draw.add({ type: 'Feature', geometry: JSON.parse(geojsonStr), properties: { kind } }); } catch {}
+      try {
+        const geo = JSON.parse(geojsonStr);
+        if (geo.type === 'FeatureCollection') {
+          for (const f of geo.features) {
+            if (f.geometry) draw.add({ type: 'Feature', geometry: f.geometry, properties: { kind } });
+          }
+        } else {
+          draw.add({ type: 'Feature', geometry: geo, properties: { kind } });
+        }
+      } catch {}
     }
 
     map.on('load', () => {
@@ -941,17 +982,17 @@
       map.addLayer({ id: 'gps-trace-layer', type: 'line', source: 'gps-trace',
         paint: { 'line-color': '#fbb03b', 'line-width': 3, 'line-dasharray': [2, 1] } });
 
-      /* Zone layers — added in priority order (oob lowest, fairway highest) so fairway
-         visually sits on top of rough on top of oob. All inserted below draw's vertex/handle layers. */
+      /* Zone layers — priority order: oob first (bottom), fairway last (top).
+         Added without 'before' so they always render above the base satellite tiles. */
       const ZONE_LAYER_ORDER = ['oob', 'rough', 'fairway', 'green', 'ctp_green'];
       for (const kind of ZONE_LAYER_ORDER) {
         const color = ZONE_COLORS[kind];
         if (!color) continue;
         map.addSource(`zone-${kind}`, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
         map.addLayer({ id: `zone-fill-${kind}`, type: 'fill', source: `zone-${kind}`,
-          paint: { 'fill-color': color, 'fill-opacity': 0.45 } }, 'gl-draw-polygon-fill-inactive');
+          paint: { 'fill-color': color, 'fill-opacity': 0.4 } });
         map.addLayer({ id: `zone-stroke-${kind}`, type: 'line', source: `zone-${kind}`,
-          paint: { 'line-color': color, 'line-width': 2, 'line-opacity': 0.9 } }, 'gl-draw-polygon-fill-inactive');
+          paint: { 'line-color': color, 'line-width': 2.5, 'line-opacity': 1 } });
       }
 
       // Load existing polygons for both holes
@@ -1043,6 +1084,7 @@
       const ids = draw.add(feat);
       freehandPoints = [];
       syncZoneLayers();
+      scheduleClipZones();
       if (ids?.length) { try { draw.changeMode('simple_select', { featureIds: [ids[0]] }); } catch {} }
       JORD.success(`${currentDrawKind.replace('ctp_','').replace(/_/g,' ')} drawn — drag the nodes to adjust shape`);
     }
@@ -1052,7 +1094,7 @@
     // ── Tool buttons ──
     $('#tool-tee').onclick = async () => {
       const c = map.getCenter();
-      const name = prompt("Tee box name (e.g. Men's, Women's)?", 'Main');
+      const name = await JORD.prompt("Tee box name?", { placeholder: "e.g. Men's, Women's, Senior", defaultValue: 'Main', okText: 'Add Tee' });
       if (!name) return;
       const hole_type = currentHoleTab === 'ctp' ? 'closest_pin' : 'longest_drive';
       const teeBox = await JORD.api(`/api/events/${currentEvent.id}/tee-boxes`, { method: 'POST', body: { name, color: 'white', lat: c.lat, lon: c.lng, hole_type } });
@@ -1082,7 +1124,7 @@
       let bestPos = null;
       let watchId = null;
       const SAMPLE_MS = 10000;   // collect for 10 seconds
-      const GOOD_ENOUGH_M = 4;   // stop early if we hit this accuracy
+      const GOOD_ENOUGH_M = 3;   // stop early if we hit this accuracy
 
       JORD.toast('Sampling GPS — hold still…', 'warn');
 
@@ -1159,20 +1201,23 @@
     // ── Save map ──
     $('#btn-save-map').onclick = async () => {
       const all = draw.getAll();
-      const byKind = { fairway: null, rough: null, oob: null, green: null, ctp_green: null };
+      const byKind = { fairway: [], rough: [], oob: [], green: [], ctp_green: [] };
       for (const f of all.features) {
         if (f.geometry.type !== 'Polygon') continue;
         const kind = f.properties.kind || f.properties.user_kind || 'fairway';
-        if (kind in byKind) byKind[kind] = JSON.stringify(f.geometry);
+        if (kind in byKind) byKind[kind].push(f.geometry);
       }
+      const toFC = (geoms) => geoms.length
+        ? JSON.stringify({ type: 'FeatureCollection', features: geoms.map(geo => ({ type: 'Feature', geometry: geo, properties: {} })) })
+        : null;
       const manualDist = parseFloat($('#manual-hole-dist')?.value) || null;
       let body;
       if (currentHoleTab === 'ld') {
-        body = { fairway_polygon: byKind.fairway, rough_polygon: byKind.rough, oob_polygon: byKind.oob,
-          green_polygon: byKind.green, pin_lat: currentEvent.pin_lat || null, pin_lon: currentEvent.pin_lon || null };
+        body = { fairway_polygon: toFC(byKind.fairway), rough_polygon: toFC(byKind.rough), oob_polygon: toFC(byKind.oob),
+          green_polygon: toFC(byKind.green), pin_lat: currentEvent.pin_lat || null, pin_lon: currentEvent.pin_lon || null };
         if (manualDist) body.hole_distance_yards = manualDist;
       } else {
-        body = { ctp_green_polygon: byKind.ctp_green,
+        body = { ctp_green_polygon: toFC(byKind.ctp_green),
           ctp_pin_lat: currentEvent.ctp_pin_lat || null, ctp_pin_lon: currentEvent.ctp_pin_lon || null };
         if (manualDist) body.ctp_hole_distance_yards = manualDist;
       }
@@ -1260,6 +1305,7 @@
       traceFeat.properties = { kind };
       draw.add(traceFeat);
       syncZoneLayers();
+      scheduleClipZones();
       map.getSource('gps-trace').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
       tracePoints = [];
       JORD.success(`${kind} boundary traced (${closedPts.length - 1} points simplified) — Save map to save`);
@@ -1302,7 +1348,7 @@
       elDiv.title = `T${num} ${t.name} (${isLd ? 'LD' : 'CTP'}) — drag to reposition`;
       const m = new mapboxgl.Marker({ element: elDiv, draggable: true })
         .setLngLat([t.lon, t.lat])
-        .setPopup(new mapboxgl.Popup().setHTML(`<strong>${t.name}</strong><br>${isLd ? 'Longest Drive' : 'Closest to Pin'}<br><em>Drag to move</em>`))
+        .setPopup(new mapboxgl.Popup({ offset: 12 }).setHTML(`<div style="color:#1a1a1a;font-size:13px;line-height:1.6"><strong style="color:#0a0a0a;display:block">${t.name}</strong><span style="color:#444">${isLd ? 'Longest Drive' : 'Closest to Pin'}</span><br><em style="color:#777;font-size:12px">Drag to move</em></div>`))
         .addTo(map);
       m.on('dragend', async () => {
         const { lat, lng } = m.getLngLat();
@@ -1599,7 +1645,7 @@
         title: 'Remove entire team',
         on: { click: async (e) => {
           e.stopPropagation();
-          if (!confirm('Remove team "' + t.team_name + '" and unassign all ' + balls.length + ' player' + (balls.length !== 1 ? 's' : '') + '? Their ball codes will return to the available pool.')) return;
+          if (!await JORD.confirm('Remove team "' + t.team_name + '" and unassign all ' + balls.length + ' player' + (balls.length !== 1 ? 's' : '') + '? Their ball codes will return to the available pool.', { okText: 'Remove team', danger: true })) return;
           try {
             await JORD.api('/api/events/' + currentEvent.id + '/teams/' + t.id, { method: 'DELETE' });
             JORD.success('Team removed');
@@ -1625,10 +1671,11 @@
       const body = el('div', { class: 'team-card-body' });
 
       // Column header row
-      const colHeader = el('div', { class: 'player-row', style: { background: 'var(--surface-2)', fontSize: '11px', fontWeight: '700', color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: '.05em' } },
+      const colHeader = el('div', { class: 'player-row', style: { background: 'var(--surface-2)', fontSize: '11px', fontWeight: '700', color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: '.05em', gridTemplateColumns: '24px 1fr 90px 80px 1fr auto' } },
         el('span', null, '#'),
         el('span', null, 'Name'),
         el('span', { class: 'player-code-col' }, 'Code'),
+        el('span', { class: 'player-score-col' }, 'Score'),
         el('span', { class: 'player-email-col' }, 'Email / Phone'),
         el('span', null, '')
       );
@@ -1645,7 +1692,7 @@
           on: { click: async (e) => {
             e.stopPropagation();
             const name = (b.player_name && b.player_name.trim()) ? b.player_name : b.drop_code;
-            if (!confirm('Remove ' + name + ' from this team? Their ball code (' + b.drop_code + ') will return to the available pool.')) return;
+            if (!await JORD.confirm('Remove ' + name + ' from this team? Their ball code (' + b.drop_code + ') will return to the available pool.', { okText: 'Remove player', danger: true })) return;
             try {
               await JORD.api('/api/events/' + currentEvent.id + '/balls/' + b.drop_code + '/unassign', { method: 'PATCH' });
               JORD.success(name + ' removed');
@@ -1654,12 +1701,29 @@
           }}
         }, '✕');
 
-        const infoRow = el('div', { class: 'player-row' },
+        const scoreEl = (() => {
+          const hasPenalty = b.penalty_yards > 0 && b.raw_yards != null && b.final_yards != null;
+          const span = el('span', { class: 'player-score-col', style: { fontFamily: 'var(--font-mono)', fontSize: '12px', lineHeight: '1.3' } });
+          if (!b.scanned) {
+            span.textContent = '—';
+            span.style.color = 'var(--ink-3)';
+          } else if (hasPenalty) {
+            span.innerHTML = '<span style="font-weight:600">' + b.final_yards + ' yd</span>'
+              + '<div style="font-size:10px;color:#b91c1c;white-space:nowrap">' + b.raw_yards + '−' + b.penalty_yards + '=' + b.final_yards + '</div>';
+          } else {
+            span.innerHTML = '<span style="font-weight:600">' + (b.final_yards ?? 0) + ' yd</span>'
+              + (b.location_type ? '<div style="font-size:10px;color:var(--ink-2)">' + b.location_type + '</div>' : '');
+          }
+          return span;
+        })();
+
+        const infoRow = el('div', { class: 'player-row', style: { gridTemplateColumns: '24px 1fr 90px 80px 1fr auto' } },
           el('span', { style: { color: 'var(--ink-2)', fontSize: '12px' } }, b.player_index ?? '—'),
           (b.player_name && b.player_name.trim()
             ? el('span', { style: { fontWeight: '500' } }, b.player_name)
             : el('span', { style: { color: 'var(--ink-3)', fontStyle: 'italic' } }, 'unregistered')),
           el('span', { class: 'player-code-col', style: { fontFamily: 'var(--font-mono)', fontSize: '12px', color: 'var(--ink-2)' } }, b.drop_code),
+          scoreEl,
           el('span', { class: 'player-email-col', style: { fontSize: '12px', color: 'var(--ink-2)' } }, [b.email, b.phone].filter(Boolean).join(' · ') || '—'),
           el('div', { style: { display: 'flex', gap: 'var(--s-1)', flexWrap: 'wrap' } },
             el('button', { class: 'btn btn-ghost', style: { fontSize: '11px', padding: '4px 10px' },
@@ -1675,7 +1739,7 @@
               on: { click: async (e) => {
                 e.stopPropagation();
                 const name = (b.player_name && b.player_name.trim()) ? b.player_name : b.drop_code;
-                if (!confirm('Reset scan for ' + name + '? This clears their yardage so they can scan again.')) return;
+                if (!await JORD.confirm('Reset scan for ' + name + '? This clears their yardage so they can scan again.', { okText: 'Reset scan', danger: true })) return;
                 try {
                   await JORD.api('/api/events/' + currentEvent.id + '/balls/' + b.drop_code + '/reset-scan', { method: 'PATCH', body: {} });
                   JORD.success('Scan reset — ' + name + ' can scan again');

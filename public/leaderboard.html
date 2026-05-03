@@ -54,10 +54,10 @@
   }
   .lb-map-legend span { display: flex; align-items: center; gap: 4px; }
   .lb-map-legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
-  .leg-fairway::before { background: rgba(34,197,94,0.7); }
+  .leg-fairway::before { background: rgba(59,130,246,0.7); }
   .leg-rough::before   { background: rgba(234,179,8,0.7); }
   .leg-oob::before     { background: rgba(220,38,38,0.7); }
-  .leg-green::before   { background: rgba(59,130,246,0.7); }
+  .leg-green::before   { background: rgba(34,197,94,0.7); }
   .leg-ld::before      { background: #BEFF3A; border-radius: 50% !important; }
   .leg-cp::before      { background: #4A90E4; border-radius: 50% !important; }
 
@@ -143,6 +143,17 @@
     .end-stat-val { font-size: 22px; }
   }
 
+  /* Hole Tour overlay badge */
+  .tour-overlay {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    background: rgba(0,0,0,0.72); color: #BEFF3A;
+    font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+    padding: 5px 14px; border-radius: 999px;
+    z-index: 10; pointer-events: none; display: none;
+    white-space: nowrap;
+  }
+  .tour-overlay.is-active { display: flex; align-items: center; gap: 6px; }
+
   /* Selected team card — blue ring visible on both dark and gold leader background */
   .lb-row.map-selected {
     box-shadow: inset 4px 0 0 #3B82F6, 0 0 0 2px rgba(59,130,246,0.35) !important;
@@ -165,6 +176,45 @@
     color: #333 !important;
     margin-top: 6px;
   }
+
+  /* ── Map expanded mode — full content area ── */
+  .lb-map-container { min-height: 0; } /* prevent flex cut-off at bottom */
+  .lb-content.map-expanded .lb-scores-col { display: none; }
+  .lb-content.map-expanded .lb-map-col {
+    display: flex !important;
+    width: 100% !important;
+    border-left: none;
+    flex: 1;
+  }
+  @media (max-width: 700px) {
+    .lb-content.map-expanded .lb-map-col { height: auto !important; border-top: none; }
+  }
+
+  /* ── Team list strip inside expanded map ── */
+  .lb-map-teams {
+    flex-shrink: 0;
+    overflow-y: auto;
+    max-height: 200px;
+    border-top: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .lb-map-team-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 14px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.12s;
+  }
+  .lb-map-team-row:hover { background: var(--surface-2); }
+  .lb-map-team-row.is-active { background: var(--primary); }
+  .lb-map-team-row.is-active .mtr-name { color: #0C2010; font-weight: 700; }
+  .lb-map-team-row.is-active .mtr-rank,
+  .lb-map-team-row.is-active .mtr-score { color: rgba(12,32,16,0.7); }
+  .mtr-rank  { font-size: 12px; color: var(--ink-2); width: 28px; text-align: center; flex-shrink: 0; }
+  .mtr-name  { flex: 1; font-size: 13px; font-weight: 600; color: var(--ink); }
+  .mtr-score { font-size: 12px; color: var(--ink-2); font-family: var(--font-mono); flex-shrink: 0; }
 </style>
 </head>
 <body class="theme-dark" id="pg">
@@ -212,8 +262,12 @@
     <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;font-size:12px">
       <button id="map-btn-all" style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--primary);color:#fff;cursor:pointer">All Teams</button>
       <span id="map-filter-label" style="color:var(--ink-2);font-size:11px;display:none">← tap team row to filter</span>
+      <button id="btn-hole-tour" style="margin-left:auto;font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface-2);color:var(--ink);cursor:pointer">🎬 Hole Tour</button>
     </div>
-    <div class="lb-map-container" id="lb-map"></div>
+    <div class="lb-map-container" id="lb-map">
+      <div class="tour-overlay" id="tour-overlay"><span>●</span> Hole Tour</div>
+    </div>
+    <div class="lb-map-teams" id="lb-map-teams"></div>
     <div class="lb-map-legend">
       <span class="leg-fairway">Fairway</span>
       <span class="leg-rough">Rough</span>
@@ -248,6 +302,30 @@
   var mapLoaded = false;
   var ballMarkers = [];
   var mapFilter = null; /* null = all teams; string = team_name to filter to */
+  var tourActive = false;
+  var tourTimers = [];
+  var tourRafId  = null;
+
+  function addZone(id, geojsonStr, color, opacity) {
+    if (!geojsonStr || !lbMap) return;
+    try {
+      var geo = JSON.parse(geojsonStr);
+      var data = (geo.type === 'FeatureCollection' || geo.type === 'Feature') ? geo : { type: 'Feature', geometry: geo };
+      var src = lbMap.getSource(id);
+      if (src) { src.setData(data); return; }
+      lbMap.addSource(id, { type: 'geojson', data: data });
+      lbMap.addLayer({ id: id+'-fill', type: 'fill',   source: id, paint: { 'fill-color': color, 'fill-opacity': opacity } });
+      lbMap.addLayer({ id: id+'-line', type: 'line',   source: id, paint: { 'line-color': color, 'line-width': 1.5, 'line-opacity': 0.8 } });
+    } catch(e) {}
+  }
+
+  function updateZoneLayers(ev) {
+    addZone('lb-fairway',   ev.fairway_polygon,   '#3B82F6', 0.35);
+    addZone('lb-rough',     ev.rough_polygon,     '#EAB308', 0.30);
+    addZone('lb-oob',       ev.oob_polygon,       '#DC2626', 0.25);
+    addZone('lb-green',     ev.green_polygon,     '#22C55E', 0.35);
+    addZone('lb-ctp-green', ev.ctp_green_polygon, '#22C55E', 0.35);
+  }
 
   /* Load mapbox token — store promise so initMap can await it */
   var configReady = fetch('/api/config').then(function(r){return r.json();}).then(function(cfg){
@@ -276,9 +354,137 @@
     }
 
     render();
-    if (mapLoaded) updateMapMarkers();
+    if (mapLoaded) { updateMapMarkers(); updateZoneLayers(ev); }
     document.getElementById('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+    /* Auto-open map panel when tournament ends (once) */
+    if (ev.status === 'ended') {
+      var mapCol = document.getElementById('lb-map-col');
+      if (!mapCol.classList.contains('is-open')) {
+        mapCol.classList.add('is-open');
+        document.getElementById('btn-map').textContent = '✕ Map';
+        configReady.then(function () {
+          requestAnimationFrame(function () {
+            if (!lbMap) initMap();
+            else lbMap.resize();
+            renderMapTeams();
+          });
+        });
+      }
+    }
   });
+
+  /* ── End-of-tournament helpers ── */
+  function getYardageComparison(yards) {
+    if (!yards) return '';
+    var comps = [
+      { ref: 100,   label: 'a football field' },
+      { ref: 361,   label: 'the Eiffel Tower laid on its side' },
+      { ref: 484,   label: 'the Empire State Building laid on its side' },
+      { ref: 1400,  label: 'the Golden Gate Bridge' },
+      { ref: 4374,  label: 'the full length of Central Park, NYC' },
+      { ref: 9677,  label: 'the height of Mount Everest' },
+      { ref: 23622, label: 'the length of Manhattan Island' },
+    ];
+    var best = comps[0];
+    for (var i = 0; i < comps.length; i++) {
+      if (yards >= comps[i].ref) best = comps[i];
+    }
+    var times = (yards / best.ref).toFixed(1);
+    return 'That\'s ' + times + '× the length of ' + best.label + '!';
+  }
+
+  function buildEndBanner(d) {
+    var ldRows = d.ld || [];
+
+    /* Aggregate stats across all balls */
+    var totalYards = 0, fairwayCount = 0, roughCount = 0, oobCount = 0, lostCount = 0;
+    ldRows.forEach(function (team) {
+      totalYards += (team.total_yards || 0);
+      (team.balls || []).forEach(function (b) {
+        if (!b.scanned) return;
+        if (b.location_type === 'fairway') fairwayCount++;
+        else if (b.location_type === 'rough') roughCount++;
+        else if (b.location_type === 'oob') oobCount++;
+        else if (b.location_type === 'lost') lostCount++;
+      });
+    });
+
+    var frag = document.createDocumentFragment();
+
+    /* ── Header ── */
+    var hdr = document.createElement('div');
+    hdr.style.cssText = 'text-align:center;margin-bottom:var(--s-5)';
+    hdr.innerHTML = '<div style="font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-2);font-weight:700;margin-bottom:6px">Final Results</div>';
+    frag.appendChild(hdr);
+
+    /* ── Total yards hero ── */
+    var hero = document.createElement('div');
+    hero.style.cssText = 'background:var(--surface-2);border-radius:var(--r-lg);padding:var(--s-4) var(--s-5);text-align:center;margin-bottom:var(--s-4)';
+    hero.innerHTML = '<div style="font-family:var(--font-display);font-size:52px;font-weight:700;color:var(--primary);line-height:1">' + totalYards.toLocaleString() + '</div>'
+      + '<div style="font-size:13px;color:var(--ink-2);text-transform:uppercase;letter-spacing:.1em;margin-top:4px">Total Yards Driven</div>'
+      + (totalYards > 0 ? '<div style="font-size:13px;color:var(--ink);margin-top:10px;font-style:italic;line-height:1.5">' + getYardageComparison(totalYards) + '</div>' : '');
+    frag.appendChild(hero);
+
+    /* ── Zone stats grid ── */
+    var grid = document.createElement('div');
+    grid.className = 'end-stats-grid';
+    grid.style.gridTemplateColumns = 'repeat(4,1fr)';
+    var zoneStats = [
+      { val: fairwayCount, lbl: 'In Fairway',     color: '#22C55E' },
+      { val: roughCount,   lbl: 'In Rough',        color: '#EAB308' },
+      { val: oobCount,     lbl: 'Out of Bounds',   color: '#DC2626' },
+      { val: lostCount,    lbl: 'Lost Balls',       color: 'var(--ink-2)' },
+    ];
+    zoneStats.forEach(function (s) {
+      var cell = document.createElement('div');
+      cell.className = 'end-stat';
+      cell.innerHTML = '<div class="end-stat-val" style="color:' + s.color + '">' + s.val + '</div>'
+        + '<div class="end-stat-lbl">' + s.lbl + '</div>';
+      grid.appendChild(cell);
+    });
+    frag.appendChild(grid);
+
+    /* ── Champion showcase (LD) ── */
+    if (ldRows.length > 0) {
+      var winner = ldRows[0];
+      var winCard = document.createElement('div');
+      winCard.className = 'card';
+      winCard.style.cssText = 'margin-top:var(--s-5);margin-bottom:var(--s-4);border:1px solid var(--primary);background:linear-gradient(135deg,rgba(190,255,58,0.07) 0%,transparent 60%)';
+
+      var drivesHtml = (winner.balls || [])
+        .filter(function (b) { return b.scanned; })
+        .sort(function (a, b) { return (b.final_yards || 0) - (a.final_yards || 0); })
+        .map(function (b) {
+          var locIcon = { fairway: '🟩', rough: '🌿', oob: '🚫', lost: '❓' }[b.location_type] || '—';
+          var yardColor = b.location_type === 'fairway' ? 'var(--primary)' : (b.location_type === 'rough' ? '#EAB308' : '#DC2626');
+          return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">'
+            + '<span style="font-size:12px;color:var(--ink-3);font-family:var(--font-mono);width:18px;flex-shrink:0">' + (b.player_index || '') + '</span>'
+            + '<span style="flex:1;font-weight:500;font-size:14px">' + (b.player_name || b.drop_code) + '</span>'
+            + '<span style="font-size:13px">' + locIcon + '</span>'
+            + '<span style="font-family:var(--font-display);font-size:18px;font-weight:700;color:' + yardColor + '">' + (b.final_yards || 0) + '</span>'
+            + '<span style="font-size:11px;color:var(--ink-2);margin-left:2px">yd</span>'
+            + '</div>';
+        }).join('');
+
+      winCard.innerHTML = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:var(--s-3)">'
+        + '<span style="font-size:36px">🏆</span>'
+        + '<div><div style="font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--primary);font-weight:700;margin-bottom:2px">Champion</div>'
+        + '<div style="font-size:22px;font-weight:700">' + winner.team_name + '</div>'
+        + '<div style="font-size:13px;color:var(--ink-2)">' + winner.total_yards.toLocaleString() + ' yards combined</div></div>'
+        + '</div>'
+        + drivesHtml;
+      frag.appendChild(winCard);
+    }
+
+    /* ── "All Teams" divider ── */
+    var divEl = document.createElement('div');
+    divEl.style.cssText = 'font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-2);font-weight:700;margin:var(--s-5) 0 var(--s-4);padding-bottom:var(--s-2);border-bottom:1px solid var(--border)';
+    divEl.textContent = 'All Teams';
+    frag.appendChild(divEl);
+
+    return frag;
+  }
 
   /* ── Scores render ── */
   function render() {
@@ -292,6 +498,9 @@
     }
 
     inner.innerHTML = '';
+    if ((snap.event || {}).status === 'ended') {
+      inner.appendChild(buildEndBanner(snap));
+    }
     rows.forEach(function (team, idx) {
       var lead = idx === 0;
       var card = document.createElement('div');
@@ -345,7 +554,7 @@
       if (mode === 'ld' && team.total_penalty > 0) {
         var penNote = document.createElement('div');
         penNote.style.cssText = 'margin-top:4px';
-        penNote.innerHTML = '<span style="color:#fff;background:#b91c1c;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;display:inline-block;letter-spacing:.01em">−' + team.total_penalty + ' yd penalty</span>';
+        penNote.innerHTML = '<span style="color:#fff;background:#b91c1c;font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;display:inline-block;letter-spacing:.01em">' + team.total_penalty + ' yd penalty applied</span>';
         scoreBlock.appendChild(penNote);
       }
 
@@ -409,6 +618,7 @@
       });
       inner.appendChild(card);
     });
+    if (document.getElementById('lb-map-col').classList.contains('is-open')) renderMapTeams();
   }
 
   /* ── Map filter UI ── */
@@ -456,7 +666,7 @@
 
     lbMap = new mapboxgl.Map({
       container: 'lb-map',
-      style: 'mapbox://styles/mapbox/satellite-streets-v12',
+      style: JORD.satelliteStyle(),
       center: center,
       zoom: tees.length ? 16 : 14
     });
@@ -473,21 +683,8 @@
     lbMap.on('load', function () {
       mapLoaded = true;
 
-      /* Course polygon layers */
-      function addZone(id, geojsonStr, color, opacity) {
-        if (!geojsonStr) return;
-        try {
-          var geo = JSON.parse(geojsonStr);
-          lbMap.addSource(id, { type: 'geojson', data: { type: 'Feature', geometry: geo } });
-          lbMap.addLayer({ id: id + '-fill', type: 'fill', source: id, paint: { 'fill-color': color, 'fill-opacity': opacity } });
-          lbMap.addLayer({ id: id + '-line', type: 'line', source: id, paint: { 'line-color': color, 'line-width': 1.5, 'line-opacity': 0.8 } });
-        } catch(e) {}
-      }
-      addZone('lb-fairway',   ev.fairway_polygon,   '#22C55E', 0.35);
-      addZone('lb-rough',     ev.rough_polygon,     '#EAB308', 0.30);
-      addZone('lb-oob',       ev.oob_polygon,       '#DC2626', 0.25);
-      addZone('lb-green',     ev.green_polygon,     '#3B82F6', 0.35);
-      addZone('lb-ctp-green', ev.ctp_green_polygon, '#3B82F6', 0.35);
+      /* Course polygon layers — initial load */
+      updateZoneLayers(ev);
 
       /* LD Pin marker */
       if (ev.pin_lat && ev.pin_lon) {
@@ -600,19 +797,162 @@
     render();
   });
 
+  /* ── Team strip inside expanded map ── */
+  function renderMapTeams() {
+    var container = document.getElementById('lb-map-teams');
+    if (!container || !snap) return;
+    var rows = (mode === 'ld' ? snap.ld : snap.cp) || [];
+    container.innerHTML = '';
+
+    var allRow = document.createElement('div');
+    allRow.className = 'lb-map-team-row' + (mapFilter === null ? ' is-active' : '');
+    allRow.innerHTML = '<span class="mtr-rank">🌐</span><span class="mtr-name">All Teams</span>'
+      + '<span class="mtr-score">' + rows.length + ' team' + (rows.length !== 1 ? 's' : '') + '</span>';
+    allRow.addEventListener('click', function () {
+      mapFilter = null;
+      setMapFilterUI();
+      renderMapTeams();
+      if (mapLoaded) updateMapMarkers();
+    });
+    container.appendChild(allRow);
+
+    rows.forEach(function (team) {
+      var row = document.createElement('div');
+      row.className = 'lb-map-team-row' + (mapFilter === team.team_name ? ' is-active' : '');
+      var rankDisplay = team.rank === 1 ? '🏆' : '#' + team.rank;
+      var scoreDisplay = mode === 'ld'
+        ? (team.total_yards != null ? team.total_yards + ' yd' : '—')
+        : (team.best_ft != null ? team.best_ft + ' ft' : '—');
+      row.innerHTML = '<span class="mtr-rank">' + rankDisplay + '</span>'
+        + '<span class="mtr-name">' + team.team_name + '</span>'
+        + '<span class="mtr-score">' + scoreDisplay + '</span>';
+      row.addEventListener('click', function () {
+        mapFilter = mapFilter === team.team_name ? null : team.team_name;
+        setMapFilterUI();
+        renderMapTeams();
+        if (mapLoaded) updateMapMarkers();
+      });
+      container.appendChild(row);
+    });
+  }
+
   /* Map toggle */
   document.getElementById('btn-map').addEventListener('click', function () {
     var col = document.getElementById('lb-map-col');
+    var content = document.querySelector('.lb-content');
     var open = col.classList.toggle('is-open');
+    content.classList.toggle('map-expanded', open);
     document.getElementById('btn-map').textContent = open ? '✕ Map' : '🗺 Map';
     if (open) {
       configReady.then(function () {
         requestAnimationFrame(function () {
           if (!lbMap) initMap();
           else lbMap.resize();
+          renderMapTeams();
         });
       });
     }
+  });
+
+  /* ── Hole Tour ── */
+  function holeTourBearing(lat1, lon1, lat2, lon2) {
+    var dLon = (lon2 - lon1) * Math.PI / 180;
+    var lat1r = lat1 * Math.PI / 180;
+    var lat2r = lat2 * Math.PI / 180;
+    var y = Math.sin(dLon) * Math.cos(lat2r);
+    var x = Math.cos(lat1r) * Math.sin(lat2r) - Math.sin(lat1r) * Math.cos(lat2r) * Math.cos(dLon);
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+  }
+
+  function stopHoleTour() {
+    tourActive = false;
+    tourTimers.forEach(clearTimeout);
+    tourTimers = [];
+    if (tourRafId) { cancelAnimationFrame(tourRafId); tourRafId = null; }
+
+    /* Return to full-hole overhead view */
+    if (lbMap && snap) {
+      var ev2 = snap.event || {};
+      var ht2 = mode === 'cp' ? 'closest_pin' : 'longest_drive';
+      var tees2 = (ev2.tee_boxes || []).filter(function (t) { return t.hole_type === ht2; });
+      var pLat = mode === 'cp' ? (ev2.ctp_pin_lat || ev2.pin_lat) : ev2.pin_lat;
+      var pLon = mode === 'cp' ? (ev2.ctp_pin_lon || ev2.pin_lon) : ev2.pin_lon;
+      if (pLat && pLon) {
+        var t2 = tees2.length ? tees2[0] : { lat: pLat, lon: pLon };
+        lbMap.flyTo({ center: [(t2.lon + pLon) / 2, (t2.lat + pLat) / 2], zoom: tees2.length ? 16 : 14, pitch: 0, bearing: 0, duration: 1800, essential: true });
+      }
+    }
+
+    var btn = document.getElementById('btn-hole-tour');
+    if (btn) { btn.textContent = '🎬 Hole Tour'; btn.style.background = 'var(--surface-2)'; btn.style.color = 'var(--ink)'; btn.style.borderColor = 'var(--border)'; }
+    var overlay = document.getElementById('tour-overlay');
+    if (overlay) overlay.classList.remove('is-active');
+  }
+
+  function orbitCamera(startBearing, startTime) {
+    if (!tourActive) return;
+    var elapsed = performance.now() - startTime;
+    var duration = 9000;
+    if (elapsed >= duration) return;
+    lbMap.setBearing((startBearing + (elapsed / duration) * 360) % 360);
+    tourRafId = requestAnimationFrame(function () { orbitCamera(startBearing, startTime); });
+  }
+
+  function startHoleTour() {
+    if (!lbMap || !snap) return;
+    if (tourActive) { stopHoleTour(); return; }
+
+    var ev = snap.event || {};
+    var holeType = mode === 'cp' ? 'closest_pin' : 'longest_drive';
+    var tees = (ev.tee_boxes || []).filter(function (t) { return t.hole_type === holeType; });
+    var pinLat = mode === 'cp' ? (ev.ctp_pin_lat || ev.pin_lat) : ev.pin_lat;
+    var pinLon = mode === 'cp' ? (ev.ctp_pin_lon || ev.pin_lon) : ev.pin_lon;
+
+    if (!pinLat || !pinLon) { JORD.warn('No pin location set — set one in Admin → Course Map first.'); return; }
+
+    var tee = tees.length ? tees[0] : { lat: pinLat, lon: pinLon };
+    var bearing = holeTourBearing(tee.lat, tee.lon, pinLat, pinLon);
+    var midLat  = (tee.lat + pinLat) / 2;
+    var midLon  = (tee.lon + pinLon) / 2;
+
+    tourActive = true;
+    var btn = document.getElementById('btn-hole-tour');
+    if (btn) { btn.textContent = '■ Stop'; btn.style.background = '#DC2626'; btn.style.color = '#fff'; btn.style.borderColor = '#DC2626'; }
+    var overlay = document.getElementById('tour-overlay');
+    if (overlay) overlay.classList.add('is-active');
+
+    /* 1 — Fly behind the tee looking down the hole */
+    lbMap.flyTo({ center: [tee.lon, tee.lat], zoom: 18, pitch: 65, bearing: bearing, duration: 3500, essential: true });
+
+    /* 2 — Sweep down the fairway to midpoint */
+    tourTimers.push(setTimeout(function () {
+      if (!tourActive) return;
+      lbMap.easeTo({ center: [midLon, midLat], zoom: 17.5, pitch: 62, bearing: bearing, duration: 5000, essential: true });
+    }, 3700));
+
+    /* 3 — Approach the pin */
+    tourTimers.push(setTimeout(function () {
+      if (!tourActive) return;
+      lbMap.easeTo({ center: [pinLon, pinLat], zoom: 19.5, pitch: 55, bearing: bearing, duration: 4000, essential: true });
+    }, 9000));
+
+    /* 4 — Orbit the pin */
+    tourTimers.push(setTimeout(function () {
+      if (!tourActive) return;
+      orbitCamera(bearing, performance.now());
+    }, 13200));
+
+    /* 5 — Pull back to full-hole overview and end tour */
+    tourTimers.push(setTimeout(function () {
+      if (!tourActive) return;
+      lbMap.flyTo({ center: [midLon, midLat], zoom: tees.length ? 16 : 14, pitch: 0, bearing: 0, duration: 3000, essential: true });
+      tourTimers.push(setTimeout(stopHoleTour, 3200));
+    }, 22500));
+  }
+
+  document.getElementById('btn-hole-tour').addEventListener('click', function () {
+    if (!mapLoaded) { JORD.warn('Open the map first.'); return; }
+    startHoleTour();
   });
 
   /* TV mode — toggles large layout AND native fullscreen together */

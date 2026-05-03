@@ -89,6 +89,7 @@
       .then(function (info) {
         if (info.error) { renderError(info.error); return; }
         eventInfo = info;
+        if (info.status === 'setup') { renderError('This tournament hasn\'t started yet. Check back when it\'s live!'); return; }
         if (info.status === 'ended') { renderError('This tournament has ended. Registration is closed.'); return; }
         renderStep();
       })

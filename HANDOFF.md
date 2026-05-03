@@ -26,28 +26,33 @@ Default password: `jord2026` (change in `.env`)
 
 ---
 
-### Current State (as of v1.6.0 — 2026-04-29)
+### Current State (as of v1.8.0 — 2026-05-03)
 
 #### What's fully working
 - Tournament event creation with Longest Drive and/or Closest to Pin contests
 - **Course map** (admin): two separate hole configs (LD hole + CTP hole), each with:
   - Freehand click-and-drag polygon drawing for Fairway, Rough, OOB, Green zones
-  - Color-coded zones: Fairway=green `#22C55E`, Rough=yellow `#EAB308`, OOB=red `#DC2626`, Green/CTP=blue `#3B82F6`. Colors show correctly on the setup map (draw fill styles use the `kindColor` Mapbox expression).
+  - Color-coded zones: Fairway=blue `#3B82F6`, Rough=yellow `#EAB308`, OOB=red `#DC2626`, Green/CTP=green `#22C55E`. Colors show correctly on the setup map via dedicated zone-* GeoJSON layers (DrawStyle inactive fill set to transparent).
   - Trash can button: deletes the currently selected (clicked) polygon.
   - Multiple tee boxes numbered T1, T2, T3 with per-tee distance to pin displayed
   - Pin placement via map click, GPS grab (10-second accuracy sampling), or drag
   - GPS Trace tool (walk the boundary with phone) with warm-up accuracy phase
   - Selective clear (clear selected polygon only, or confirm-clear all)
   - **CTP off-green penalty** — admin sets penalty in feet; if a CTP shot lands outside the green polygon, that many feet are added to the raw distance. Shown in leaderboard and scan result.
+  - Zone polygon rendering: `syncZoneLayers()` maintains 5 dedicated GeoJSON sources. `turf.simplify` reduces freehand paths to ~10–30 vertices. `scheduleClipZones()` called after freehand and GPS trace draw complete.
+  - **Multiple polygons per zone** — each zone type stored as a FeatureCollection; multiple fairways, roughs, OOB areas all supported. `loadPolygon` handles both old (bare Polygon) and new (FeatureCollection) format.
+  - **GPS pin grab** early-stop threshold: ±3m accuracy (was 4m)
 - Ball pool management (bulk add drop codes, CSV import, QR print)
 - Player self-registration at `/register/:eventId`
 - **Scan page** (`/scan`): code-entry-first flow — player types their 6-digit ball code, camera is opt-in. Unregistered codes show a "Ball Not Registered" screen with instructions.
-- On-course shot scanning: GPS locks, player picks Fairway/Rough/OOB/Lost, submits → full-screen satellite flyover animation then fades to compact result card with encouragement, yardage, penalty breakdown, and optional Call Admin button.
+- On-course shot scanning: GPS locks, player picks Fairway/Rough/OOB/Lost (auto-detected from zone polygons and locked), submits → full-screen satellite flyover animation then fades to compact result card with encouragement, yardage, penalty breakdown, and optional Call Admin button.
+- **CTP scan**: optional "Rangefinder distance (ft)" field — if filled, overrides GPS distance with physical rangefinder reading. `manual_ft` passed to server.
 - **Live leaderboard** at `/leaderboard/:eventId`:
-  - Penalty display: player row shows `final yd` with a red badge `raw − pen = final` below it. Team total shows `N yd penalty deducted`.
-  - Map panel: clicking a team card in the list filters the map to just that team's dots (auto-fits view). Active filter shows the team name label. "All Teams" button resets.
+  - Penalty display: team total shows post-penalty final yards; per-player rows show `raw − pen = final` badge; team badge reads "N yd penalty applied" (not a future deduction).
+  - Map toggle: clicking "Map" hides the scores column and expands the map to fill the full content area. A scrollable team strip below the map shows rank + name + score per row; tap a row to filter the map to that team, tap again to clear.
   - Map-selected visual: blue ring/left-border (`#3B82F6`) — visible on both dark cards and the gold leader card.
-  - Map popups: all text forced dark (`color:#1a1a1a`) via inline styles — no longer invisible on the dark theme.
+  - Map popups: all text forced dark (`color:#1a1a1a`) via inline styles.
+  - **Hole Tour**: "🎬 Hole Tour" button in map toolbar. Animated satellite camera tour — tee → fairway sweep → pin approach (zoom 19.5) → 360° orbit → overhead pullback. ~29 seconds total. Stop button smoothly returns to overhead view. Works for LD and CTP tabs.
 - **Monitor dashboard** at `/monitor/:eventId`:
   - Map toggle: **On Hole** / **All Players** — "On Hole" hides fully-submitted teams to reduce clutter.
   - Clicking a ball dot shows the player's 6-digit ball code + "Fill correction form" button that auto-populates the code field.
@@ -71,6 +76,11 @@ Key `events` columns (recent additions auto-migrate on startup):
 - `ctp_pin_lat`, `ctp_pin_lon` — CTP hole pin coordinates
 - `ctp_green_polygon` — CTP green boundary GeoJSON string
 - `ctp_hole_distance_yards` — CTP tee-to-pin distance
+
+#### Maps — ESRI World Imagery (v1.8.0)
+- All maps use ESRI World Imagery raster tiles via `JORD.satelliteStyle()` in `jord.js`
+- Mapbox GL JS engine unchanged; only the satellite tile source swapped
+- Sharper resolution than Mapbox satellite for many US golf courses
 
 #### Color theme (v1.5.0)
 - Platform uses a **Rumble Golf Co. inspired dark palette**: deep forest green backgrounds, neon lime-green accent
@@ -102,58 +112,13 @@ Key `events` columns (recent additions auto-migrate on startup):
 
 ### Known Issues / Next Up
 
-#### 🔴 PRIORITY: Penalty scoring display bug — fix at start of next session
-
-**Confirmed by user:** The big team score on the leaderboard should show **80** when raw=100 and penalty=20. Each player's final (penalty-applied) score contributes to the team total (sum of 4 players). Every place a distance is shown must display the **final post-penalty number**, not the raw number.
-
----
-
-**Full scoring architecture (verified by code review):**
-
-LD scan (`server.js` lines 771–802):
-- `rawYards` = GPS haversine from tee → ball
-- `penaltyYards` = 0 for fairway; perpendicular/fixed for rough; half-hole/fixed for OOB
-- `finalYards = max(0, rawYards − penaltyYards)` → stored as `ld_final_yards`
-- All three saved: `ld_raw_yards`, `ld_penalty_yards`, `ld_final_yards`
-
-Leaderboard SQL (`server.js` line 275): `SUM(b.ld_final_yards) AS total_yards` — this is the post-penalty team total.
-
-Admin correction form (`monitor.html` line 481–524): label says "Distance Drove (raw yards)"; sends `final_yards` in body (confusing name); server correctly treats it as raw and computes `scored = raw − penalty`.
-
-CTP: penalty is **added** (larger = worse): `cp_distance_ft = raw_ft + penalty_ft`.
-
----
-
-**Where scores are displayed and what needs fixing:**
-
-| Location | What it shows today | Issue |
-|---|---|---|
-| Leaderboard team big number | `total_yards = SUM(ld_final_yards)` | Should be 80 — verify data is correct in DB |
-| Leaderboard penalty badge | `−20 yd penalty` below the score | Reads like a FURTHER deduction. Should say "20 yd penalty applied" or just remove badge and show breakdown in per-player rows only |
-| Leaderboard per-player row | `final_yards` with badge `raw − penalty = final` | Fine if final is right; confirm it matches |
-| Scan result (player phone) | `final_yards` as big number, `(raw − penalty)` as note | ✓ Appears correct |
-| Admin Players tab | **No score shown at all** | Add score column: final_yards, location, penalty badge per player |
-| Monitor map popup | `final_yards` | Should be correct; verify |
-
----
-
-**Fix plan for next session (do in this order):**
-
-1. **Verify DB is storing the right value** — open the test page or write a quick `/api/debug/balls/:eventId` route to dump raw/penalty/final for all balls, confirm `ld_final_yards` IS 80 and not 100.
-
-2. **Fix the leaderboard penalty badge** — change from `−20 yd penalty` (implying a future deduction) to something that makes clear it's already applied. Options: remove badge entirely and just show breakdown inside the per-player rows; OR change to `20 yd penalty included`. File: `public/leaderboard.html` line 322.
-
-3. **Add per-player score column to admin Players tab** — `renderTeamCard()` in `public/admin.html` around line 1550. Add final_yards, location badge, and penalty note to each player row.
-
-4. **Audit all other display points** — monitor map popup (`public/monitor.html` line 362), scan page result card (`public/scan.html` line 691). Confirm all show `final_yards` (post-penalty) not `raw_yards`.
-
----
-
-#### Other known issues
+#### Known issues
 1. **Polygon vertex editing UX** — after drawing a polygon the user can click it and drag vertices to adjust; works but there's no on-screen hint
 2. **GPS trace on desktop** — trace tool designed for walking on-course; desktop users need to use freehand drawing instead
 3. **Demo mode CTP** — demo scan only supports Longest Drive, not Closest to Pin
 4. **Mobile optimization review** — user requested a full review of all pages at 375px; not yet done
+5. **Course map zone overlap during drawing** — clipping runs 200ms after releasing the mouse, not in real-time. A new rough can visually overlap existing fairway while being drawn; it clips correctly on release.
+6. **Numeric keyboard on ball code entry** — mobile keyboard opens on letters; user must tap "123" before each digit. Fix: add `inputmode="numeric"` + `pattern="[0-9]*"` to the code input. (TODO #8)
 
 ---
 

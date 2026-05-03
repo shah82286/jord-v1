@@ -2,6 +2,106 @@
 
 ---
 
+## v1.8.0 — 2026-05-03
+### Session 8 — ESRI Imagery, Hole Tour, CTP Override, UI Polish
+
+#### What Changed
+
+##### ESRI World Imagery — all maps
+- All 6 Mapbox map initializations (admin, leaderboard, monitor, scan ×2, test) now use ESRI World Imagery tiles instead of Mapbox satellite
+- `JORD.satelliteStyle()` helper added to `jord.js` — returns a Mapbox GL JS style object using ESRI raster tiles. Single source of truth, called in every map init
+- Sharper resolution for many US golf courses; free, no provider change required
+
+##### Leaderboard — Hole Tour
+- **"🎬 Hole Tour" button** added to the map toolbar (next to All Teams filter)
+- Animated satellite camera tour of the hole: tee → fairway sweep → pin approach → 360° orbit → overhead pullback
+- Camera pitches to 65° at tee, sweeps along the hole at zoom 18→17.5→19.5, orbits pin for 9 seconds, pulls back to full overview
+- "■ Stop" turns button red mid-tour; clicking stop smoothly flies back to overhead view rather than freezing
+- "HOLE TOUR" badge overlay on map while active
+- Works for both LD and CTP modes — uses correct pin/tees for whichever tab is active
+- Gracefully handles missing pin (shows warning toast)
+
+##### Tournament lifecycle button
+- New tournament now shows **"▶ Start tournament"** (btn-primary) instead of "End tournament"
+- 3-state logic: setup → `▶ Start tournament`, active → `⏹ End tournament` (btn-danger), ended → `🔓 Re-open tournament` (btn-ghost)
+
+##### Custom modals — no more browser dialogs
+- All native `prompt()` and `confirm()` calls replaced with `JORD.prompt()` / `JORD.confirm()` custom modals across admin.html and monitor.html
+- `APP.prompt()` added to `jord.js` — returns a Promise, supports placeholder, defaultValue, okText; Enter key submits
+
+##### Zone color swap
+- Fairway: `#3B82F6` (blue), Green/CTP: `#22C55E` (green) — corrected to match real-world intuition
+- `kindColor` MapboxDraw expression, zone layer colors, legend CSS, toolbar emoji dots all updated
+- Leaderboard and admin map legend colors updated to match
+
+##### Multiple zones per type (FeatureCollection)
+- `saveMap` now collects all polygons per zone type into a FeatureCollection instead of overwriting with the last polygon
+- `loadPolygon` handles both old (bare Polygon) and new (FeatureCollection) format — backward compatible
+- Server `perpendicularDistanceToPolygon` and `pointInPolygon` updated to iterate over all features in a FeatureCollection
+
+##### Admin map polygon fill colors
+- DrawStyle inactive fill set to `opacity: 0` — removes gray overlay that was hiding zone colors
+- Active fill: white tint at 0.15 opacity
+- Zone layers (`zone-fill-*`, `zone-stroke-*`) added without `before` parameter — renders above satellite, fills visible
+- `ctp_green_polygon` added to `/api/events/:id/public` response
+
+##### GPS accuracy + CTP manual override
+- Admin GPS pin grab early-stop threshold lowered: `GOOD_ENOUGH_M = 4` → `3`
+- CTP scan form now shows **"Rangefinder distance (ft)"** optional input — player or rep can enter physical rangefinder reading
+- If provided, `manual_ft` overrides GPS-calculated distance; green-check (off-green penalty) still uses GPS coordinates
+- Server `/api/scan/cp/:code` accepts `manual_ft` in request body
+
+##### Removed redundant Activate button
+- "Activate tournament" button removed from Settings tab — replaced by new 3-state lifecycle header button
+
+#### Files Changed
+| File | What changed |
+|------|-------------|
+| `public/js/jord.js` | `JORD.satelliteStyle()` ESRI tile helper; `APP.prompt()` custom modal |
+| `public/admin.html` | 3-state lifecycle btn; ESRI map; custom modals; zone color swap; FeatureCollection save/load; DrawStyle fill fix; zone layers without `before`; GPS threshold 3m; removed Activate btn |
+| `public/leaderboard.html` | ESRI map; Hole Tour button + animation + stop; zone color swap; FeatureCollection addZone/updateZoneLayers |
+| `public/monitor.html` | ESRI map; async confirm() modals |
+| `public/scan.html` | ESRI map; CTP rangefinder manual ft input; `doSubmitCP` passes `manual_ft` |
+| `public/test.html` | ESRI map |
+| `server.js` | `ctp_green_polygon` in public API; `pointInPolygon` + `perpendicularDistanceToPolygon` FeatureCollection support; CTP endpoint accepts `manual_ft` |
+
+---
+
+## v1.7.0 — 2026-04-28
+### Session 7 — ngrok iPhone Testing, Course Map Polish, Penalty Box Fix
+
+#### What Changed
+
+##### ngrok full-device testing
+- `ngrok http 3000` tunnels localhost to a public HTTPS URL — required for iPhone GPS (Safari blocks geolocation on plain HTTP)
+- `/api/server-info` now queries the ngrok local API (`localhost:4040/api/tunnels`) and returns `ngrokUrl` in JSON response
+- Test page (`/test.html`) auto-uses `ngrokUrl` from server-info when available, so QR codes on the test page link to the ngrok URL even when the page is loaded from localhost
+- Monitor QR in the "Connect" section now loads dynamically after events fetch and uses the first active event ID (previously showed useless `/monitor` with no ID)
+- Per-event QR row updated to include: Leaderboard, Rep Monitor, Register, Submit Shot
+- `/qr.html` — new standalone QR code page that generates a scan QR pointing to `/scan`; auto-adapts to ngrok or localhost
+
+##### Course setup map — polygon rendering fixes
+- **Zone layer priority order** — layers added in order `oob → rough → fairway → green → ctp_green` so higher-priority zones render on top
+- **`syncZoneLayers` `return` → `continue` fix** — if any zone GeoJSON source was missing, the old `return` stopped ALL zone source updates; fixed to `continue` so other zones still update
+- **MapboxDraw inactive fill opacity restored** — was set to 0 (invisible when not selected); restored to `0.35` fill / `0.8` stroke so polygons remain visible after deselecting
+- **`scheduleClipZones()` now called after freehand drawing** — `draw.add()` does not fire `draw.create` event (only user-interaction drawing does), so `scheduleClipZones` was never running after freehand. Fixed by calling it explicitly in `finishFreehand` and GPS trace stop
+- **`turf.simplify` on polygon completion** — freehand and GPS trace polygons now simplified with `tolerance: 0.000015, highQuality: true`, reducing hundreds of drag points to ~10–30 clean vertices
+- **Popup legibility** — `.mapboxgl-popup-content` CSS override forces `background:#fff; color:#1a1a1a` regardless of dark page theme; tee box popup HTML given inline dark styles
+
+##### Penalty math box
+- Red penalty math box (`raw − pen = final`) no longer wraps onto two lines — added `white-space:nowrap` to both LD and CTP penalty badge elements in leaderboard
+
+#### Files Changed
+| File | What changed |
+|------|-------------|
+| `server.js` | `/api/server-info` queries ngrok local API, returns `ngrokUrl` |
+| `public/admin.html` | Zone layer priority order; syncZoneLayers continue fix; inactive fill opacity restored; scheduleClipZones in finishFreehand + GPS trace; turf.simplify in both; popup CSS override + tee popup inline styles |
+| `public/leaderboard.html` | `white-space:nowrap` on LD + CTP penalty math badges |
+| `public/test.html` | Uses `info.ngrokUrl` for QR base URL; monitor QR loads after events fetch; per-event QR row expanded |
+| `public/qr.html` | New file — standalone scan QR page |
+
+---
+
 ## v1.5.0 — 2026-04-28
 ### Session 5 — Rumble Brand Color Theme
 

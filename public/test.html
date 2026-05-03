@@ -367,7 +367,7 @@
     mapboxgl.accessToken = mapboxToken;
     simMap = new mapboxgl.Map({
       container: 'sim-map',
-      style: 'mapbox://styles/mapbox/satellite-streets-v12',
+      style: JORD.satelliteStyle(),
       center: [-84.3953, 33.5031],
       zoom: 13
     });
