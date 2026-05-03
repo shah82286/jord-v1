@@ -26,7 +26,7 @@ Default password: `jord2026` (change in `.env`)
 
 ---
 
-### Current State (as of v1.8.0 — 2026-05-03)
+### Current State (as of v1.9.0 — 2026-05-03)
 
 #### What's fully working
 - Tournament event creation with Longest Drive and/or Closest to Pin contests
@@ -45,19 +45,25 @@ Default password: `jord2026` (change in `.env`)
 - Ball pool management (bulk add drop codes, CSV import, QR print)
 - Player self-registration at `/register/:eventId`
 - **Scan page** (`/scan`): code-entry-first flow — player types their 6-digit ball code, camera is opt-in. Unregistered codes show a "Ball Not Registered" screen with instructions.
-- On-course shot scanning: GPS locks, player picks Fairway/Rough/OOB/Lost (auto-detected from zone polygons and locked), submits → full-screen satellite flyover animation then fades to compact result card with encouragement, yardage, penalty breakdown, and optional Call Admin button.
+- On-course shot scanning: GPS locks → zone auto-detected from mapped polygons and pre-selected. Fairway/Rough detected from their polygons; ball outside all zones → OOB pre-selected with a red "not in any designated zone" warning. CTP: `checkCTPZone` warns if ball is off the green (with penalty amount). Player can still override the selection. Submits → full-screen satellite flyover → compact result card with encouragement, yardage, and penalty breakdown.
+  - **Not-scored explanation**: when `allow_rough = 0` or `allow_oob = 0`, result card shows an amber rule box explaining why the score is 0 yards ("only fairway drives count"). `getEncouragement` also uses accurate messages for these cases.
 - **CTP scan**: optional "Rangefinder distance (ft)" field — if filled, overrides GPS distance with physical rangefinder reading. `manual_ft` passed to server.
+- **Tournament lifecycle gate**: players cannot register or submit shots until the admin clicks "▶ Start tournament" (status = `active`). Server returns 403 for all player-facing routes when status is `setup` or `ended`. Both register.html and scan.html show friendly "not started yet" or "ended" messages.
 - **Live leaderboard** at `/leaderboard/:eventId`:
   - Penalty display: team total shows post-penalty final yards; per-player rows show `raw − pen = final` badge; team badge reads "N yd penalty applied" (not a future deduction).
-  - Map toggle: clicking "Map" hides the scores column and expands the map to fill the full content area. A scrollable team strip below the map shows rank + name + score per row; tap a row to filter the map to that team, tap again to clear.
-  - Map-selected visual: blue ring/left-border (`#3B82F6`) — visible on both dark cards and the gold leader card.
+  - **Map full-screen expand**: "Map" toggle hides the scores column and expands the map to fill the full content area. A scrollable team strip below the map shows rank + name + score per row; tap a row to filter the map to that team's dots (tap again to clear). `min-height: 0` on `.lb-map-container` prevents flex layout from clipping the map bottom.
+  - Map-selected visual: blue ring/left-border (`#3B82F6`).
   - Map popups: all text forced dark (`color:#1a1a1a`) via inline styles.
-  - **Hole Tour**: "🎬 Hole Tour" button in map toolbar. Animated satellite camera tour — tee → fairway sweep → pin approach (zoom 19.5) → 360° orbit → overhead pullback. ~29 seconds total. Stop button smoothly returns to overhead view. Works for LD and CTP tabs.
+  - **Hole Tour**: "🎬 Hole Tour" button in map toolbar. Animated satellite camera tour — tee → fairway sweep → pin approach → 360° orbit → overhead pullback. ~29 seconds. Works for LD and CTP tabs.
+  - **End-of-tournament screen**: when status = `ended`, a summary section prepends the rankings: Total Yards hero with fun comparison phrase, zone stats grid (Fairway / Rough / OOB / Lost in zone colours), Champion showcase card (winning team + sorted player drives), "All Teams" divider. Map auto-opens showing all ball dots.
 - **Monitor dashboard** at `/monitor/:eventId`:
   - Map toggle: **On Hole** / **All Players** — "On Hole" hides fully-submitted teams to reduce clutter.
+  - **Team colors**: 12-color palette assigned per team on first appearance (`teamColorMap` cached for session). Map dots render in that team's color (grey if not yet scanned). Each team row in Current Standings has a color-dot + 📍 button to focus the map to that team's dots (others dim to 18% opacity). "× All Teams" button in map header clears the filter.
   - Clicking a ball dot shows the player's 6-digit ball code + "Fill correction form" button that auto-populates the code field.
   - Map popups: dark text, forced via inline styles and CSS override.
 - **Admin correction**: "Distance Drove" field = raw yards; penalty is subtracted server-side to get final score.
+- **Admin Players tab**: each player row now shows a Score column — `final_yards yd` with location sub-line, red penalty breakdown if applicable, or `—` if not yet scanned.
+- **Admin tab state on reload**: reloading the admin panel restores the active event and panel. `showPanel()` writes `#eventId/panel` to the URL hash via `history.replaceState`; `init()` reads and restores it on load. `backToList()` clears the hash.
 - Demo scan mode — no ball code needed, calculates distance client-side
 - End tournament — locks scoring, Klaviyo notifications
 - CSV export of all player/team data
@@ -116,9 +122,9 @@ Key `events` columns (recent additions auto-migrate on startup):
 1. **Polygon vertex editing UX** — after drawing a polygon the user can click it and drag vertices to adjust; works but there's no on-screen hint
 2. **GPS trace on desktop** — trace tool designed for walking on-course; desktop users need to use freehand drawing instead
 3. **Demo mode CTP** — demo scan only supports Longest Drive, not Closest to Pin
-4. **Mobile optimization review** — user requested a full review of all pages at 375px; not yet done
-5. **Course map zone overlap during drawing** — clipping runs 200ms after releasing the mouse, not in real-time. A new rough can visually overlap existing fairway while being drawn; it clips correctly on release.
-6. **Numeric keyboard on ball code entry** — mobile keyboard opens on letters; user must tap "123" before each digit. Fix: add `inputmode="numeric"` + `pattern="[0-9]*"` to the code input. (TODO #8)
+4. **Mobile optimization review** — full review of all pages at 375px not yet done
+5. **Course map zone overlap during drawing** — clipping runs 200ms after releasing the mouse, not in real-time; a new polygon can visually overlap an existing one while being drawn, clips correctly on release
+6. **Code entry keyboard default mode** — the 6-box hidden-input approach keeps the keyboard in whatever mode the player last used (letters↔numbers), which is the intended behavior. On first open, keyboard defaults to letter mode on iOS — players switch to numbers if needed. By design: ball codes can include letters, so letter mode is valid.
 
 ---
 

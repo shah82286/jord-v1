@@ -2,6 +2,75 @@
 
 ---
 
+## v1.9.0 — 2026-05-03
+### Session 9 — Start Gate, Zone Detection, End-Tournament Screen, Player Flow Polish
+
+#### What Changed
+
+##### Tournament start gate
+- All player-facing API routes now require `status = 'active'`: `register-player`, `finalize-team`, `scan/ld/:code`, `scan/cp/:code` return 403 with a clear error message if the tournament is in setup or ended state
+- `register.html` blocks on `setup` status with "Tournament hasn't started yet" (previously only blocked on `ended`)
+- `scan.html` shows a "Not Started Yet" banner when `event_status === 'setup'`
+
+##### Zone auto-detection — fixed
+- `/api/ball/:code` now returns `rough_polygon`, `oob_polygon`, `ctp_green_polygon`, and `cp_off_green_penalty_ft` — previously only `fairway_polygon` was returned, silently breaking client-side zone detection
+- `detectZone()` now distinguishes `'oob_outside'` (ball is outside all mapped zones) from `'oob'` (ball is explicitly inside the OOB polygon) — each shows a different styled message
+- `checkCTPZone(lat, lon)` — new function runs on GPS lock for CTP contests: checks if position is inside the green polygon; shows a prominent red warning with penalty amount if off-green
+
+##### Not-scored rule explanation on result card
+- When `allow_rough = 0` and the shot landed in rough, result card shows an amber rule box: "📋 Why 0 yards? Rough drives are not scored in this tournament — only fairway drives count."
+- Same for `allow_oob = 0` with OOB / lost ball shots
+- `getEncouragement()` updated: no longer says "still on the board!" when the shot type does not score in this event
+
+##### Admin Players tab — score column
+- Each player row now has a Score column: `final_yards yd` with a location sub-line, or a red penalty breakdown (`raw−penalty=final`) when a penalty applied, or `—` if not yet scanned
+- Column hidden on mobile (≤375px) alongside Code and Email to keep the layout compact
+
+##### Leaderboard penalty badge
+- Team total penalty badge text changed from `−20 yd penalty` (implied a further deduction) to `20 yd penalty applied` (makes clear the number shown already reflects it)
+
+##### End-of-tournament leaderboard screen
+- When `status = 'ended'`, the leaderboard prepends a full summary section above the team rankings:
+  - **Total Yards hero** — large lime number, all players' combined distance + a fun comparison phrase ("That's 3.2× the length of the Golden Gate Bridge!")
+  - **Zone stats grid** — 4 cells in zone colour: In Fairway / In Rough / Out of Bounds / Lost Balls
+  - **Champion showcase** — lime-bordered card with winning team name, combined yards, and each player's individual drive sorted best-to-worst with location icon and yardage
+  - **"All Teams" divider** before the standard ranked rows
+- **Map auto-opens** when tournament ends — all ball dots visible on satellite; click any team card to filter to just that team's 4 dots (existing map-filter behaviour unchanged)
+
+##### Monitor team colors + standings highlight (#4)
+- 12-color `TEAM_COLORS` palette assigned to teams on first appearance, cached in `teamColorMap` for the session
+- Map dots render in team color (grey if not yet scanned)
+- Each team row in Current Standings gets a color-dot + 📍 button; tap to filter map to that team (non-filtered dots dim to 18% opacity, map fits to filtered bounds)
+- "× All Teams" button in map header clears the filter
+- Legend updated: "Each color = one team" / "Not yet scanned" / "Tap 📍 to focus"
+
+##### Keyboard stays in mode on code entry (#8)
+- Root cause: 6 separate `<input>` elements caused keyboard to reset mode (letters↔numbers) on every focus change
+- Fix: replaced with 6 visual `<div>` boxes + one hidden `<input>` that holds focus throughout entry
+- `autocapitalize="characters"` on hidden input auto-uppercases letter entry; blinking cursor indicates active box
+
+##### Leaderboard map full-screen expand
+- Map was clipped at the bottom in flex layout — fixed with `min-height: 0` on `.lb-map-container`
+- "Map" toggle adds `map-expanded` class to `.lb-content`: hides scores column, map takes full width
+- Scrollable team strip below map: rank + name + score per row; tap to filter (tap again to clear)
+
+##### Admin panel tab state on reload
+- Reload always reset to Events list regardless of active panel
+- `showPanel()` now calls `history.replaceState` with `#eventId/panel` after every switch
+- `init()` reads and restores from hash on load; `backToList()` clears the hash
+
+#### Files Changed
+| File | What changed |
+|------|-------------|
+| `server.js` | Start gate on register-player, finalize-team, scan/ld, scan/cp; ball lookup returns rough_polygon, oob_polygon, ctp_green_polygon, cp_off_green_penalty_ft |
+| `public/leaderboard.html` | Penalty badge text; end-tournament banner (hero, zone grid, champion card, divider); map auto-open on end; `min-height:0` fix; `map-expanded` class; `.lb-map-teams` team strip; `renderMapTeams()` |
+| `public/admin.html` | Score column in Players tab; mobile CSS hides score col; `history.replaceState` in `showPanel`; hash-based restore in `init` |
+| `public/monitor.html` | `TEAM_COLORS` palette; `getTeamColor()`; `setTeamFilter()`; `updateMapDots` team-color + dim logic; 📍 button in team rows; filter info bar |
+| `public/register.html` | Blocks registration when status = 'setup' |
+| `public/scan.html` | Not-started banner; oob_outside detection; checkCTPZone; not-scored rule explanation; getEncouragement updated; `checkRing` helper; `pointInPolygon` FeatureCollection fix; 6-div + hidden-input code entry |
+
+---
+
 ## v1.8.0 — 2026-05-03
 ### Session 8 — ESRI Imagery, Hole Tour, CTP Override, UI Polish
 
