@@ -391,6 +391,7 @@
               <button class="btn btn-ghost" id="tool-pin" title="Click to activate, then click the map to place the pin for this hole.">📍 Set Pin</button>
               <button class="btn btn-ghost" id="tool-grab-pin" title="Place your phone at the hole flag, then press this to capture the exact pin location via GPS.">📡 Grab GPS Pin</button>
               <button class="btn btn-ghost" id="tool-clear" title="Click a zone to select it, then press Clear to remove just that zone. With nothing selected, clears all zones for this hole.">✖ Clear</button>
+              <button class="btn btn-ghost" id="tool-edit-nodes" title="Select a zone polygon first, then click to edit its nodes. Drag midpoints (orange dots) to add new nodes.">✏️ Edit nodes</button>
               <span style="border-left:1px solid var(--border);margin:0 4px;height:28px;align-self:center"></span>
               <select class="select ld-only" id="tool-trace-kind" style="width:auto;font-size:12px;padding:5px 8px" title="Zone to GPS-trace while walking the boundary">
                 <option value="fairway">Fairway</option>
@@ -1261,6 +1262,15 @@
       } catch (e) { return null; }
     }
 
+    // Merge all polygons of the same kind into one shape
+    function mergeKind(kind) {
+      const features = featuresOfKind(kind);
+      if (features.length <= 1) return;
+      const merged = unionAll(features);
+      features.forEach(f => draw.delete(f.id));
+      if (merged?.geometry) draw.add({ type: 'Feature', geometry: merged.geometry, properties: { kind } });
+    }
+
     function clipKind(targetKind, maskFeature) {
       if (!maskFeature) return;
       featuresOfKind(targetKind).forEach(f => {
@@ -1273,6 +1283,14 @@
       });
     }
 
+    // Step 1: merge overlapping/adjacent same-kind polygons into one each
+    mergeKind('fairway');
+    mergeKind('rough');
+    mergeKind('oob');
+    mergeKind('green');
+    mergeKind('ctp_green');
+
+    // Step 2: clip lower-priority zones against higher-priority ones
     const fairwayUnion = unionAll(featuresOfKind('fairway'));
     clipKind('rough', fairwayUnion);
 
@@ -1365,7 +1383,7 @@
       /* Vertex editing handles */
       { id: 'gl-draw-polygon-midpoint', type: 'circle',
         filter: ['all', ['==', '$type', 'Point'], ['==', 'meta', 'midpoint']],
-        paint: { 'circle-radius': 3, 'circle-color': '#fbb03b' } },
+        paint: { 'circle-radius': 6, 'circle-color': '#fbb03b', 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' } },
       { id: 'gl-draw-polygon-and-line-vertex-halo-active', type: 'circle',
         filter: ['all', ['==', 'meta', 'vertex'], ['==', '$type', 'Point'], ['!=', 'mode', 'static']],
         paint: { 'circle-radius': 5, 'circle-color': '#FFF' } },
@@ -1401,6 +1419,35 @@
     let currentDrawKind = 'fairway';
     let freehandActive = false, isDrawingFreehand = false, freehandPoints = [];
     let pinPickerActive = false, ctpPinPickerActive = false;
+
+    // ── Node edit state ──
+    let _nodeEditActive = false;
+    let _nodeEditFeatureId = null;
+    function stopNodeEdit() {
+      _nodeEditActive = false;
+      _nodeEditFeatureId = null;
+    }
+
+    // ── Undo stack ──
+    const _undoStack = [];
+    let _undoLocked = false;
+    function pushUndo() {
+      if (_undoLocked || !draw) return;
+      const snap = JSON.parse(JSON.stringify(draw.getAll()));
+      _undoStack.push(snap);
+      if (_undoStack.length > 20) _undoStack.shift();
+    }
+    function performUndo() {
+      if (!_undoStack.length || !draw) { JORD.warn('Nothing to undo'); return; }
+      _undoLocked = true;
+      stopFreehand();
+      const snap = _undoStack.pop();
+      const ids = draw.getAll().features.map(f => f.id);
+      if (ids.length) draw.delete(ids);
+      for (const f of snap.features) draw.add(f);
+      syncZoneLayers();
+      _undoLocked = false;
+    }
 
     function loadPolygon(geojsonStr, kind) {
       if (!geojsonStr) return;
@@ -1451,6 +1498,18 @@
       map.on('draw.create', () => { syncZoneLayers(); scheduleClipZones(); });
       map.on('draw.update', () => { syncZoneLayers(); scheduleClipZones(); });
       map.on('draw.delete', syncZoneLayers);
+      // Save undo snapshot when the user selects a feature (captures state before they edit it)
+      map.on('draw.selectionchange', (e) => { if (e.features && e.features.length > 0 && !_undoLocked) pushUndo(); });
+      // Keep node edit mode active after vertex drag — MapboxDraw exits direct_select on its own
+      map.on('draw.modechange', (e) => {
+        if (_nodeEditActive && e.mode === 'simple_select' && _nodeEditFeatureId) {
+          setTimeout(() => {
+            if (_nodeEditActive && _nodeEditFeatureId) {
+              draw.changeMode('direct_select', { featureId: _nodeEditFeatureId });
+            }
+          }, 0);
+        }
+      });
 
       drawTeeMarkers();
       drawPinMarker();
@@ -1530,6 +1589,7 @@
         try { feat = turf.simplify(feat, { tolerance: 0.000015, highQuality: true }); } catch {}
       }
       feat.properties = { kind: currentDrawKind };
+      pushUndo();
       draw.add(feat);
       freehandPoints = [];
       syncZoneLayers();
@@ -1541,15 +1601,25 @@
     canvas.addEventListener('mouseup', finishFreehand);
     canvas.addEventListener('mouseleave', () => { if (isDrawingFreehand) finishFreehand(); });
 
-    // Escape key or click outside the map exits draw mode
+    // Escape key or click outside the map exits draw/node-edit mode
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && freehandActive) { stopFreehand(); }
+      if (e.key === 'Escape') {
+        if (freehandActive) stopFreehand();
+        if (_nodeEditActive) { stopNodeEdit(); draw.changeMode('simple_select'); }
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z') { e.preventDefault(); performUndo(); }
     });
     document.addEventListener('click', (e) => {
-      if (!freehandActive) return;
-      if (e.target.closest('.draw-kind-btn')) return; // zone buttons handled by startFreehand
-      if (e.target === canvas || canvas.contains(e.target)) return; // inside map
-      stopFreehand();
+      const insideMap = e.target === canvas || canvas.contains(e.target);
+      if (freehandActive) {
+        if (e.target.closest('.draw-kind-btn')) return;
+        if (insideMap) return;
+        stopFreehand();
+      }
+      if (_nodeEditActive && !insideMap) {
+        stopNodeEdit();
+        draw.changeMode('simple_select');
+      }
     });
 
     // ── Tool buttons ──
@@ -1569,6 +1639,15 @@
     $('#tool-rough').onclick   = () => startFreehand('rough');
     $('#tool-oob').onclick     = () => startFreehand('oob');
     $('#tool-green').onclick   = () => startFreehand(currentHoleTab === 'ctp' ? 'ctp_green' : 'green');
+
+    $('#tool-edit-nodes').onclick = () => {
+      const selected = draw.getSelectedIds();
+      if (!selected.length) { JORD.warn('Click a zone polygon to select it, then click Edit nodes'); return; }
+      _nodeEditActive = true;
+      _nodeEditFeatureId = selected[0];
+      draw.changeMode('direct_select', { featureId: selected[0] });
+      JORD.toast('Drag nodes to adjust — press Esc or click outside map to finish', 'warn');
+    };
 
     $('#tool-pin').onclick = () => {
       if (currentHoleTab === 'ld') { pinPickerActive = true; }
@@ -1628,6 +1707,7 @@
     $('#tool-clear').onclick = async () => {
       const selected = draw.getSelectedIds();
       if (selected.length) {
+        pushUndo();
         draw.delete(selected);
         syncZoneLayers();
         JORD.success('Selected zone removed — Save map to confirm');
@@ -1636,6 +1716,7 @@
       const ldKinds = new Set(['fairway','rough','oob','green']);
       const holeName = currentHoleTab === 'ld' ? 'Longest Drive' : 'Closest to Pin';
       if (!await JORD.confirm(`Clear all zones for the ${holeName} hole? Select a specific zone first to remove just that one.`, { okText: 'Clear all', danger: true })) return;
+      pushUndo();
       const features = draw.getAll().features;
       if (currentHoleTab === 'ld') {
         features.filter(f => ldKinds.has(f.properties.kind || f.properties.user_kind || '')).forEach(f => draw.delete(f.id));
@@ -1764,6 +1845,7 @@
         try { traceFeat = turf.simplify(traceFeat, { tolerance: 0.000015, highQuality: true }); } catch {}
       }
       traceFeat.properties = { kind };
+      pushUndo();
       draw.add(traceFeat);
       syncZoneLayers();
       scheduleClipZones();

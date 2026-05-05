@@ -26,7 +26,9 @@ const PORT           = env.PORT           || process.env.PORT           || 3000;
 const APP_URL        = env.APP_URL        || process.env.APP_URL         || `http://localhost:${PORT}`;
 const ADMIN_PASSWORD = env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD  || 'jord2026';
 const MAPBOX_TOKEN   = env.MAPBOX_TOKEN   || process.env.MAPBOX_TOKEN    || '';
-const KLAVIYO_KEY    = env.KLAVIYO_API_KEY|| process.env.KLAVIYO_API_KEY || '';
+const KLAVIYO_KEY          = env.KLAVIYO_API_KEY     || process.env.KLAVIYO_API_KEY      || '';
+const KLAVIYO_EMAIL_LIST   = env.KLAVIYO_EMAIL_LIST_ID|| process.env.KLAVIYO_EMAIL_LIST_ID || '';
+const KLAVIYO_SMS_LIST     = env.KLAVIYO_SMS_LIST_ID  || process.env.KLAVIYO_SMS_LIST_ID   || '';
 
 const app = express();
 if (!fs.existsSync('./data')) fs.mkdirSync('./data');
@@ -212,6 +214,10 @@ try { db.exec("ALTER TABLE events ADD COLUMN admin_id TEXT"); } catch {}
 // Global leaderboard: opt-in flag per event
 try { db.exec("ALTER TABLE events ADD COLUMN global_published INTEGER DEFAULT 0"); } catch {}
 
+// Marketing opt-ins collected at registration
+try { db.exec("ALTER TABLE balls ADD COLUMN email_opt_in INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE balls ADD COLUMN sms_opt_in INTEGER DEFAULT 0"); } catch {}
+
 // ─── AUTH HELPERS ────────────────────────────────────────────────────────────
 
 function hashPassword(password) {
@@ -258,6 +264,43 @@ function getSessionAdmin(token) {
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use(express.static('public'));
+
+// ─── RATE LIMITER ─────────────────────────────────────────────────────────────
+// In-memory store: { key → { count, resetAt } }
+// No external package needed — resets on server restart (acceptable for this scale).
+const rateLimitStore = new Map();
+
+function rateLimit({ max, windowMs, message }) {
+  return (req, res, next) => {
+    const key = `${req.ip}:${req.path}`;
+    const now = Date.now();
+    const entry = rateLimitStore.get(key);
+
+    if (entry && now < entry.resetAt) {
+      if (entry.count >= max) {
+        const retryAfterSec = Math.ceil((entry.resetAt - now) / 1000);
+        res.setHeader('Retry-After', retryAfterSec);
+        return res.status(429).json({ error: message, retryAfter: retryAfterSec });
+      }
+      entry.count++;
+    } else {
+      rateLimitStore.set(key, { count: 1, resetAt: now + windowMs });
+    }
+    next();
+  };
+}
+
+// Clean up expired entries every 10 minutes so the Map doesn't grow forever
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitStore) {
+    if (now >= entry.resetAt) rateLimitStore.delete(key);
+  }
+}, 10 * 60 * 1000);
+
+const loginLimiter    = rateLimit({ max: 5,  windowMs: 15 * 60 * 1000, message: 'Too many login attempts. Please wait 15 minutes and try again.' });
+const forgotLimiter   = rateLimit({ max: 3,  windowMs: 15 * 60 * 1000, message: 'Too many requests. Please wait 15 minutes and try again.' });
+const resetLimiter    = rateLimit({ max: 5,  windowMs: 15 * 60 * 1000, message: 'Too many reset attempts. Please wait 15 minutes and try again.' });
 
 function requireAuth(req, res, next) {
   const token = req.headers['x-admin-token'] || req.query.token;
@@ -515,6 +558,41 @@ async function sendKlaviyo(type, recipients, data) {
   } catch (e) { console.error('Klaviyo error:', e.message); }
 }
 
+async function subscribeKlaviyo({ email, phone, firstName, lastName, emailOptIn, smsOptIn }) {
+  if (!KLAVIYO_KEY) {
+    console.log(`[Klaviyo MOCK] subscribe email=${emailOptIn} sms=${smsOptIn} for ${email || phone}`);
+    return;
+  }
+  const jobs = [];
+  if (emailOptIn && email && KLAVIYO_EMAIL_LIST) {
+    jobs.push(fetch('https://a.klaviyo.com/api/profile-subscription-bulk-create-jobs/', {
+      method: 'POST',
+      headers: { 'Authorization': `Klaviyo-API-Key ${KLAVIYO_KEY}`, 'Content-Type': 'application/json', 'revision': '2024-02-15' },
+      body: JSON.stringify({ data: { type: 'profile-subscription-bulk-create-job',
+        attributes: { profiles: { data: [{ type: 'profile', attributes: {
+          email, first_name: firstName, last_name: lastName,
+          subscriptions: { email: { marketing: { consent: 'SUBSCRIBED' } } }
+        }}]}},
+        relationships: { list: { data: { type: 'list', id: KLAVIYO_EMAIL_LIST } } }
+      }})
+    }).catch(e => console.error('Klaviyo email sub error:', e.message)));
+  }
+  if (smsOptIn && phone && KLAVIYO_SMS_LIST) {
+    jobs.push(fetch('https://a.klaviyo.com/api/profile-subscription-bulk-create-jobs/', {
+      method: 'POST',
+      headers: { 'Authorization': `Klaviyo-API-Key ${KLAVIYO_KEY}`, 'Content-Type': 'application/json', 'revision': '2024-02-15' },
+      body: JSON.stringify({ data: { type: 'profile-subscription-bulk-create-job',
+        attributes: { profiles: { data: [{ type: 'profile', attributes: {
+          phone_number: phone, first_name: firstName, last_name: lastName,
+          subscriptions: { sms: { marketing: { consent: 'SUBSCRIBED' } } }
+        }}]}},
+        relationships: { list: { data: { type: 'list', id: KLAVIYO_SMS_LIST } } }
+      }})
+    }).catch(e => console.error('Klaviyo SMS sub error:', e.message)));
+  }
+  await Promise.all(jobs);
+}
+
 async function checkLeadershipChange(eventId, newLB) {
   if (!newLB.length) return;
   const leader = newLB[0];
@@ -543,7 +621,7 @@ async function checkLeadershipChange(eventId, newLB) {
 
 // ─── AUTH ROUTES ─────────────────────────────────────────────────────────────
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', loginLimiter, (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'email and password required' });
   const admin = db.prepare('SELECT * FROM admins WHERE email=? AND active=1').get(email.toLowerCase().trim());
@@ -575,7 +653,7 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
   res.json({ id, name, email, role, perm_corrections, perm_end_tournament, perm_manage_players, perm_manage_balls });
 });
 
-app.post('/api/auth/forgot-password', (req, res) => {
+app.post('/api/auth/forgot-password', forgotLimiter, (req, res) => {
   const { email } = req.body;
   if (!email) return res.status(400).json({ error: 'email required' });
   const admin = db.prepare('SELECT * FROM admins WHERE email=? AND active=1').get(email.toLowerCase().trim());
@@ -598,7 +676,7 @@ app.post('/api/auth/forgot-username', (req, res) => {
   res.json({ success: true, hint: masked });
 });
 
-app.post('/api/auth/reset-password', (req, res) => {
+app.post('/api/auth/reset-password', resetLimiter, (req, res) => {
   const { token, password } = req.body;
   if (!token || !password) return res.status(400).json({ error: 'token and password required' });
   if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
@@ -952,8 +1030,8 @@ app.get('/api/events/:eventId/info', (req, res) => {
 // ─── REGISTRATION ─────────────────────────────────────────────────────────────
 // Register one player at a time. Team name submitted after 4th player.
 // No auth required — drop_code validation is the access control.
-app.post('/api/events/:eventId/register-player', (req, res) => {
-  const { drop_code, first_name, last_name, email, phone, tee_box_id, player_index, team_id } = req.body;
+app.post('/api/events/:eventId/register-player', async (req, res) => {
+  const { drop_code, first_name, last_name, email, phone, tee_box_id, player_index, team_id, email_opt_in, sms_opt_in } = req.body;
   const { eventId } = req.params;
 
   if (!drop_code || !first_name || !last_name) return res.status(400).json({ error: 'drop_code, first_name, last_name required' });
@@ -967,8 +1045,21 @@ app.post('/api/events/:eventId/register-player', (req, res) => {
   if (!ball) return res.status(404).json({ error: `Code ${code} not found in this tournament's ball pool` });
   if (ball.team_id) return res.status(400).json({ error: `Code ${code} is already registered to a player` });
 
-  db.prepare(`UPDATE balls SET first_name=?,last_name=?,email=?,phone=?,tee_box_id=?,player_index=?,team_id=? WHERE drop_code=? AND event_id=?`)
-    .run(first_name.trim(), last_name.trim(), email||null, phone||null, tee_box_id||null, player_index||1, team_id||null, code, eventId);
+  const emailIn = email_opt_in ? 1 : 0;
+  const smsIn   = sms_opt_in   ? 1 : 0;
+
+  db.prepare(`UPDATE balls SET first_name=?,last_name=?,email=?,phone=?,tee_box_id=?,player_index=?,team_id=?,email_opt_in=?,sms_opt_in=? WHERE drop_code=? AND event_id=?`)
+    .run(first_name.trim(), last_name.trim(), email||null, phone||null, tee_box_id||null, player_index||1, team_id||null, emailIn, smsIn, code, eventId);
+
+  // Fire-and-forget Klaviyo subscription (don't block the response)
+  subscribeKlaviyo({
+    email: email || null,
+    phone: phone || null,
+    firstName: first_name.trim(),
+    lastName: last_name.trim(),
+    emailOptIn: !!email_opt_in,
+    smsOptIn: !!sms_opt_in
+  }).catch(e => console.error('subscribeKlaviyo error:', e.message));
 
   res.json({ success: true, drop_code: code, player: `${first_name} ${last_name}` });
 });
@@ -1609,7 +1700,7 @@ app.get('/api/global/events', requireAuth, requireSuper, (req, res) => {
 const pages = { '/admin': 'admin.html', '/register/:id': 'register.html',
   '/scan': 'scan.html', '/scan/:code': 'scan.html', '/leaderboard/:id': 'leaderboard.html',
   '/dashboard/:eid/:code': 'dashboard.html', '/monitor/:id': 'monitor.html',
-  '/global': 'global.html', '/test': 'test.html' };
+  '/global': 'global.html', '/test': 'test.html', '/system-summary': 'system-summary.html' };
 Object.entries(pages).forEach(([route, file]) => {
   app.get(route, (_, res) => res.sendFile(path.join(__dirname, 'public', file)));
 });

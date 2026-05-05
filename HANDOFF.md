@@ -27,7 +27,7 @@ On first run, super admin is auto-seeded from `.env`.
 
 ---
 
-### Current State (as of v3.0.0 — 2026-05-04)
+### Current State (as of v3.1.0 — 2026-05-05)
 
 #### What's fully working
 - Tournament event creation with Longest Drive and/or Closest to Pin contests
@@ -45,6 +45,9 @@ On first run, super admin is auto-seeded from `.env`.
   - **CTP off-green penalty** — admin sets penalty in feet; if a CTP shot lands outside the green polygon, that many feet are added to the raw distance. Shown in leaderboard and scan result.
   - Zone polygon rendering: `syncZoneLayers()` maintains 5 dedicated GeoJSON sources. `turf.simplify` reduces freehand paths to ~10–30 vertices. `scheduleClipZones()` called after freehand and GPS trace draw complete.
   - **Multiple polygons per zone** — each zone type stored as a FeatureCollection; multiple fairways, roughs, OOB areas all supported. `loadPolygon` handles both old (bare Polygon) and new (FeatureCollection) format.
+  - **Zone auto-merge** — when a new polygon of an existing zone type overlaps another of the same kind, `mergeKind()` inside `clipZones()` merges them into one shape automatically. Drawing 3 overlapping fairway polygons produces a single merged fairway.
+  - **Ctrl+Z undo** — up to 20-step undo stack. Snapshots pushed before each freehand draw, GPS trace, clear, and vertex-drag (captured on selection). `Ctrl+Z` / `Cmd+Z` anywhere on the page restores previous state.
+  - **Node editing** — "✏️ Edit nodes" toolbar button. Click a zone polygon to select it, then click the button to enter `direct_select` mode. Midpoint handles enlarged (radius 6 + white stroke) for easy grabbing. Mode persists after each vertex drag — stays active until Esc or clicking outside the map.
   - **GPS pin grab** early-stop threshold: ±3m accuracy (was 4m)
 - Ball pool management (bulk add drop codes, CSV import, QR print)
 - Player self-registration at `/register/:eventId`
@@ -69,6 +72,7 @@ On first run, super admin is auto-seeded from `.env`.
 - **Admin Players tab**: each player row now shows a Score column — `final_yards yd` with location sub-line, red penalty breakdown if applicable, or `—` if not yet scanned.
 - **Admin tab state on reload**: reloading the admin panel restores the active event and panel. `showPanel()` writes `#eventId/panel` to the URL hash via `history.replaceState`; `init()` reads and restores it on load. `backToList()` clears the hash.
 - **Player registration** (`/register/:eventId`): all 4 player codes must be entered before the team name step appears. Team name is always the last step. "Submit with fewer" shows an inline yellow warning + confirm (no browser alert). On confirm, jumps straight to the team name form.
+- **Player registration opt-in** (`/register/:eventId`): email and SMS marketing checkboxes with TCPA fine print. Consents stored in `balls` table and sent to Klaviyo subscription lists when API key is configured.
 - Demo scan mode — no ball code needed, calculates distance client-side
 - End tournament — locks scoring, Klaviyo notifications
 - CSV export of all player/team data
@@ -144,11 +148,11 @@ Key `events` columns (recent additions auto-migrate on startup):
 ### Known Issues / Next Up
 
 #### Known issues
-1. **Polygon vertex editing UX** — after drawing a polygon the user can click it and drag vertices to adjust; works but there's no on-screen hint
-2. **GPS trace on desktop** — trace tool designed for walking on-course; desktop users need to use freehand drawing instead
-3. **Demo mode CTP** — demo scan only supports Longest Drive, not Closest to Pin
-4. **Zone overlap visual during draw** — clipping runs 200ms after releasing the mouse, not in real-time; a new polygon can visually overlap an existing one while being drawn, clips correctly on release
-5. **Course enrichment (website / scorecard)** — the CSV has course name, location, phone, holes, and type but no website URL or scorecard data. Planned: use phone number or name to pull website from Google Places API and eventually link to scorecard. Currently a TO-DO.
+1. **GPS trace on desktop** — trace tool designed for walking on-course; desktop users need to use freehand drawing instead
+2. **Demo mode CTP** — demo scan only supports Longest Drive, not Closest to Pin
+3. **Zone overlap visual during draw** — clipping runs 200ms after releasing the mouse, not in real-time; a new polygon can visually overlap an existing one while being drawn, clips correctly on release
+4. **Monitor session auth** — rep monitor (`/monitor`) still uses a shared-password system in `localStorage`; admin panel uses proper session tokens. Needs upgrade (see `#PRE-3` in TODO.md)
+5. **Klaviyo email/SMS mocked** — opt-in checkboxes on registration page work end-to-end but no actual sends until real Klaviyo API key + list IDs are added to `.env` (see `#PRE-2` in TODO.md)
 
 #### Remaining phases (not yet built)
 - **Phase 2** — Tournament admin experience: limited panel UI, per-event branding (logo + color picker), "Powered by JORD Golf" footer on all event pages

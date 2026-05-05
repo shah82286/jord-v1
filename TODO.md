@@ -7,41 +7,14 @@ Nothing built until confirmed. Move to In Progress / Done as we go.
 
 ## Backlog
 
-**#9 — Global Leaderboard ("The Distances Board")**
-A public, always-on page aggregating results across ALL tournaments. Golden Tee-inspired —
-big, bold, something players pull up after the round and talk about. Lives at `/global`.
+**#PRE-1 — Get on HTTPS hosting**
+Required before any live events. iPhone Safari blocks GPS access on plain HTTP — without HTTPS, no iPhone user can submit a scan. Need an SSL certificate on the production server (free via Let's Encrypt on most hosts). Must also update `APP_URL` in `.env` to the HTTPS domain.
 
-Three sections:
-- **🔴 Live Right Now** — active tournaments with pulsing LIVE badge, current leader + distance,
-  link to that event's full leaderboard. Good for tablet display at the tent.
-- **📅 This Month's Leaders** — best LD and CTP across all finished tournaments this calendar
-  month. Resets on the 1st. Player name, tournament name, venue, distance. The competitive hook —
-  players check after their round to see if they made the monthly board.
-- **🏆 All-Time Hall of Fame** — single greatest drive and closest pin ever on the platform.
-  The number to beat. When broken, that's a moment.
+**#PRE-2 — Wire up or formally defer SMS/email (Klaviyo)**
+Klaviyo is integrated in the code but currently mocked — no texts or emails actually send. Options: (a) add the real Klaviyo API key and test the sends, or (b) formally decide to defer and set client expectations in writing before first paid event.
 
-Key decisions to make before building:
-- **Qualifying scores**: fairway-only for LD records, or all final (post-penalty) yards?
-- **Opt-in/out**: toggle per tournament in admin settings — some corporate events may want privacy
-- **Player identity**: name-as-entered for now (no accounts). Future: shareable personal score
-  card at `/score/ABC123` showing that player's result in a social-share format
-- **Record broken moment**: flash animation on global page when a live tournament beats all-time
-
-Entry point: "🌍 Global Leaders" button always visible on per-event leaderboard, becomes more
-prominent after tournament ends with "See how this stacks up against the all-time leaders."
-
-Technical notes:
-- New API: `GET /api/global` — live events, monthly tops, all-time records, recent events
-- Monthly: query balls WHERE created_at >= first of current month AND event status = ended
-- All-time: MAX on ld_final_yards / cp_distance_ft across all opted-in events
-- No auth required — fully public. Poll every 30s (SSE not needed)
-- Monthly records worth persisting in a separate table so historical months are browsable
-
-**#2 — Test page map auto-centers to selected tournament**
-When a tournament is selected in the test tool, map should fly to that course location automatically.
-No manual address/name entry needed.
-
-
+**#PRE-3 — Upgrade monitor page to session auth**
+The rep monitor (`/monitor`) still uses an old shared-password system stored in `localStorage`. The admin panel uses proper session tokens. Monitor should be upgraded to the same login system so reps get their own accounts and the shared password is retired.
 
 ---
 
@@ -52,6 +25,33 @@ No manual address/name entry needed.
 ---
 
 ## Done
+
+**#ZONE-MERGE — Overlapping same-kind zone polygons auto-merge** ✓
+Built in v3.1.0. Drawing multiple fairway (or rough/OOB/green) polygons that overlap automatically merges them into one shape. `mergeKind()` runs inside `clipZones()` before priority clipping — uses `turf.union` to combine, deletes originals, adds merged result back to the draw canvas.
+
+**#MAP-UNDO — Ctrl+Z undo for map zone adjustments** ✓
+Built in v3.1.0. Up to 20-step undo stack. State snapshots captured before each freehand draw, GPS trace, clear operation, and on feature selection (pre-vertex-drag). `Ctrl+Z` / `Cmd+Z` anywhere on the admin page restores previous state.
+
+**#MAP-NODES — Node editing with persistent direct_select mode** ✓
+Built in v3.1.0. "✏️ Edit nodes" toolbar button enters `direct_select` for selected polygon. `draw.modechange` listener re-enters `direct_select` after each vertex/midpoint drag so editing stays active. Midpoint handle radius enlarged (3→6) with white stroke. Exits on Esc or click outside map.
+
+**#KLAVIYO-OPTIN — Email/SMS marketing opt-in on registration** ✓
+Built in v3.1.0. Email and SMS checkboxes on `/register/:eventId` with TCPA fine print. Consents stored in `balls.email_opt_in` / `balls.sms_opt_in`. `subscribeKlaviyo()` in `server.js` sends to Klaviyo subscription bulk-create API (mocked when key not set).
+
+**#SCORECARD-REMOVE — Remove scorecard feature** ✓
+Removed in v3.1.0. Deleted `course_holes` table, 4 scorecard API endpoints, `ANTHROPIC_KEY`, and all scorecard HTML/CSS/JS from admin.html. Venue course search (`/api/courses/search`) retained.
+
+**#9 — Global Leaderboard ("The Distances Board")** ✓
+Built in v3.0.0. `/global` page with monthly top 10 (fairway-only drives) and course records tabs. Hall of Fame card on ended-tournament leaderboard. Super admin publish toggle per event. `GET /api/global/leaderboard`, `/api/global/course-records`, `/api/global/venue-record` endpoints.
+
+**#2 — Test page map auto-centers to selected tournament** ✓
+Built in v2.0.0. Full fallback chain on event selection: polygon bounds → tee boxes → venue_lat/lon. No manual address entry needed.
+
+**#MAP-LOCATE — All maps auto-locate and zoom to tournament hole on open** ✓
+Fixed in session 13. Admin map calls `flyAdminToVenue()` on first load (was only re-opens). Leaderboard `initMap()` starts at tee/pin/venue coords. Monitor `centerMapOnCourse()` race condition fixed — `initMap()` now catches the case where SSE snapshot arrives before the map is created.
+
+**#MONITOR-ZONES — Monitor page shows zone coloring** ✓
+Fixed in session 13. Monitor had no `addZone` or `updateZoneLayers` functions. Added full zone rendering (fairway/rough/OOB/green) matching leaderboard pattern. Called from `updateStats()` on every SSE event.
 
 **#10 — ESRI World Imagery + Hole Tour** ✓
 All maps swapped from Mapbox satellite to ESRI World Imagery (`JORD.satelliteStyle()` in jord.js).

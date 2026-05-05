@@ -2,6 +2,69 @@
 
 ---
 
+## v3.1.0 — 2026-05-05
+### Session 14 — Zone Map Polish, Marketing Opt-In, Scorecard Removal
+
+#### What Changed
+
+##### Scorecard feature removed
+- `course_holes` table creation block removed from `server.js`
+- `POST /api/courses/fetch-scorecard`, `GET /api/courses/:courseName/holes`, `GET /api/courses/scorecard-status`, `GET /api/courses/list` endpoints removed
+- `ANTHROPIC_KEY` constant removed (was only used by scorecard Anthropic web search call)
+- All scorecard CSS (`.sc-course-row`, `.sc-status-dot`, `.sc-hole-table`, etc.), HTML (`#view-scorecard` section, `map-course-data-banner`), and JS (`loadMapCourseData`, `_mapCourseHoles`) removed from `admin.html`
+- Course venue search (`GET /api/courses/search`) retained — still used by venue autocomplete
+
+##### Email/SMS marketing opt-in on registration page
+- Two new checkboxes added to `/register/:eventId` after the email/phone fields:
+  - Email: "Email me results, future events, and offers from JORD Golf." + fine print
+  - SMS: "Text me live updates and results from JORD Golf tournaments." + TCPA text
+- Consents sent as `email_opt_in` / `sms_opt_in` booleans in the register request body
+- Server stores both in new `balls` columns (`email_opt_in INTEGER DEFAULT 0`, `sms_opt_in INTEGER DEFAULT 0`) — auto-migrated on startup
+- `subscribeKlaviyo()` async function added to `server.js` — calls Klaviyo `POST /api/profile-subscription-bulk-create-jobs/` with `revision: 2024-02-15` for email and/or SMS lists based on consent. Fire-and-forget (non-blocking). Mocked (logs to console) when `KLAVIYO_KEY` is not set.
+- Env vars added: `KLAVIYO_EMAIL_LIST_ID`, `KLAVIYO_SMS_LIST_ID` (read alongside existing `KLAVIYO_API_KEY`)
+
+##### Zone polygon auto-merge
+- When any zone is drawn and clipping runs, overlapping polygons of the same kind are automatically merged into one shape before priority clipping
+- `mergeKind(kind)` added inside `clipZones()` — calls `unionAll()` on all features of a given kind, deletes the originals, and adds the merged result back to the draw canvas
+- Runs for all 5 zone types: fairway, rough, oob, green, ctp_green
+- Result: drawing 3 overlapping fairway polygons produces a single merged fairway shape
+
+##### Map Ctrl+Z undo (up to 20 steps)
+- `_undoStack` array + `pushUndo()` / `performUndo()` functions added in `admin.html`
+- State snapshot (`draw.getAll()`) pushed before: each freehand draw commit, each GPS trace commit, each clear (single or all), and on `draw.selectionchange` when a feature is selected (captures pre-edit state before vertex drag)
+- `Ctrl+Z` (or `Cmd+Z` on Mac) in the keydown handler calls `performUndo()` — restores the previous snapshot, re-syncs zone layers
+- Stack capped at 20 entries; `_undoLocked` flag prevents re-entrancy during restore
+
+##### Node editing improvements
+- Midpoint handles (orange dots between vertices) enlarged from radius 3 → 6 with a white 2px stroke — much easier to grab on a laptop trackpad
+- **"✏️ Edit nodes" button** added to the map toolbar
+  - Click a zone polygon to select it, then click the button to enter `direct_select` mode
+  - `_nodeEditActive` / `_nodeEditFeatureId` state tracks when node editing is live
+  - `draw.modechange` listener re-enters `direct_select` automatically after any vertex/midpoint drag (MapboxDraw normally exits the mode after each edit)
+  - Stays active until: **Esc** key or **click outside the map canvas**
+
+##### Monitor map first-open race condition fix
+- `centerMapOnCourse()` was silently failing on first open: SSE initial snapshot fires immediately on connect, before `initMap()` creates the map object, so `!map` caused an early return and `mapCentered` was never set true — no subsequent event would retry
+- Fix: `map.once('load', ...)` inside `initMap()` checks `snap && !mapCentered` and calls `centerMapOnCourse()` if the snapshot already arrived. The monitor map now always auto-locates to the tournament hole on first open.
+
+#### Files Changed
+| File | What changed |
+|------|-------------|
+| `server.js` | Removed scorecard endpoints + `ANTHROPIC_KEY`; added `email_opt_in`/`sms_opt_in` DB migrations; `subscribeKlaviyo()` function; `KLAVIYO_EMAIL_LIST`/`KLAVIYO_SMS_LIST` constants; register-player stores opt-ins and calls `subscribeKlaviyo` |
+| `public/admin.html` | Removed all scorecard HTML/CSS/JS; `mergeKind()` in `clipZones()`; undo stack (`pushUndo`, `performUndo`, Ctrl+Z); node edit state + `draw.modechange` re-entry; `✏️ Edit nodes` toolbar button; midpoint radius 3→6 with white stroke |
+| `public/register.html` | Email/SMS opt-in checkboxes with TCPA fine print; sends `email_opt_in`/`sms_opt_in` in request body |
+| `public/monitor.html` | `map.once('load', ...)` guard in `initMap()` fixes first-open race condition |
+| `.env` | Added `KLAVIYO_EMAIL_LIST_ID` and `KLAVIYO_SMS_LIST_ID` placeholders |
+
+#### Database Changes
+```sql
+ALTER TABLE balls ADD COLUMN email_opt_in INTEGER DEFAULT 0;
+ALTER TABLE balls ADD COLUMN sms_opt_in INTEGER DEFAULT 0;
+```
+(Auto-applied on server startup — safe on existing databases.)
+
+---
+
 ## v3.0.0 — 2026-05-04
 ### Session 12 — Multi-Admin Auth + Global Leaderboard
 

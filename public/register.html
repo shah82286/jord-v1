@@ -62,6 +62,27 @@
     padding: 6px 12px; background: var(--primary); color: var(--primary-ink);
     border-radius: var(--r-sm);
   }
+
+  .opt-in-box {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: 12px 14px; margin-top: var(--s-3);
+  }
+  .opt-in-box .opt-in-title {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: var(--ink-2); margin-bottom: 10px;
+  }
+  .opt-in-row {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 8px 0; border-top: 1px solid var(--border);
+    font-size: 13px; line-height: 1.45; cursor: pointer;
+  }
+  .opt-in-row:first-of-type { border-top: none; padding-top: 0; }
+  .opt-in-row input[type="checkbox"] {
+    width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px;
+    accent-color: var(--primary); cursor: pointer;
+  }
+  .opt-in-row .opt-in-label { color: var(--ink); }
+  .opt-in-row .opt-in-fine { display: block; font-size: 11px; color: var(--ink-2); margin-top: 2px; }
 </style>
 </head>
 <body>
@@ -316,6 +337,37 @@
     contactGrid.appendChild(phoneField);
     form.appendChild(contactGrid);
 
+    /* Marketing opt-ins */
+    var optInBox = document.createElement('div');
+    optInBox.className = 'opt-in-box';
+    optInBox.innerHTML = '<div class="opt-in-title">Stay in the loop</div>';
+
+    var emailOptLabel = document.createElement('label');
+    emailOptLabel.className = 'opt-in-row';
+    var emailOptCheck = document.createElement('input');
+    emailOptCheck.type = 'checkbox';
+    emailOptLabel.appendChild(emailOptCheck);
+    var emailOptText = document.createElement('span');
+    emailOptText.className = 'opt-in-label';
+    emailOptText.innerHTML = 'Email me results, future events, and offers from JORD Golf.'
+      + '<span class="opt-in-fine">We\'ll never share your email or spam you. Unsubscribe anytime.</span>';
+    emailOptLabel.appendChild(emailOptText);
+    optInBox.appendChild(emailOptLabel);
+
+    var smsOptLabel = document.createElement('label');
+    smsOptLabel.className = 'opt-in-row';
+    var smsOptCheck = document.createElement('input');
+    smsOptCheck.type = 'checkbox';
+    smsOptLabel.appendChild(smsOptCheck);
+    var smsOptText = document.createElement('span');
+    smsOptText.className = 'opt-in-label';
+    smsOptText.innerHTML = 'Text me live updates and results from JORD Golf tournaments.'
+      + '<span class="opt-in-fine">Message &amp; data rates may apply. Reply STOP to opt out anytime.</span>';
+    smsOptLabel.appendChild(smsOptText);
+    optInBox.appendChild(smsOptLabel);
+
+    form.appendChild(optInBox);
+
     /* Tee box */
     if (eventInfo.tee_boxes && eventInfo.tee_boxes.length > 0) {
       var teeField = document.createElement('div');
@@ -362,7 +414,9 @@
           email: emailInput.value.trim() || null,
           phone: phoneInput.value.trim() || null,
           tee_box_id: (eventInfo.tee_boxes && eventInfo.tee_boxes.length) ? (form.querySelector('select') ? form.querySelector('select').value : null) : null,
-          player_index: playerIndex
+          player_index: playerIndex,
+          email_opt_in: emailOptCheck.checked,
+          sms_opt_in: smsOptCheck.checked
         })
       })
       .then(function (r) { return r.json(); })
