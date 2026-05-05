@@ -370,6 +370,36 @@
         document.getElementById('mon-map').innerHTML = '<div class="empty"><div class="empty-icon">🔑</div><div class="empty-title">Mapbox token rejected (401)</div><p>Check token URL restrictions at account.mapbox.com/access-tokens</p></div>';
       }
     });
+    map.once('load', function () {
+      if (snap && !mapCentered) {
+        centerMapOnCourse(snap.event || {});
+      }
+    });
+  }
+
+  function addZone(id, geojsonStr, color, opacity) {
+    if (!geojsonStr || !map) return;
+    try {
+      var geo = JSON.parse(geojsonStr);
+      var data = (geo.type === 'FeatureCollection' || geo.type === 'Feature') ? geo : { type: 'Feature', geometry: geo };
+      var src = map.getSource(id);
+      if (src) { src.setData(data); return; }
+      map.addSource(id, { type: 'geojson', data: data });
+      map.addLayer({ id: id+'-fill', type: 'fill',   source: id, paint: { 'fill-color': color, 'fill-opacity': opacity } });
+      map.addLayer({ id: id+'-line', type: 'line',   source: id, paint: { 'line-color': color, 'line-width': 1.5, 'line-opacity': 0.8 } });
+    } catch(e) {}
+  }
+
+  function updateZoneLayers(ev) {
+    if (!map) return;
+    function doZones() {
+      addZone('mon-fairway',   ev.fairway_polygon,   '#3B82F6', 0.35);
+      addZone('mon-rough',     ev.rough_polygon,     '#EAB308', 0.30);
+      addZone('mon-oob',       ev.oob_polygon,       '#DC2626', 0.25);
+      addZone('mon-green',     ev.green_polygon,     '#22C55E', 0.35);
+      addZone('mon-ctp-green', ev.ctp_green_polygon, '#22C55E', 0.35);
+    }
+    if (map.isStyleLoaded()) { doZones(); } else { map.once('load', doZones); }
   }
 
   function centerMapOnCourse(ev) {
@@ -382,7 +412,27 @@
     });
     if (ev.pin_lat && ev.pin_lon)         points.push([ev.pin_lon,     ev.pin_lat]);
     if (ev.ctp_pin_lat && ev.ctp_pin_lon) points.push([ev.ctp_pin_lon, ev.ctp_pin_lat]);
-    if (!points.length) return;
+    if (!points.length) {
+      /* No tee/pin data — fall back to stored venue coords or live geocode */
+      if (ev.venue_lat && ev.venue_lon) {
+        mapCentered = true;
+        function doCenterVenue() {
+          map.flyTo({ center: [ev.venue_lon, ev.venue_lat], zoom: 15, duration: 1200 });
+        }
+        if (map.isStyleLoaded()) { doCenterVenue(); } else { map.once('load', doCenterVenue); }
+      } else if (ev.venue && mapboxToken) {
+        mapCentered = true;
+        fetch('https://api.mapbox.com/geocoding/v5/mapbox.places/' + encodeURIComponent(ev.venue) +
+          '.json?access_token=' + mapboxToken + '&types=poi,place,address&limit=1')
+          .then(function (r) { return r.json(); })
+          .then(function (geo) {
+            if (geo.features && geo.features[0]) {
+              map.flyTo({ center: geo.features[0].center, zoom: 15, duration: 1200 });
+            }
+          }).catch(function () {});
+      }
+      return;
+    }
 
     mapCentered = true;
 
@@ -468,6 +518,7 @@
   function updateStats(d) {
     var ev = d.event || {};
     centerMapOnCourse(ev);
+    updateZoneLayers(ev);
     var title = document.getElementById('mon-title');
     if (title) title.textContent = ev.name || 'Tournament';
 

@@ -2,6 +2,166 @@
 
 ---
 
+## v3.0.0 — 2026-05-04
+### Session 12 — Multi-Admin Auth + Global Leaderboard
+
+#### What Changed
+
+##### Phase 1 — Multi-admin authentication system
+- **New DB tables**: `admins` (email, password hash, role, permissions), `sessions` (token → admin mapping, 7-day expiry), `password_reset_tokens`
+- **`admin_id` column** added to `events` — every new event is linked to the admin who created it
+- **Password hashing**: `crypto.scryptSync` (built-in Node.js, no new npm deps) — `salt:hash` format
+- **Session tokens**: 32-byte random hex, stored in DB, checked on every request. Old raw-password tokens rejected cleanly.
+- **`requireAuth` rewritten**: DB session lookup instead of env-var comparison. Attaches `req.admin` for all protected routes.
+- **`requireSuper`** middleware: blocks non-super admins from admin-management routes.
+- **`requirePerm(perm)`** middleware: per-permission gate for tournament admins.
+- **Super admin auto-seeded** on first run: `shah82286@gmail.com` / value of `ADMIN_PASSWORD` env var.
+- **Event filtering**: `GET /api/events` returns all events for super admin, only own events for tournament admins. `POST /api/events` sets `admin_id = req.admin.id`.
+
+##### Auth API routes (all new)
+- `POST /api/auth/login` — email + password → session token + role + permissions
+- `POST /api/auth/logout` — deletes session from DB
+- `GET /api/auth/me` — returns current admin profile
+- `POST /api/auth/forgot-password` — generates reset token, returns reset URL (super admin shares manually until Klaviyo wired)
+- `POST /api/auth/forgot-username` — enter name, get masked email back
+- `POST /api/auth/reset-password` — validates reset token, sets new password, invalidates all sessions
+
+##### Admin management API routes (super only)
+- `GET /api/admins` — list all admins with pending reset token info
+- `POST /api/admins` — create tournament admin (name, email, temp password)
+- `PATCH /api/admins/:id` — edit name, email, role, active, permissions
+- `DELETE /api/admins/:id` — remove admin (blocks deleting last super admin)
+- `POST /api/admins/:id/reset-password` — generate 24-hour reset link
+- `PATCH /api/admins/:id/password` — change password directly (invalidates all sessions)
+
+##### Admin panel login gate overhaul
+- Login form now takes **email + password** (no more single shared password field)
+- **Forgot password** flow: enter email → reset link generated → super admin shares it
+- **Forgot email** flow: enter name → masked login email shown
+- **Reset password** form: shown when `?reset_token=` in URL; validates token, sets password, redirects to login
+- Topbar shows logged-in admin name + "Super" label
+- Sign out calls `POST /api/auth/logout` before clearing localStorage
+
+##### Admin management panel (super admin only)
+- **"👤 Manage Admins"** button in events list header (visible to super admins only)
+- Admin list: shows name, email, role badge, active status, permission list, pending reset token link
+- Create admin: modal with name, email, temp password
+- Edit admin: modal with name, email, new password, per-permission checkboxes, active toggle
+- Delete admin: confirm dialog, blocked on last super admin
+- Reset password: generates link, shows it in a copyable modal
+
+##### Phase 4 — Global Leaderboard
+- **`global_published` column** added to `events` — super admin opts each ended tournament in/out
+- `GET /api/global/leaderboard?month=YYYY-MM` — monthly top 10 **fairway-only** drives (public, no auth). Includes available months list.
+- `GET /api/global/course-records` — all-time best fairway drive per venue (public)
+- `GET /api/global/venue-record?venue=X` — single-venue all-time record (used for Hall of Fame card)
+- `GET /api/global/events` — list ended events with eligibility count (super admin only)
+- `PATCH /api/events/:id/global-publish` — toggle global_published (super admin only)
+- **`/global` page** — public leaderboard with two tabs:
+  - Monthly Top 10: gold/silver/bronze rank badges, player name, team, venue, yardage. Month picker auto-populates from available data.
+  - Course Records: all-time best drive per course with record holder info.
+- **Hall of Fame card** on ended tournament leaderboard: fetches course record asynchronously and shows "Course Record — [Venue]" card with all-time best drive. Falls back to a "View Global Leaderboard →" link if no record exists yet.
+- **"🌍 Global LB"** button (super admin only) in events list → management panel to toggle which ended events are published.
+
+#### Files Changed
+| File | What changed |
+|------|-------------|
+| `server.js` | `admins`/`sessions`/`password_reset_tokens` tables; `admin_id`/`global_published` migrations; `hashPassword`/`verifyPassword`/`createSession`/`getSessionAdmin`; `seedSuperAdmin`; `requireAuth` rewrite; `requireSuper`/`requirePerm`; all auth + admin CRUD + global leaderboard routes; event list/create multi-tenant filtering |
+| `public/admin.html` | Email+password login gate; forgot password/username/reset forms; topbar user display + proper logout; Manage Admins panel (CRUD); Global LB management panel (publish toggle); `backToList()` updated; super-admin-only buttons |
+| `public/leaderboard.html` | `loadHallOfFame()` async function; HOF card injected on ended tournament; `escHtml()` helper; "View Global Leaderboard →" fallback link |
+| `public/global.html` | New file — public global leaderboard page (monthly top 10 + course records tabs) |
+
+#### Database Changes
+```sql
+CREATE TABLE admins (id, name, email, password_hash, role, active, perm_corrections, perm_end_tournament, perm_manage_players, perm_manage_balls, created_at);
+CREATE TABLE sessions (token, admin_id, expires_at, created_at);
+CREATE TABLE password_reset_tokens (token, admin_id, used, expires_at, created_at);
+ALTER TABLE events ADD COLUMN admin_id TEXT;
+ALTER TABLE events ADD COLUMN global_published INTEGER DEFAULT 0;
+```
+(All auto-applied on server startup — safe on existing databases. Super admin seeded once on first run.)
+
+---
+
+## v2.0.0 — 2026-05-03
+### Sessions 10 & 11 — Course Search, Zone Detection, Draw Polish, Map Fly-To
+
+#### What Changed
+
+##### Golf course CSV search & venue autocomplete
+- 2.3MB CSV of US golf courses (name, city/state, lat, lon, phone, holes, type) loaded at `data/courses.csv`
+- `/api/courses/search?q=` endpoint — lazy-loads CSV on first call, cached in memory, returns top 10 matches by name or city/state (case-insensitive). Custom `parseCSVRow()` handles quoted fields with embedded commas.
+- Admin event settings: venue field replaced with an autocomplete that queries `/api/courses/search` after 2 characters (300ms debounce). Dropdown shows course name + city/state + holes + type.
+- Selecting a course fills the venue input, flies the admin course map to the course coordinates, and saves `venue_lat` / `venue_lon` hidden fields so coordinates persist to the DB on Save Settings.
+- `venue_lat` and `venue_lon` columns auto-migrate on server startup. Included in PATCH allowed fields.
+
+##### Zone auto-detection on scan page
+- After GPS locks on a shot, `detectZone(lat, lon)` runs point-in-polygon against the event's mapped fairway, rough, and OOB polygons.
+- If inside a zone polygon → that location button is pre-selected automatically.
+- If outside all mapped zones → OOB pre-selected with a red "outside all designated zones" note.
+- If no polygons are mapped at all → manual picker shown as before (no regression for unmapped events).
+- `autoSelectZone()` runs after GPS lock (both real GPS and test-mode simulated GPS).
+- `zone-auto-note` div below the location buttons explains the auto-detection to the player.
+
+##### Test tool — course zones on map & zone detection
+- Event selector dropdown added to Step 2 simulator. Selecting an event loads that event's zone polygons onto the simulator map (fairway=blue, rough=yellow, OOB=red, green=green) with 25% opacity fill.
+- Map click auto-detects zone from the loaded polygons and shows a colored dot + zone label at click point.
+- Map fly-to on event selection: full fallback chain — tries fairway → rough → OOB → green polygon (`fitBounds`), then tee boxes (`flyTo` zoom 17), then `venue_lat`/`venue_lon` (`flyTo` zoom 15). Whichever has data wins.
+- Location type dropdown removed from Step 2 (zone is inferred from the map now).
+
+##### Polygon non-overlapping via Turf.js
+- Turf.js v6 CDN added to admin.html.
+- `clipZones()` runs 200ms after any `draw.create` or `draw.update` event (debounced via `scheduleClipZones`).
+- Priority: Fairway > Rough > OOB. Fairway is never clipped. Rough is clipped against the fairway union. OOB is clipped against the combined fairway+rough union.
+- Zones snap tight — no gap or overlap between adjacent polygons.
+
+##### Admin draw mode stays active
+- After completing a freehand zone draw, the cursor stays crosshair and draw mode remains active for the same zone type — draw again immediately without re-clicking the zone button.
+- Success toast changes to "drawn — draw again or press Esc to finish".
+- If a draw fails (too few points), cursor stays crosshair so the user can try again without re-clicking.
+- **Esc key** → exits draw mode, restores map hand cursor.
+- **Click outside the map** → also exits draw mode (clicking zone buttons is excluded, so switching zones works normally).
+- `stopFreehand()` helper function added; handles all exit cleanup.
+
+##### 6-box OTP code entry (scan page)
+- `renderCodeEntry()` rewritten with 6 individual `<input>` elements (one per character) in an OTP-style row.
+- Auto-advance: typing a character moves focus to the next box automatically.
+- Backspace navigation: backspace on an empty box moves focus to the previous box.
+- Paste distribution: pasting a 6-character string fills all boxes at once.
+- Enter key submits from any box.
+- `autocapitalize="none"` — keyboard stays in whatever mode the player last used (no snapping back to ABC after each character). Input handler applies `.toUpperCase()` in JS.
+- `flex:1; min-width:0` per box ensures equal sizing across all screen widths.
+
+##### Registration page UX overhaul
+- Team name input always appears last — only shown after all 4 players have entered codes (or after confirming "Submit with fewer").
+- Requires all 4 codes to be entered before the team name step appears.
+- "Submit with X players" is a ghost button below an "— or —" divider, not a popup alert.
+- Clicking it shows an inline yellow warning box with Confirm / Cancel (no browser `alert()`).
+- Confirming the inline flow skips to the team name step with a yellow "submitting with N players" note.
+
+##### /scan route fix
+- `GET /scan` (no code) returned "Cannot GET /scan" — the pages map only had `/scan/:code`.
+- Fixed by adding `'/scan': 'scan.html'` alongside `/scan/:code` in the static-page route map.
+
+#### Files Changed
+| File | What changed |
+|------|-------------|
+| `server.js` | `/scan` route; `venue_lat`/`venue_lon` auto-migrate + PATCH fields; `parseCSVRow()`; `loadCourses()` lazy loader; `/api/courses/search` endpoint |
+| `public/admin.html` | Turf.js CDN; `clipZones()` + `scheduleClipZones()`; venue autocomplete replaces Mapbox Places; hidden `venue_lat`/`venue_lon` inputs; `stopFreehand()`; draw mode stays active after draw; Esc + click-outside exit |
+| `public/scan.html` | `detectZone()`, `autoSelectZone()`, `zone-auto-note`; 6-box OTP code entry with auto-advance/backspace/paste/Enter |
+| `public/test.html` | Event selector dropdown; `loadSimEvent()` with full fallback fly-to chain; `renderSimPolygons()` zone overlays; zone auto-detect on map click; location dropdown removed |
+| `public/register.html` | `submittingWithFewer` state; team name always last; 4-code requirement; inline fewer-player confirmation |
+| `data/courses.csv` | New file — US golf course database |
+
+#### Database Changes
+```sql
+ALTER TABLE events ADD COLUMN venue_lat REAL;
+ALTER TABLE events ADD COLUMN venue_lon REAL;
+```
+(Auto-applied on server startup — safe on existing databases.)
+
+---
+
 ## v1.9.0 — 2026-05-03
 ### Session 9 — Start Gate, Zone Detection, End-Tournament Screen, Player Flow Polish
 

@@ -111,6 +111,7 @@
     .player-edit-grid { grid-template-columns: 1fr; }
   }
 
+
   /* ── Ended lock ── */
   .ended-banner {
     background: rgba(190,255,58,0.1); border: 1px solid var(--accent);
@@ -154,7 +155,7 @@
 </head>
 <body>
 
-<!-- ─── PASSWORD GATE ─── -->
+<!-- ─── LOGIN GATE ─── -->
 <section id="gate" class="gate-wrap">
   <div class="card">
     <div class="text-center mb-4">
@@ -163,13 +164,61 @@
       <div class="brand-name">JORD GOLF</div>
       <div class="brand-sub">Tournament Admin Console</div>
     </div>
+
+    <!-- Login form -->
     <form id="gate-form" class="col gap-3">
       <div class="field">
-        <label for="pwd">Admin password</label>
-        <input id="pwd" type="password" class="input input-lg" autocomplete="current-password" required>
-        <div class="hint">Default <code>jord2026</code> — change in <code>.env</code></div>
+        <label for="login-email">Email</label>
+        <input id="login-email" type="email" class="input input-lg" autocomplete="username email" placeholder="you@example.com" required>
       </div>
-      <button class="btn btn-primary btn-lg btn-block" type="submit">Enter</button>
+      <div class="field">
+        <label for="login-pwd">Password</label>
+        <input id="login-pwd" type="password" class="input input-lg" autocomplete="current-password" required>
+      </div>
+      <button class="btn btn-primary btn-lg btn-block" type="submit" id="btn-login">Sign in</button>
+      <div class="row row-between mt-1" style="font-size:13px;">
+        <a href="#" id="link-forgot-pwd" style="color:var(--primary)">Forgot password?</a>
+        <a href="#" id="link-forgot-user" style="color:var(--ink-2)">Forgot email?</a>
+      </div>
+    </form>
+
+    <!-- Forgot password form -->
+    <form id="forgot-pwd-form" class="col gap-3 hidden">
+      <p style="font-size:14px;color:var(--ink-2);margin-bottom:4px;">Enter your email and we'll generate a reset link for you.</p>
+      <div class="field">
+        <label for="fp-email">Your email</label>
+        <input id="fp-email" type="email" class="input" placeholder="you@example.com" required>
+      </div>
+      <div id="fp-result" class="hidden"></div>
+      <button class="btn btn-primary btn-block" type="submit">Send reset link</button>
+      <a href="#" id="link-back-to-login" style="font-size:13px;color:var(--ink-2);text-align:center">← Back to sign in</a>
+    </form>
+
+    <!-- Forgot username/email form -->
+    <form id="forgot-user-form" class="col gap-3 hidden">
+      <p style="font-size:14px;color:var(--ink-2);margin-bottom:4px;">Enter your name and we'll show your login email.</p>
+      <div class="field">
+        <label for="fu-name">Your name</label>
+        <input id="fu-name" type="text" class="input" placeholder="First Last" required>
+      </div>
+      <div id="fu-result" class="hidden"></div>
+      <button class="btn btn-primary btn-block" type="submit">Look up email</button>
+      <a href="#" id="link-back-to-login2" style="font-size:13px;color:var(--ink-2);text-align:center">← Back to sign in</a>
+    </form>
+
+    <!-- Reset password form (shown when ?reset_token= in URL) -->
+    <form id="reset-pwd-form" class="col gap-3 hidden">
+      <p style="font-size:14px;color:var(--ink-2);margin-bottom:4px;">Choose a new password for your account.</p>
+      <div class="field">
+        <label for="rp-pwd">New password</label>
+        <input id="rp-pwd" type="password" class="input" placeholder="At least 6 characters" required minlength="6">
+      </div>
+      <div class="field">
+        <label for="rp-pwd2">Confirm password</label>
+        <input id="rp-pwd2" type="password" class="input" placeholder="Repeat password" required>
+      </div>
+      <div id="rp-result" class="hidden"></div>
+      <button class="btn btn-primary btn-block" type="submit">Set new password</button>
     </form>
   </div>
 </section>
@@ -183,9 +232,13 @@
       <div class="row row-between mb-4">
         <div>
           <div class="hero-eyebrow">Tournaments</div>
-          <h1 class="mt-2">Your Events</h1>
+          <h1 class="mt-2" id="list-heading">Your Events</h1>
         </div>
-        <button class="btn btn-primary" id="btn-new-event">＋ New event</button>
+        <div class="row gap-2">
+          <button class="btn btn-ghost hidden" id="btn-manage-global">🌍 Global LB</button>
+          <button class="btn btn-ghost hidden" id="btn-manage-admins">👤 Manage Admins</button>
+          <button class="btn btn-primary" id="btn-new-event">＋ New event</button>
+        </div>
       </div>
       <div id="events-empty" class="empty hidden">
         <div class="empty-icon">⛳</div>
@@ -239,6 +292,8 @@
                 <div class="field">
                   <label>Venue</label>
                   <input class="input" name="venue" id="venue-input" placeholder="Start typing course name…" autocomplete="off" title="Golf course or event location. Start typing to search.">
+                  <input type="hidden" name="venue_lat" id="venue-lat">
+                  <input type="hidden" name="venue_lon" id="venue-lon">
                   <div id="venue-suggestions" style="position:relative"></div>
                 </div>
                 <div class="field">
@@ -447,6 +502,33 @@
         </div>
       </div>
     </section>
+
+    <!-- ── Global Leaderboard management view (super only) ── -->
+    <section id="view-global" class="hidden">
+      <div class="row row-between mb-4">
+        <div>
+          <a href="#" id="btn-back-to-events-g" class="pill-link">← Back to events</a>
+          <h1 class="mt-2">Global Leaderboard</h1>
+          <p class="mt-1" style="color:var(--ink-2);font-size:14px;">Toggle which ended tournaments appear on the public <a href="/global" target="_blank" style="color:var(--primary)">/global</a> leaderboard.</p>
+        </div>
+        <a href="/global" target="_blank" class="btn btn-ghost">🌍 View public page</a>
+      </div>
+      <div id="global-events-list" class="col gap-2"></div>
+    </section>
+
+    <!-- ── Admin management view (super only) ── -->
+    <section id="view-admins" class="hidden">
+      <div class="row row-between mb-4">
+        <div>
+          <a href="#" id="btn-back-to-events" class="pill-link">← Back to events</a>
+          <h1 class="mt-2">Admin Accounts</h1>
+          <p class="mt-1" style="color:var(--ink-2);font-size:14px;">Manage who can log in and run tournaments.</p>
+        </div>
+        <button class="btn btn-primary" id="btn-new-admin">＋ New admin</button>
+      </div>
+      <div id="admins-list" class="col gap-2"></div>
+    </section>
+
   </div>
 </main>
 
@@ -460,22 +542,98 @@
 
   // ── Gate ──
   const gate = $('#gate'), app = $('#app');
-  function showGate() { gate.classList.remove('hidden'); app.classList.add('hidden'); }
+  let currentAdmin = null;
+
+  function showGate(formId = 'gate-form') {
+    gate.classList.remove('hidden');
+    app.classList.add('hidden');
+    ['gate-form','forgot-pwd-form','forgot-user-form','reset-pwd-form'].forEach(id => {
+      const el = $('#' + id);
+      if (el) el.classList.toggle('hidden', id !== formId);
+    });
+  }
+
   function showApp() { gate.classList.add('hidden'); app.classList.remove('hidden'); init(); }
 
-  $('#gate-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    JORD.setToken($('#pwd').value);
-    try { await JORD.api('/api/events'); showApp(); }
-    catch { JORD.error('Wrong password'); JORD.clearToken(); }
-  });
-
-  if (JORD.getToken()) {
-    try { await JORD.api('/api/events'); showApp(); } catch { showGate(); }
+  // Check for ?reset_token= in URL
+  const resetToken = new URLSearchParams(location.search).get('reset_token');
+  if (resetToken) { showGate('reset-pwd-form'); }
+  else if (JORD.getToken()) {
+    try { currentAdmin = await JORD.api('/api/auth/me'); showApp(); }
+    catch { JORD.clearToken(); showGate(); }
   } else { showGate(); }
 
+  // Login
+  $('#gate-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const btn = $('#btn-login');
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    try {
+      const res = await JORD.api('/api/auth/login', { method: 'POST', body: { email: $('#login-email').value.trim(), password: $('#login-pwd').value } });
+      JORD.setToken(res.token);
+      currentAdmin = res;
+      showApp();
+    } catch (err) {
+      JORD.error(err.message || 'Invalid email or password');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Sign in';
+    }
+  });
+
+  // Forgot password
+  $('#link-forgot-pwd').addEventListener('click', e => { e.preventDefault(); showGate('forgot-pwd-form'); });
+  $('#link-forgot-user').addEventListener('click', e => { e.preventDefault(); showGate('forgot-user-form'); });
+  $('#link-back-to-login').addEventListener('click', e => { e.preventDefault(); showGate('gate-form'); });
+  $('#link-back-to-login2').addEventListener('click', e => { e.preventDefault(); showGate('gate-form'); });
+
+  $('#forgot-pwd-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const result = $('#fp-result');
+    try {
+      const res = await JORD.api('/api/auth/forgot-password', { method: 'POST', body: { email: $('#fp-email').value.trim() } });
+      result.className = 'card'; result.style.cssText = 'background:var(--surface-2);padding:12px 14px;font-size:13px;';
+      result.innerHTML = `<strong>Reset link generated.</strong><br>Contact your JORD administrator to receive your reset link.<br><br><span style="color:var(--ink-2);font-size:12px;">(Super admins: check Manage Admins → pending reset for the link)</span>`;
+    } catch (err) {
+      result.className = 'badge badge-red'; result.textContent = err.message || 'Error';
+    }
+  });
+
+  $('#forgot-user-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const result = $('#fu-result');
+    try {
+      const res = await JORD.api('/api/auth/forgot-username', { method: 'POST', body: { name: $('#fu-name').value.trim() } });
+      result.className = ''; result.style.cssText = 'font-size:13px;padding:8px 0;';
+      result.innerHTML = res.hint ? `Your login email is: <strong style="color:var(--primary)">${res.hint}</strong>` : 'No account found with that name. Contact your JORD administrator.';
+    } catch (err) {
+      result.className = 'badge badge-red'; result.textContent = err.message || 'Error';
+    }
+  });
+
+  // Reset password
+  $('#reset-pwd-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const pwd = $('#rp-pwd').value, pwd2 = $('#rp-pwd2').value, result = $('#rp-result');
+    if (pwd !== pwd2) { result.className = 'badge badge-red'; result.textContent = 'Passwords do not match'; return; }
+    try {
+      await JORD.api('/api/auth/reset-password', { method: 'POST', body: { token: resetToken, password: pwd } });
+      result.className = ''; result.style.cssText = 'font-size:13px;color:var(--primary);padding:8px 0;';
+      result.textContent = 'Password updated! Redirecting to sign in…';
+      setTimeout(() => { history.replaceState({}, '', '/admin'); showGate('gate-form'); }, 1500);
+    } catch (err) {
+      result.className = 'badge badge-red'; result.textContent = err.message || 'Error';
+    }
+  });
+
   // ── Topbar ──
-  JORD.renderTopbar('Tournament Admin', el('button', { class: 'btn btn-ghost', on: { click: () => { JORD.clearToken(); location.reload(); } } }, 'Sign out'));
+  const topbarRight = el('div', { class: 'row gap-2', style: { alignItems: 'center' } },
+    el('span', { id: 'topbar-user', style: { fontSize: '13px', color: 'var(--ink-2)' } }),
+    el('button', { class: 'btn btn-ghost', on: { click: async () => {
+      try { await JORD.api('/api/auth/logout', { method: 'POST' }); } catch {}
+      JORD.clearToken(); location.reload();
+    }}}, 'Sign out')
+  );
+  JORD.renderTopbar('Tournament Admin', topbarRight);
 
   // ── State ──
   let events = [];
@@ -485,6 +643,19 @@
   let mapboxToken = '';
 
   async function init() {
+    // Populate topbar with current user name + role
+    if (currentAdmin) {
+      const userEl = $('#topbar-user');
+      if (userEl) userEl.textContent = currentAdmin.name + (currentAdmin.role === 'super' ? ' · Super' : '');
+    }
+    // Show super-admin-only buttons
+    if (currentAdmin?.role === 'super') {
+      ['#btn-manage-admins', '#btn-manage-global'].forEach(sel => {
+        const btn = $(sel);
+        if (btn) btn.classList.remove('hidden');
+      });
+    }
+
     try { const cfg = await JORD.api('/api/config'); mapboxToken = cfg.mapbox_token || ''; } catch {}
     await loadEvents();
     /* Restore last open event + panel from URL hash (e.g. #123/map) */
@@ -571,11 +742,202 @@
     currentEvent = null;
     $('#view-list').classList.remove('hidden');
     $('#view-editor').classList.add('hidden');
+    $('#view-admins').classList.add('hidden');
+    $('#view-global').classList.add('hidden');
     if (map) { map.remove(); map = null; }
     loadEvents();
     history.replaceState(null, '', window.location.pathname);
   }
   $('#btn-back').addEventListener('click', (e) => { e.preventDefault(); backToList(); });
+
+  // ── Admin management (super only) ──────────────────────────────────────────
+
+  $('#btn-manage-admins').addEventListener('click', () => {
+    $('#view-list').classList.add('hidden');
+    $('#view-editor').classList.add('hidden');
+    $('#view-admins').classList.remove('hidden');
+    loadAdmins();
+  });
+  $('#btn-back-to-events').addEventListener('click', e => { e.preventDefault(); backToList(); });
+
+  async function loadAdmins() {
+    const list = $('#admins-list');
+    list.innerHTML = '<div style="color:var(--ink-2);font-size:13px;">Loading…</div>';
+    try {
+      const admins = await JORD.api('/api/admins');
+      list.innerHTML = '';
+      for (const a of admins) {
+        const roleTag = a.role === 'super'
+          ? `<span class="badge badge-primary" style="font-size:11px;">Super Admin</span>`
+          : `<span class="badge" style="font-size:11px;">Tournament Admin</span>`;
+        const perms = a.role !== 'super' ? `
+          <div style="font-size:12px;color:var(--ink-2);margin-top:6px;">
+            Permissions: ${[
+              a.perm_corrections    ? 'Corrections' : null,
+              a.perm_end_tournament ? 'End tournament' : null,
+              a.perm_manage_players ? 'Manage players' : null,
+              a.perm_manage_balls   ? 'Manage balls' : null,
+            ].filter(Boolean).join(' · ') || 'None'}
+          </div>` : '';
+        const resetInfo = a.pending_reset
+          ? `<div style="font-size:12px;color:var(--primary);margin-top:4px;">⚠ Pending reset — <a href="${window.location.origin}/admin?reset_token=${a.pending_reset.token}" target="_blank" style="color:var(--primary);text-decoration:underline;">copy link</a></div>`
+          : '';
+        const card = el('div', { class: 'card', style: { padding: '14px 18px' } },
+          el('div', { class: 'row row-between', style: { alignItems: 'flex-start', gap: '12px' } },
+            el('div', { class: 'col gap-1' },
+              el('div', { class: 'row gap-2', style: { alignItems: 'center' } },
+                el('strong', null, a.name),
+                el('span', { html: roleTag }),
+                a.active ? null : el('span', { class: 'badge badge-red', style: { fontSize: '11px' } }, 'Inactive')
+              ),
+              el('div', { style: { fontSize: '13px', color: 'var(--ink-2)' } }, a.email),
+              el('div', { html: perms }),
+              el('div', { html: resetInfo })
+            ),
+            el('div', { class: 'row gap-2' },
+              a.role !== 'super' ? el('button', { class: 'btn btn-ghost', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: () => editAdmin(a) } }, 'Edit') : null,
+              el('button', { class: 'btn btn-ghost', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: () => genResetLink(a) } }, '🔑 Reset pwd'),
+              a.id !== currentAdmin?.id ? el('button', { class: 'btn btn-danger', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: () => deleteAdmin(a) } }, 'Remove') : null
+            )
+          )
+        );
+        list.appendChild(card);
+      }
+      if (!admins.length) list.innerHTML = '<p style="color:var(--ink-2);">No admins found.</p>';
+    } catch (err) {
+      list.innerHTML = `<p style="color:var(--red);">${err.message}</p>`;
+    }
+  }
+
+  async function genResetLink(a) {
+    try {
+      const res = await JORD.api(`/api/admins/${a.id}/reset-password`, { method: 'POST' });
+      await JORD.modal({ title: `Reset link for ${a.name}`, body: `<p style="font-size:13px;margin-bottom:10px;">Share this link with the admin. It expires in 24 hours.</p><input class="input" value="${res.reset_url}" readonly onclick="this.select()" style="font-size:12px;">` });
+      loadAdmins();
+    } catch (err) { JORD.error(err.message); }
+  }
+
+  async function deleteAdmin(a) {
+    const ok = await JORD.confirm(`Remove ${a.name} (${a.email})? They will no longer be able to log in.`, { danger: true, okText: 'Remove admin' });
+    if (!ok) return;
+    try { await JORD.api(`/api/admins/${a.id}`, { method: 'DELETE' }); loadAdmins(); }
+    catch (err) { JORD.error(err.message); }
+  }
+
+  function editAdmin(a) {
+    const nameInput  = el('input', { class: 'input', type: 'text', value: a.name, placeholder: 'Full name' });
+    const emailInput = el('input', { class: 'input', type: 'email', value: a.email, placeholder: 'Email' });
+    const pwdInput   = el('input', { class: 'input', type: 'password', placeholder: 'New password (leave blank to keep)' });
+    const checks = ['perm_corrections','perm_end_tournament','perm_manage_players','perm_manage_balls'].map(p => {
+      const cb = el('input', { type: 'checkbox' }); cb.checked = !!a[p]; cb.dataset.perm = p;
+      const label = { perm_corrections: 'Run corrections', perm_end_tournament: 'End tournament', perm_manage_players: 'Manage players', perm_manage_balls: 'Manage balls' }[p];
+      return el('label', { class: 'row gap-2', style: { fontSize: '13px', alignItems: 'center' } }, cb, label);
+    });
+    const activeBox = el('input', { type: 'checkbox' }); activeBox.checked = !!a.active;
+    const activeLabel = el('label', { class: 'row gap-2', style: { fontSize: '13px', alignItems: 'center' } }, activeBox, 'Account active');
+
+    const body = el('div', { class: 'col gap-3' },
+      el('div', { class: 'field' }, el('label', null, 'Name'), nameInput),
+      el('div', { class: 'field' }, el('label', null, 'Email'), emailInput),
+      el('div', { class: 'field' }, el('label', null, 'New password'), pwdInput, el('div', { class: 'hint' }, 'Leave blank to keep current password')),
+      el('div', { class: 'col gap-2' }, el('label', null, 'Permissions'), ...checks),
+      activeLabel
+    );
+    const saveBtn = el('button', { class: 'btn btn-primary', on: { click: async () => {
+      const updates = {
+        name: nameInput.value.trim(),
+        email: emailInput.value.trim(),
+        active: activeBox.checked ? 1 : 0,
+      };
+      checks.forEach(l => {
+        const cb = l.querySelector('input[type=checkbox]');
+        updates[cb.dataset.perm] = cb.checked ? 1 : 0;
+      });
+      try {
+        await JORD.api(`/api/admins/${a.id}`, { method: 'PATCH', body: updates });
+        if (pwdInput.value.trim().length >= 6) {
+          await JORD.api(`/api/admins/${a.id}/password`, { method: 'PATCH', body: { password: pwdInput.value.trim() } });
+        }
+        m.close(); loadAdmins(); JORD.success('Admin updated');
+      } catch (err) { JORD.error(err.message); }
+    }}}, 'Save changes');
+    const m = JORD.modal({ title: `Edit ${a.name}`, body, footer: saveBtn, lg: true });
+  }
+
+  $('#btn-new-admin').addEventListener('click', () => {
+    const nameInput  = el('input', { class: 'input', type: 'text', placeholder: 'Full name' });
+    const emailInput = el('input', { class: 'input', type: 'email', placeholder: 'Email address' });
+    const pwdInput   = el('input', { class: 'input', type: 'password', placeholder: 'Temporary password' });
+    const body = el('div', { class: 'col gap-3' },
+      el('div', { class: 'field' }, el('label', null, 'Name'), nameInput),
+      el('div', { class: 'field' }, el('label', null, 'Email'), emailInput),
+      el('div', { class: 'field' }, el('label', null, 'Temporary password'), pwdInput, el('div', { class: 'hint' }, 'Minimum 6 characters'))
+    );
+    const createBtn = el('button', { class: 'btn btn-primary', on: { click: async () => {
+      if (!nameInput.value.trim() || !emailInput.value.trim() || pwdInput.value.length < 6) {
+        JORD.warn('Name, email, and a password (6+ chars) are required'); return;
+      }
+      try {
+        await JORD.api('/api/admins', { method: 'POST', body: { name: nameInput.value.trim(), email: emailInput.value.trim(), password: pwdInput.value, role: 'admin' } });
+        m.close(); loadAdmins(); JORD.success('Admin account created');
+      } catch (err) { JORD.error(err.message); }
+    }}}, 'Create admin');
+    const m = JORD.modal({ title: 'New Tournament Admin', body, footer: createBtn, lg: false });
+    nameInput.focus();
+  });
+
+  // ── Global Leaderboard management (super only) ──────────────────────────────
+
+  $('#btn-manage-global').addEventListener('click', () => {
+    $('#view-list').classList.add('hidden');
+    $('#view-editor').classList.add('hidden');
+    $('#view-admins').classList.add('hidden');
+    $('#view-global').classList.remove('hidden');
+    loadGlobalEvents();
+  });
+  $('#btn-back-to-events-g').addEventListener('click', e => { e.preventDefault(); backToList(); });
+
+  async function loadGlobalEvents() {
+    const list = $('#global-events-list');
+    list.innerHTML = '<div style="color:var(--ink-2);font-size:13px;">Loading…</div>';
+    try {
+      const events = await JORD.api('/api/global/events');
+      list.innerHTML = '';
+      if (!events.length) {
+        list.innerHTML = '<div class="card" style="padding:var(--s-5);color:var(--ink-2);text-align:center;">No ended tournaments yet. End a tournament to add it here.</div>';
+        return;
+      }
+      for (const ev of events) {
+        const isPublished = !!ev.global_published;
+        const card = el('div', { class: 'card', style: { padding: '14px 18px' } },
+          el('div', { class: 'row row-between', style: { alignItems: 'center', gap: '12px' } },
+            el('div', { class: 'col gap-1' },
+              el('strong', null, ev.name),
+              el('div', { style: { fontSize: '13px', color: 'var(--ink-2)' } }, (ev.venue || '—') + ' · ' + JORD.fmt.date(ev.starts_at)),
+              el('div', { style: { fontSize: '12px', color: 'var(--ink-2)' } }, ev.fairway_count + ' fairway drives eligible')
+            ),
+            (() => {
+                const cb = document.createElement('input');
+                cb.type = 'checkbox'; cb.checked = isPublished;
+                cb.style.cssText = 'width:18px;height:18px;accent-color:var(--primary);cursor:pointer';
+                const lbl = el('span', { style: { fontSize: '14px', fontWeight: '500' } }, isPublished ? 'Published' : 'Not published');
+                cb.addEventListener('change', async (e) => {
+                  try {
+                    await JORD.api(`/api/events/${ev.id}/global-publish`, { method: 'PATCH', body: { published: e.target.checked } });
+                    lbl.textContent = e.target.checked ? 'Published' : 'Not published';
+                    JORD.success(e.target.checked ? `${ev.name} added to Global Leaderboard` : `${ev.name} removed from Global Leaderboard`);
+                  } catch (err) { JORD.error(err.message); e.target.checked = !e.target.checked; }
+                });
+                return el('label', { class: 'row gap-2', style: { alignItems: 'center', cursor: 'pointer' } }, cb, lbl);
+              })()
+          )
+        );
+        list.appendChild(card);
+      }
+    } catch (err) {
+      list.innerHTML = `<p style="color:var(--red);">${err.message}</p>`;
+    }
+  }
 
   function fillHeader() {
     $('#event-name').textContent = currentEvent.name;
@@ -676,7 +1038,7 @@
   function showPanel(name) {
     $$('.editor-nav .nav-item').forEach(n => n.classList.toggle('is-active', n.dataset.panel === name));
     $$('.panel').forEach(p => p.classList.toggle('is-active', p.dataset.panel === name));
-    if (name === 'map') requestAnimationFrame(initMap);
+    if (name === 'map') { requestAnimationFrame(initMap); }
     if (name === 'players') loadTeams();
     if (name === 'alerts') loadAlerts();
     if (name === 'balls') loadBalls();
@@ -684,48 +1046,103 @@
   }
   $$('.editor-nav .nav-item').forEach(n => n.addEventListener('click', () => showPanel(n.dataset.panel)));
 
-  // ── Venue autocomplete (uses Mapbox Places) ──
+  // ── Venue autocomplete (CSV first, Mapbox geocoding fallback, validated) ──
   let venueDebounce = null;
-  document.getElementById('venue-input').addEventListener('input', (e) => {
+  let venueConfirmed = false;
+  const venueInput = document.getElementById('venue-input');
+  const sugBox     = document.getElementById('venue-suggestions');
+
+  function buildSuggestionList() {
+    const list = document.createElement('div');
+    list.style.cssText = 'position:absolute;left:0;right:0;z-index:99;background:var(--surface);border:1px solid var(--border-2);border-radius:var(--r-md);box-shadow:var(--shadow-md);overflow:hidden';
+    return list;
+  }
+  function addSuggestionItem(list, name, sub, onSelect) {
+    const item = document.createElement('div');
+    item.style.cssText = 'padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border)';
+    item.innerHTML = '<div style="font-size:14px;font-weight:600">' + name + '</div>'
+      + '<div style="font-size:12px;color:var(--ink-2);margin-top:2px">' + sub + '</div>';
+    item.addEventListener('mousedown', (ev) => {
+      ev.preventDefault();
+      const coords = onSelect();
+      if (coords) {
+        document.getElementById('venue-lat').value = coords.lat;
+        document.getElementById('venue-lon').value = coords.lon;
+      }
+      sugBox.innerHTML = '';
+      venueConfirmed = true;
+    });
+    item.addEventListener('mouseover', () => item.style.background = 'var(--surface-2)');
+    item.addEventListener('mouseout',  () => item.style.background = '');
+    list.appendChild(item);
+  }
+
+  venueInput.addEventListener('input', (e) => {
+    venueConfirmed = false;
     clearTimeout(venueDebounce);
     const q = e.target.value.trim();
-    const sugBox = document.getElementById('venue-suggestions');
-    if (q.length < 3) { sugBox.innerHTML = ''; return; }
+    if (q.length < 2) { sugBox.innerHTML = ''; return; }
     venueDebounce = setTimeout(async () => {
-      if (!mapboxToken) return;
       try {
-        const r = await fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(q)}.json?access_token=${mapboxToken}&types=poi,address&limit=5`).then(r => r.json());
         sugBox.innerHTML = '';
-        if (!r.features?.length) return;
-        const list = document.createElement('div');
-        list.style.cssText = 'position:absolute;left:0;right:0;z-index:99;background:var(--surface);border:1px solid var(--border-2);border-radius:var(--r-md);box-shadow:var(--shadow-md);overflow:hidden';
-        for (const f of r.features) {
-          const item = document.createElement('div');
-          item.style.cssText = 'padding:10px 14px;cursor:pointer;font-size:14px;border-bottom:1px solid var(--border)';
-          item.textContent = f.place_name;
-          item.addEventListener('mousedown', (ev) => {
-            ev.preventDefault();
-            document.getElementById('venue-input').value = f.place_name;
-            sugBox.innerHTML = '';
-            // Fly map if open
-            if (map) map.flyTo({ center: f.center, zoom: 15 });
-          });
-          item.addEventListener('mouseover', () => item.style.background = 'var(--surface-2)');
-          item.addEventListener('mouseout',  () => item.style.background = '');
-          list.appendChild(item);
+        const list = buildSuggestionList();
+
+        // 1 — CSV courses
+        const csvResults = await fetch('/api/courses/search?q=' + encodeURIComponent(q)).then(r => r.json());
+        for (const c of csvResults) {
+          addSuggestionItem(list, c.name,
+            c.cityState + (c.holes ? ' · ' + c.holes + ' holes' : '') + (c.type ? ' · ' + c.type : ''),
+            () => {
+              venueInput.value = c.name + ' — ' + c.cityState;
+              if (map) map.flyTo({ center: [c.lon, c.lat], zoom: 16 });
+              return { lat: c.lat, lon: c.lon };
+            });
         }
-        sugBox.appendChild(list);
+
+        // 2 — Mapbox geocoding fallback (open search — any venue name or address)
+        if (csvResults.length < 5 && mapboxToken) {
+          const geo = await fetch(
+            'https://api.mapbox.com/geocoding/v5/mapbox.places/' + encodeURIComponent(q) +
+            '.json?access_token=' + mapboxToken + '&types=poi,place,address&limit=5'
+          ).then(r => r.json()).catch(() => ({ features: [] }));
+          const geoResults = (geo.features || []).filter(f =>
+            !csvResults.some(c => c.name.toLowerCase() === f.text.toLowerCase())
+          );
+          if (geoResults.length) {
+            if (csvResults.length) {
+              const sep = document.createElement('div');
+              sep.style.cssText = 'padding:4px 14px;font-size:10px;font-weight:700;color:var(--ink-2);background:var(--surface-2);letter-spacing:.08em;text-transform:uppercase';
+              sep.textContent = 'More Results';
+              list.appendChild(sep);
+            }
+            for (const f of geoResults) {
+              const [lon, lat] = f.center;
+              const sub = f.place_name.split(',').slice(1, 3).join(',').trim();
+              addSuggestionItem(list, f.text, sub, () => {
+                venueInput.value = f.place_name;
+                if (map) map.flyTo({ center: [lon, lat], zoom: 16 });
+                return { lat, lon };
+              });
+            }
+          }
+        }
+
+        if (list.children.length) sugBox.appendChild(list);
       } catch {}
-    }, 350);
+    }, 300);
   });
-  document.getElementById('venue-input').addEventListener('blur', () => {
-    setTimeout(() => { document.getElementById('venue-suggestions').innerHTML = ''; }, 200);
+
+  venueInput.addEventListener('blur', () => {
+    setTimeout(() => { sugBox.innerHTML = ''; }, 200);
   });
 
   // ── Settings form ──
   function fillSettings() {
     const f = $('#form-settings');
     for (const k of ['name', 'venue', 'admin_phone']) f[k].value = currentEvent[k] || '';
+    document.getElementById('venue-lat').value = currentEvent.venue_lat || '';
+    document.getElementById('venue-lon').value = currentEvent.venue_lon || '';
+    if (currentEvent.venue) venueConfirmed = true; // already saved — treat as valid
     f.starts_at.value = currentEvent.starts_at ? currentEvent.starts_at.slice(0, 16) : '';
     f.ends_at.value   = currentEvent.ends_at   ? currentEvent.ends_at.slice(0, 16) : '';
     for (const k of ['has_longest_drive', 'has_closest_pin', 'combined_scoring', 'allow_rough', 'allow_oob']) {
@@ -738,8 +1155,15 @@
   $('#form-settings').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
+    if (f.venue.value.trim() && !venueConfirmed) {
+      JORD.warn('Please select a course from the dropdown — type the name and pick a result to confirm the location.');
+      venueInput.focus();
+      return;
+    }
     const body = {};
     ['name', 'venue', 'starts_at', 'ends_at', 'rough_penalty_mode', 'oob_penalty_mode', 'admin_phone'].forEach(k => body[k] = f[k].value || null);
+    body.venue_lat = parseFloat(document.getElementById('venue-lat').value) || null;
+    body.venue_lon = parseFloat(document.getElementById('venue-lon').value) || null;
     ['rough_fixed_yards', 'oob_fixed_yards', 'hole_distance_yards', 'cp_off_green_penalty_ft'].forEach(k => body[k] = parseFloat(f[k].value) || 0);
     ['has_longest_drive', 'has_closest_pin', 'combined_scoring', 'allow_rough', 'allow_oob'].forEach(k => body[k] = f[k].checked ? 1 : 0);
     currentEvent = await JORD.api('/api/events/' + currentEvent.id, { method: 'PATCH', body });
@@ -874,8 +1298,27 @@
     if (lbl) lbl.textContent = isLd ? 'LD hole pin' : 'CTP hole pin';
   }
 
+  function flyAdminToVenue() {
+    if (!map || !currentEvent) return;
+    const allTees = currentEvent.tee_boxes || [];
+    const ldTees  = allTees.filter(t => t.hole_type !== 'closest_pin' && t.lat && t.lon);
+    const ctpTees = allTees.filter(t => t.hole_type === 'closest_pin'  && t.lat && t.lon);
+    if (ldTees.length)                      { map.flyTo({ center: [ldTees[0].lon, ldTees[0].lat], zoom: 17 }); return; }
+    if (currentEvent.pin_lon)               { map.flyTo({ center: [currentEvent.pin_lon, currentEvent.pin_lat], zoom: 16 }); return; }
+    if (ctpTees.length)                     { map.flyTo({ center: [ctpTees[0].lon, ctpTees[0].lat], zoom: 17 }); return; }
+    if (currentEvent.ctp_pin_lon)           { map.flyTo({ center: [currentEvent.ctp_pin_lon, currentEvent.ctp_pin_lat], zoom: 16 }); return; }
+    if (currentEvent.venue_lat && currentEvent.venue_lon) { map.flyTo({ center: [currentEvent.venue_lon, currentEvent.venue_lat], zoom: 15 }); return; }
+    if (currentEvent.venue && mapboxToken) {
+      fetch('https://api.mapbox.com/geocoding/v5/mapbox.places/' + encodeURIComponent(currentEvent.venue) +
+        '.json?access_token=' + mapboxToken + '&types=poi,place,address&limit=1')
+        .then(r => r.json()).then(geo => {
+          if (geo.features?.[0]) map.flyTo({ center: geo.features[0].center, zoom: 15 });
+        }).catch(() => {});
+    }
+  }
+
   function initMap() {
-    if (map) { map.resize(); applyHoleTabTools(); return; }
+    if (map) { map.resize(); applyHoleTabTools(); flyAdminToVenue(); return; }
     if (!mapboxToken) {
       $('#map').innerHTML = '<div class="empty"><div class="empty-icon">🗺</div><div class="empty-title">Mapbox token missing</div><p>Add MAPBOX_TOKEN to your .env file and restart.</p></div>';
       return;
@@ -886,15 +1329,16 @@
     }
     mapboxgl.accessToken = mapboxToken;
 
-    // Determine center: LD tees > LD pin > CTP tees > CTP pin > geocode venue > US fallback
+    // Determine center: LD tees > LD pin > CTP tees > CTP pin > venue coords > US fallback
     const allTees  = currentEvent.tee_boxes || [];
     const ldTees   = allTees.filter(t => t.hole_type !== 'closest_pin');
     const ctpTees  = allTees.filter(t => t.hole_type === 'closest_pin');
     let center = [-98.5, 39.5], zoom = 4;
-    if (ldTees.length)                   { center = [ldTees[0].lon,  ldTees[0].lat];  zoom = 17; }
-    else if (currentEvent.pin_lon)        { center = [currentEvent.pin_lon, currentEvent.pin_lat]; zoom = 16; }
-    else if (ctpTees.length)              { center = [ctpTees[0].lon, ctpTees[0].lat]; zoom = 17; }
-    else if (currentEvent.ctp_pin_lon)    { center = [currentEvent.ctp_pin_lon, currentEvent.ctp_pin_lat]; zoom = 16; }
+    if (ldTees.length)                        { center = [ldTees[0].lon,  ldTees[0].lat];  zoom = 17; }
+    else if (currentEvent.pin_lon)             { center = [currentEvent.pin_lon, currentEvent.pin_lat]; zoom = 16; }
+    else if (ctpTees.length)                   { center = [ctpTees[0].lon, ctpTees[0].lat]; zoom = 17; }
+    else if (currentEvent.ctp_pin_lon)         { center = [currentEvent.ctp_pin_lon, currentEvent.ctp_pin_lat]; zoom = 16; }
+    else if (currentEvent.venue_lat && currentEvent.venue_lon) { center = [currentEvent.venue_lon, currentEvent.venue_lat]; zoom = 15; }
 
     // Color-coded draw styles — matches toolbar button colors
     // ['coalesce'] tries user_kind first (MapboxDraw's prefixed form) then kind (raw property)
@@ -1017,13 +1461,7 @@
       $('#hole-tabs').style.display = hasBoth ? 'flex' : 'none';
       applyHoleTabTools();
 
-      // Geocode venue if no location data found
-      if (zoom <= 4 && currentEvent.venue) {
-        fetch(`https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(currentEvent.venue)}.json?access_token=${mapboxToken}&types=poi,address&limit=1`)
-          .then(r => r.json())
-          .then(r => { if (r.features?.[0]) map.flyTo({ center: r.features[0].center, zoom: 16 }); })
-          .catch(() => {});
-      }
+      flyAdminToVenue();
     });
 
     // ── Freehand drawing ──
@@ -1063,16 +1501,27 @@
       map.getSource('freehand-preview').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: freehandPoints } });
     });
 
-    function finishFreehand() {
-      if (!isDrawingFreehand) return;
-      isDrawingFreehand = false; freehandActive = false;
+    function stopFreehand() {
+      freehandActive = false;
+      isDrawingFreehand = false;
       map.dragPan.enable();
       canvas.style.cursor = '';
       $$('.draw-kind-btn').forEach(b => b.classList.remove('is-drawing'));
+      freehandPoints = [];
+      map.getSource('freehand-preview').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
+    }
+
+    function finishFreehand() {
+      if (!isDrawingFreehand) return;
+      isDrawingFreehand = false;
+      map.dragPan.enable();
       map.getSource('freehand-preview').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
       if (freehandPoints.length < 3) {
         JORD.warn('Draw a larger area — hold mouse button and drag around the zone');
-        freehandPoints = []; return;
+        freehandPoints = [];
+        // Stay in draw mode so they can try again immediately
+        canvas.style.cursor = 'crosshair';
+        return;
       }
       const closed = [...freehandPoints, freehandPoints[0]];
       let feat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closed] }, properties: { kind: currentDrawKind } };
@@ -1081,15 +1530,27 @@
         try { feat = turf.simplify(feat, { tolerance: 0.000015, highQuality: true }); } catch {}
       }
       feat.properties = { kind: currentDrawKind };
-      const ids = draw.add(feat);
+      draw.add(feat);
       freehandPoints = [];
       syncZoneLayers();
       scheduleClipZones();
-      if (ids?.length) { try { draw.changeMode('simple_select', { featureIds: [ids[0]] }); } catch {} }
-      JORD.success(`${currentDrawKind.replace('ctp_','').replace(/_/g,' ')} drawn — drag the nodes to adjust shape`);
+      JORD.success(`${currentDrawKind.replace('ctp_','').replace(/_/g,' ')} drawn — draw again or press Esc to finish`);
+      // Stay in draw mode for the same zone
+      canvas.style.cursor = 'crosshair';
     }
     canvas.addEventListener('mouseup', finishFreehand);
     canvas.addEventListener('mouseleave', () => { if (isDrawingFreehand) finishFreehand(); });
+
+    // Escape key or click outside the map exits draw mode
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && freehandActive) { stopFreehand(); }
+    });
+    document.addEventListener('click', (e) => {
+      if (!freehandActive) return;
+      if (e.target.closest('.draw-kind-btn')) return; // zone buttons handled by startFreehand
+      if (e.target === canvas || canvas.contains(e.target)) return; // inside map
+      stopFreehand();
+    });
 
     // ── Tool buttons ──
     $('#tool-tee').onclick = async () => {
@@ -1843,6 +2304,9 @@
       list.appendChild(row);
     }
   }
+
+
+
 })();
 </script>
 </body>

@@ -154,6 +154,37 @@ db.exec(`
     type        TEXT,
     sent_at     DATETIME DEFAULT CURRENT_TIMESTAMP
   );
+
+  CREATE TABLE IF NOT EXISTS admins (
+    id                  TEXT PRIMARY KEY,
+    name                TEXT NOT NULL,
+    email               TEXT NOT NULL UNIQUE,
+    password_hash       TEXT NOT NULL,
+    role                TEXT DEFAULT 'admin',   -- super | admin
+    active              INTEGER DEFAULT 1,
+    perm_corrections    INTEGER DEFAULT 1,
+    perm_end_tournament INTEGER DEFAULT 1,
+    perm_manage_players INTEGER DEFAULT 1,
+    perm_manage_balls   INTEGER DEFAULT 1,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    token       TEXT PRIMARY KEY,
+    admin_id    TEXT NOT NULL,
+    expires_at  DATETIME NOT NULL,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (admin_id) REFERENCES admins(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    token       TEXT PRIMARY KEY,
+    admin_id    TEXT NOT NULL,
+    used        INTEGER DEFAULT 0,
+    expires_at  DATETIME NOT NULL,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (admin_id) REFERENCES admins(id)
+  );
 `);
 
 // Add rough/oob polygon columns to existing DBs that predate this feature
@@ -171,15 +202,83 @@ try { db.exec("ALTER TABLE events ADD COLUMN ctp_hole_distance_yards REAL DEFAUL
 try { db.exec("ALTER TABLE events ADD COLUMN cp_off_green_penalty_ft REAL DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE balls ADD COLUMN cp_penalty_ft REAL DEFAULT 0"); } catch {}
 
+// Venue coordinates (set when admin selects course from autocomplete)
+try { db.exec("ALTER TABLE events ADD COLUMN venue_lat REAL"); } catch {}
+try { db.exec("ALTER TABLE events ADD COLUMN venue_lon REAL"); } catch {}
+
+// Multi-admin: link events to the admin who created them
+try { db.exec("ALTER TABLE events ADD COLUMN admin_id TEXT"); } catch {}
+
+// Global leaderboard: opt-in flag per event
+try { db.exec("ALTER TABLE events ADD COLUMN global_published INTEGER DEFAULT 0"); } catch {}
+
+// ─── AUTH HELPERS ────────────────────────────────────────────────────────────
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  try {
+    const [salt, hash] = stored.split(':');
+    const check = crypto.scryptSync(password, salt, 64).toString('hex');
+    return check === hash;
+  } catch { return false; }
+}
+
+function createSession(adminId) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare('INSERT INTO sessions (token,admin_id,expires_at) VALUES (?,?,?)').run(token, adminId, expires);
+  return token;
+}
+
+function getSessionAdmin(token) {
+  if (!token) return null;
+  return db.prepare(`
+    SELECT a.* FROM sessions s
+    JOIN admins a ON a.id=s.admin_id
+    WHERE s.token=? AND s.expires_at > datetime('now') AND a.active=1
+  `).get(token) || null;
+}
+
+// Seed super admin on first run if no admins exist
+(function seedSuperAdmin() {
+  const { n } = db.prepare('SELECT COUNT(*) AS n FROM admins').get();
+  if (n > 0) return;
+  const email = env.SUPER_ADMIN_EMAIL || process.env.SUPER_ADMIN_EMAIL || 'shah82286@gmail.com';
+  db.prepare('INSERT INTO admins (id,name,email,password_hash,role) VALUES (?,?,?,?,?)')
+    .run(uid('ADM'), 'JORD Super Admin', email, hashPassword(ADMIN_PASSWORD), 'super');
+  console.log(`[Auth] Super admin created: ${email} / password from ADMIN_PASSWORD env`);
+})();
+
 // ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
 app.use(cors({ origin: '*' }));
 app.use(express.json());
 app.use(express.static('public'));
 
 function requireAuth(req, res, next) {
-  const t = req.headers['x-admin-token'] || req.query.token;
-  if (t !== ADMIN_PASSWORD) return res.status(401).json({ error: 'Unauthorized' });
+  const token = req.headers['x-admin-token'] || req.query.token;
+  const admin = getSessionAdmin(token);
+  if (!admin) return res.status(401).json({ error: 'Unauthorized' });
+  req.admin = admin;
   next();
+}
+
+function requireSuper(req, res, next) {
+  if (!req.admin || req.admin.role !== 'super') return res.status(403).json({ error: 'Super admin access required' });
+  next();
+}
+
+function requirePerm(perm) {
+  return (req, res, next) => {
+    if (!req.admin) return res.status(401).json({ error: 'Unauthorized' });
+    if (req.admin.role === 'super') return next();
+    if (!req.admin[perm]) return res.status(403).json({ error: 'Permission denied' });
+    next();
+  };
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -442,17 +541,161 @@ async function checkLeadershipChange(eventId, newLB) {
   db.prepare('UPDATE teams SET notified_lead=1 WHERE id=?').run(leader.id);
 }
 
+// ─── AUTH ROUTES ─────────────────────────────────────────────────────────────
+
+app.post('/api/auth/login', (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'email and password required' });
+  const admin = db.prepare('SELECT * FROM admins WHERE email=? AND active=1').get(email.toLowerCase().trim());
+  if (!admin || !verifyPassword(password, admin.password_hash)) {
+    return res.status(401).json({ error: 'Invalid email or password' });
+  }
+  const token = createSession(admin.id);
+  res.json({
+    token,
+    id:   admin.id,
+    name: admin.name,
+    email: admin.email,
+    role: admin.role,
+    perm_corrections:    admin.perm_corrections,
+    perm_end_tournament: admin.perm_end_tournament,
+    perm_manage_players: admin.perm_manage_players,
+    perm_manage_balls:   admin.perm_manage_balls,
+  });
+});
+
+app.post('/api/auth/logout', requireAuth, (req, res) => {
+  const token = req.headers['x-admin-token'] || req.query.token;
+  db.prepare('DELETE FROM sessions WHERE token=?').run(token);
+  res.json({ success: true });
+});
+
+app.get('/api/auth/me', requireAuth, (req, res) => {
+  const { id, name, email, role, perm_corrections, perm_end_tournament, perm_manage_players, perm_manage_balls } = req.admin;
+  res.json({ id, name, email, role, perm_corrections, perm_end_tournament, perm_manage_players, perm_manage_balls });
+});
+
+app.post('/api/auth/forgot-password', (req, res) => {
+  const { email } = req.body;
+  if (!email) return res.status(400).json({ error: 'email required' });
+  const admin = db.prepare('SELECT * FROM admins WHERE email=? AND active=1').get(email.toLowerCase().trim());
+  if (!admin) return res.json({ success: true, message: 'If that email exists, a reset link has been generated.' });
+  const token = crypto.randomBytes(24).toString('hex');
+  const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+  db.prepare('INSERT INTO password_reset_tokens (token,admin_id,expires_at) VALUES (?,?,?)').run(token, admin.id, expires);
+  const resetUrl = `${APP_URL}/admin?reset_token=${token}`;
+  // When Klaviyo is wired up, send email here. For now, super admin sees this in /api/admins/reset-requests
+  res.json({ success: true, message: 'Reset link generated. Contact your JORD administrator to receive it.', _reset_url: resetUrl });
+});
+
+app.post('/api/auth/forgot-username', (req, res) => {
+  const { name } = req.body;
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const admin = db.prepare("SELECT email FROM admins WHERE name LIKE ? AND active=1").get(`%${name.trim()}%`);
+  if (!admin) return res.json({ success: true, hint: null });
+  const [user, domain] = admin.email.split('@');
+  const masked = user.slice(0, 2) + '***@' + domain;
+  res.json({ success: true, hint: masked });
+});
+
+app.post('/api/auth/reset-password', (req, res) => {
+  const { token, password } = req.body;
+  if (!token || !password) return res.status(400).json({ error: 'token and password required' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const row = db.prepare("SELECT * FROM password_reset_tokens WHERE token=? AND used=0 AND expires_at > datetime('now')").get(token);
+  if (!row) return res.status(400).json({ error: 'Reset link is invalid or has expired' });
+  db.prepare('UPDATE admins SET password_hash=? WHERE id=?').run(hashPassword(password), row.admin_id);
+  db.prepare('UPDATE password_reset_tokens SET used=1 WHERE token=?').run(token);
+  db.prepare('DELETE FROM sessions WHERE admin_id=?').run(row.admin_id); // invalidate all sessions
+  res.json({ success: true, message: 'Password updated. Please log in again.' });
+});
+
+// ─── ADMIN MANAGEMENT (super only) ───────────────────────────────────────────
+
+app.get('/api/admins', requireAuth, requireSuper, (req, res) => {
+  const admins = db.prepare('SELECT id,name,email,role,active,perm_corrections,perm_end_tournament,perm_manage_players,perm_manage_balls,created_at FROM admins ORDER BY created_at ASC').all();
+  // Attach pending reset tokens for display
+  const resets = db.prepare("SELECT * FROM password_reset_tokens WHERE used=0 AND expires_at > datetime('now') ORDER BY created_at DESC").all();
+  const resetMap = {};
+  for (const r of resets) resetMap[r.admin_id] = r;
+  res.json(admins.map(a => ({ ...a, pending_reset: resetMap[a.id] || null })));
+});
+
+app.post('/api/admins', requireAuth, requireSuper, (req, res) => {
+  const { name, email, password, role } = req.body;
+  if (!name || !email || !password) return res.status(400).json({ error: 'name, email, password required' });
+  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const existing = db.prepare('SELECT id FROM admins WHERE email=?').get(email.toLowerCase().trim());
+  if (existing) return res.status(400).json({ error: 'An admin with that email already exists' });
+  const id = uid('ADM');
+  db.prepare('INSERT INTO admins (id,name,email,password_hash,role) VALUES (?,?,?,?,?)')
+    .run(id, name.trim(), email.toLowerCase().trim(), hashPassword(password), role === 'super' ? 'super' : 'admin');
+  const created = db.prepare('SELECT id,name,email,role,active,perm_corrections,perm_end_tournament,perm_manage_players,perm_manage_balls,created_at FROM admins WHERE id=?').get(id);
+  res.json(created);
+});
+
+app.patch('/api/admins/:id', requireAuth, requireSuper, (req, res) => {
+  const allowed = ['name','email','role','active','perm_corrections','perm_end_tournament','perm_manage_players','perm_manage_balls'];
+  const updates = Object.entries(req.body).filter(([k]) => allowed.includes(k));
+  if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
+  db.prepare(`UPDATE admins SET ${updates.map(([k]) => `${k}=?`).join(',')} WHERE id=?`)
+    .run(...updates.map(([,v]) => v), req.params.id);
+  res.json(db.prepare('SELECT id,name,email,role,active,perm_corrections,perm_end_tournament,perm_manage_players,perm_manage_balls FROM admins WHERE id=?').get(req.params.id));
+});
+
+app.delete('/api/admins/:id', requireAuth, requireSuper, (req, res) => {
+  const admin = db.prepare('SELECT * FROM admins WHERE id=?').get(req.params.id);
+  if (!admin) return res.status(404).json({ error: 'Admin not found' });
+  if (admin.role === 'super' && db.prepare("SELECT COUNT(*) AS n FROM admins WHERE role='super' AND active=1").get().n <= 1) {
+    return res.status(400).json({ error: 'Cannot delete the last super admin' });
+  }
+  db.prepare('DELETE FROM sessions WHERE admin_id=?').run(req.params.id);
+  db.prepare('DELETE FROM admins WHERE id=?').run(req.params.id);
+  res.json({ success: true });
+});
+
+app.post('/api/admins/:id/reset-password', requireAuth, requireSuper, (req, res) => {
+  const admin = db.prepare('SELECT * FROM admins WHERE id=?').get(req.params.id);
+  if (!admin) return res.status(404).json({ error: 'Admin not found' });
+  const token = crypto.randomBytes(24).toString('hex');
+  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
+  db.prepare('UPDATE password_reset_tokens SET used=1 WHERE admin_id=? AND used=0').run(req.params.id); // invalidate old tokens
+  db.prepare('INSERT INTO password_reset_tokens (token,admin_id,expires_at) VALUES (?,?,?)').run(token, req.params.id, expires);
+  const resetUrl = `${APP_URL}/admin?reset_token=${token}`;
+  res.json({ success: true, reset_url: resetUrl });
+});
+
+app.patch('/api/admins/:id/password', requireAuth, requireSuper, (req, res) => {
+  const { password } = req.body;
+  if (!password || password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  db.prepare('UPDATE admins SET password_hash=? WHERE id=?').run(hashPassword(password), req.params.id);
+  db.prepare('DELETE FROM sessions WHERE admin_id=?').run(req.params.id);
+  res.json({ success: true });
+});
+
 // ─── API: EVENTS ─────────────────────────────────────────────────────────────
 app.get('/api/events', requireAuth, (req, res) => {
-  const events = db.prepare(`
-    SELECT e.*,
-      COUNT(DISTINCT t.id)       AS team_count,
-      COUNT(DISTINCT b.drop_code) AS ball_count
-    FROM events e
-    LEFT JOIN teams t ON t.event_id=e.id
-    LEFT JOIN balls b ON b.event_id=e.id
-    GROUP BY e.id ORDER BY e.starts_at DESC
-  `).all();
+  const isSuper = req.admin.role === 'super';
+  const events = isSuper
+    ? db.prepare(`
+        SELECT e.*,
+          COUNT(DISTINCT t.id)        AS team_count,
+          COUNT(DISTINCT b.drop_code) AS ball_count
+        FROM events e
+        LEFT JOIN teams t ON t.event_id=e.id
+        LEFT JOIN balls b ON b.event_id=e.id
+        GROUP BY e.id ORDER BY e.starts_at DESC
+      `).all()
+    : db.prepare(`
+        SELECT e.*,
+          COUNT(DISTINCT t.id)        AS team_count,
+          COUNT(DISTINCT b.drop_code) AS ball_count
+        FROM events e
+        LEFT JOIN teams t ON t.event_id=e.id
+        LEFT JOIN balls b ON b.event_id=e.id
+        WHERE e.admin_id=?
+        GROUP BY e.id ORDER BY e.starts_at DESC
+      `).all(req.admin.id);
   res.json(events);
 });
 
@@ -495,13 +738,13 @@ app.post('/api/events', requireAuth, (req, res) => {
   const id = uid('EVT');
   db.prepare(`INSERT INTO events
     (id,name,venue,starts_at,ends_at,has_longest_drive,has_closest_pin,combined_scoring,
-     allow_rough,rough_penalty_mode,rough_fixed_yards,allow_oob,oob_penalty_mode,oob_fixed_yards,hole_distance_yards)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+     allow_rough,rough_penalty_mode,rough_fixed_yards,allow_oob,oob_penalty_mode,oob_fixed_yards,hole_distance_yards,admin_id)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(id, name, venue||null, starts_at, ends_at,
       has_longest_drive?1:0, has_closest_pin?1:0, combined_scoring?1:0,
       allow_rough?1:0, rough_penalty_mode||'perpendicular', rough_fixed_yards||0,
       allow_oob?1:0, oob_penalty_mode||'half_hole', oob_fixed_yards||0,
-      hole_distance_yards||300);
+      hole_distance_yards||300, req.admin.id);
   res.json(db.prepare('SELECT * FROM events WHERE id=?').get(id));
 });
 
@@ -512,7 +755,7 @@ app.patch('/api/events/:id', requireAuth, (req, res) => {
     'fairway_polygon','rough_polygon','oob_polygon','green_polygon',
     'pin_lat','pin_lon',
     'ctp_green_polygon','ctp_pin_lat','ctp_pin_lon','ctp_hole_distance_yards',
-    'cp_off_green_penalty_ft','admin_phone'];
+    'cp_off_green_penalty_ft','admin_phone','venue_lat','venue_lon'];
   const updates = Object.entries(req.body).filter(([k]) => allowed.includes(k));
   if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
   db.prepare(`UPDATE events SET ${updates.map(([k])=>`${k}=?`).join(',')} WHERE id=?`)
@@ -1085,6 +1328,84 @@ app.get('/api/config', (req, res) => {
   res.json({ mapbox_token: MAPBOX_TOKEN, version: '1.0.0', build_date: '2026-04-26' });
 });
 
+// ─── COURSE SEARCH (from courses.csv) ────────────────────────────────────────
+let _coursesCache = null;
+function loadCourses() {
+  if (_coursesCache) return _coursesCache;
+  try {
+    const text = fs.readFileSync('./data/courses.csv', 'utf8');
+    const rows = [];
+    for (const raw of text.split('\n')) {
+      const line = raw.trim();
+      if (!line) continue;
+      const cols = parseCSVRow(line);
+      if (cols.length < 3) continue;
+      const lon  = parseFloat(cols[0]);
+      const lat  = parseFloat(cols[1]);
+      if (isNaN(lon) || isNaN(lat)) continue;
+      const nameCity = cols[2] || '';
+      const details  = cols[3] || '';
+      const dash = nameCity.lastIndexOf('-');
+      const name      = dash > 0 ? nameCity.slice(0, dash).trim() : nameCity.trim();
+      const cityState = dash > 0 ? nameCity.slice(dash + 1).trim() : '';
+      const phoneMatch = details.match(/\(\d{3}\)\s*\d{3}-\d{4}/);
+      const phone = phoneMatch ? phoneMatch[0] : null;
+      const holesMatch = details.match(/\((\d+) Holes?\)/i);
+      const holes = holesMatch ? parseInt(holesMatch[1]) : null;
+      const typeMatch = details.match(/^\(([^)]+)\)/);
+      const type = typeMatch ? typeMatch[1] : null;
+      rows.push({ name, cityState, lat, lon, phone, holes, type });
+    }
+    _coursesCache = rows;
+    console.log(`Loaded ${rows.length} courses from courses.csv`);
+    return rows;
+  } catch (e) {
+    console.warn('courses.csv not loaded:', e.message);
+    _coursesCache = [];
+    return [];
+  }
+}
+
+function parseCSVRow(line) {
+  const cols = []; let cur = ''; let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQ = !inQ; }
+    else if (c === ',' && !inQ) { cols.push(cur); cur = ''; }
+    else { cur += c; }
+  }
+  cols.push(cur);
+  return cols;
+}
+
+app.get('/api/courses/list', requireAuth, (req, res) => {
+  const courses = loadCourses();
+  const q = (req.query.q || '').toLowerCase().trim();
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(100, parseInt(req.query.limit) || 50);
+
+  let filtered = q.length >= 2
+    ? courses.filter(c => c.name.toLowerCase().includes(q) || c.cityState.toLowerCase().includes(q))
+    : courses;
+
+  const total = filtered.length;
+  const offset = (page - 1) * limit;
+  const items = filtered.slice(offset, offset + limit).map(({ name, cityState, lat, lon, holes, type }) => ({ name, cityState, lat, lon, holes, type }));
+
+  res.json({ total, page, limit, items });
+});
+
+app.get('/api/courses/search', (req, res) => {
+  const q = (req.query.q || '').toLowerCase().trim();
+  if (q.length < 2) return res.json([]);
+  const courses = loadCourses();
+  const results = courses
+    .filter(c => c.name.toLowerCase().includes(q) || c.cityState.toLowerCase().includes(q))
+    .slice(0, 10)
+    .map(({ name, cityState, lat, lon, phone, holes, type }) => ({ name, cityState, lat, lon, phone, holes, type }));
+  res.json(results);
+});
+
 // ─── SERVER INFO (local IP + ngrok tunnel URL for phone testing) ─────────────
 app.get('/api/server-info', async (req, res) => {
   const os = require('os');
@@ -1154,11 +1475,141 @@ app.get('/api/events/:eventId/export.csv', requireAuth, (req, res) => {
   res.send(header + rows);
 });
 
+// ─── GLOBAL LEADERBOARD ──────────────────────────────────────────────────────
+
+// Toggle event's global_published flag (super admin only)
+app.patch('/api/events/:id/global-publish', requireAuth, requireSuper, (req, res) => {
+  const { published } = req.body;
+  db.prepare('UPDATE events SET global_published=? WHERE id=?').run(published ? 1 : 0, req.params.id);
+  res.json(db.prepare('SELECT id,name,venue,global_published FROM events WHERE id=?').get(req.params.id));
+});
+
+// Monthly top 10 fairway-only drives (public — no auth)
+app.get('/api/global/leaderboard', (req, res) => {
+  const month = req.query.month; // e.g. "2026-05" — if omitted, current month
+  let dateFilter;
+  if (month && /^\d{4}-\d{2}$/.test(month)) {
+    dateFilter = `strftime('%Y-%m', b.ld_scanned_at) = '${month}'`;
+  } else {
+    dateFilter = `strftime('%Y-%m', b.ld_scanned_at) = strftime('%Y-%m', 'now')`;
+  }
+  const rows = db.prepare(`
+    SELECT b.first_name, b.last_name, b.ld_final_yards, b.ld_raw_yards,
+           b.ld_scanned_at, b.drop_code,
+           t.team_name, e.name AS event_name, e.venue, e.id AS event_id
+    FROM balls b
+    JOIN events e ON e.id = b.event_id
+    LEFT JOIN teams t ON t.id = b.team_id
+    WHERE e.global_published = 1
+      AND b.ld_location_type = 'fairway'
+      AND b.ld_final_yards > 0
+      AND ${dateFilter}
+    ORDER BY b.ld_final_yards DESC
+    LIMIT 10
+  `).all();
+
+  // Available months that have data
+  const months = db.prepare(`
+    SELECT DISTINCT strftime('%Y-%m', b.ld_scanned_at) AS month
+    FROM balls b
+    JOIN events e ON e.id = b.event_id
+    WHERE e.global_published = 1
+      AND b.ld_location_type = 'fairway'
+      AND b.ld_final_yards > 0
+    ORDER BY month DESC
+    LIMIT 24
+  `).all().map(r => r.month).filter(Boolean);
+
+  res.json({
+    month: month || new Date().toISOString().slice(0, 7),
+    available_months: months,
+    entries: rows.map((r, i) => ({
+      rank: i + 1,
+      player_name: `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Anonymous',
+      team_name: r.team_name || '—',
+      yards: Math.round(r.ld_final_yards),
+      event_name: r.event_name,
+      venue: r.venue || '—',
+      scanned_at: r.ld_scanned_at,
+    }))
+  });
+});
+
+// Course all-time records: best fairway drive per venue (public)
+app.get('/api/global/course-records', (req, res) => {
+  const rows = db.prepare(`
+    SELECT e.venue,
+           MAX(b.ld_final_yards) AS record_yards,
+           b.first_name, b.last_name, t.team_name,
+           e.name AS event_name, b.ld_scanned_at
+    FROM balls b
+    JOIN events e ON e.id = b.event_id
+    LEFT JOIN teams t ON t.id = b.team_id
+    WHERE e.global_published = 1
+      AND b.ld_location_type = 'fairway'
+      AND b.ld_final_yards > 0
+      AND e.venue IS NOT NULL AND e.venue != ''
+    GROUP BY e.venue
+    ORDER BY record_yards DESC
+    LIMIT 50
+  `).all();
+
+  res.json(rows.map(r => ({
+    venue:        r.venue,
+    record_yards: Math.round(r.record_yards),
+    held_by:      `${r.first_name || ''} ${r.last_name || ''}`.trim() || 'Anonymous',
+    team_name:    r.team_name || '—',
+    event_name:   r.event_name,
+    set_at:       r.ld_scanned_at,
+  })));
+});
+
+// Hall of Fame for a specific venue (used on ended tournament page)
+app.get('/api/global/venue-record', (req, res) => {
+  const { venue } = req.query;
+  if (!venue) return res.status(400).json({ error: 'venue required' });
+  const row = db.prepare(`
+    SELECT b.first_name, b.last_name, b.ld_final_yards, b.ld_scanned_at,
+           t.team_name, e.name AS event_name, e.id AS event_id
+    FROM balls b
+    JOIN events e ON e.id = b.event_id
+    LEFT JOIN teams t ON t.id = b.team_id
+    WHERE e.global_published = 1
+      AND b.ld_location_type = 'fairway'
+      AND b.ld_final_yards > 0
+      AND LOWER(e.venue) = LOWER(?)
+    ORDER BY b.ld_final_yards DESC
+    LIMIT 1
+  `).get(venue);
+  if (!row) return res.json({ record: null });
+  res.json({ record: {
+    player_name: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Anonymous',
+    team_name:   row.team_name || '—',
+    yards:       Math.round(row.ld_final_yards),
+    event_name:  row.event_name,
+    set_at:      row.ld_scanned_at,
+  }});
+});
+
+// List all published events (super admin — for management panel)
+app.get('/api/global/events', requireAuth, requireSuper, (req, res) => {
+  const events = db.prepare(`
+    SELECT e.id, e.name, e.venue, e.starts_at, e.status, e.global_published,
+      COUNT(DISTINCT CASE WHEN b.ld_location_type='fairway' AND b.ld_final_yards > 0 THEN b.drop_code END) AS fairway_count
+    FROM events e
+    LEFT JOIN balls b ON b.event_id = e.id
+    WHERE e.status = 'ended'
+    GROUP BY e.id
+    ORDER BY e.starts_at DESC
+  `).all();
+  res.json(events);
+});
+
 // ─── PAGES ───────────────────────────────────────────────────────────────────
 const pages = { '/admin': 'admin.html', '/register/:id': 'register.html',
   '/scan': 'scan.html', '/scan/:code': 'scan.html', '/leaderboard/:id': 'leaderboard.html',
   '/dashboard/:eid/:code': 'dashboard.html', '/monitor/:id': 'monitor.html',
-  '/test': 'test.html' };
+  '/global': 'global.html', '/test': 'test.html' };
 Object.entries(pages).forEach(([route, file]) => {
   app.get(route, (_, res) => res.sendFile(path.join(__dirname, 'public', file)));
 });

@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Global Leaderboard · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  .global-hero {
+    text-align: center;
+    padding: var(--s-8) var(--s-4) var(--s-6);
+    border-bottom: 1px solid var(--border);
+    margin-bottom: var(--s-5);
+  }
+  .global-hero .eyebrow { font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--primary); font-weight: 700; margin-bottom: var(--s-2); }
+  .global-hero h1 { font-family: var(--font-display); font-size: clamp(2rem, 6vw, 3.5rem); margin-bottom: var(--s-2); }
+  .global-hero .sub { color: var(--ink-2); font-size: 15px; max-width: 440px; margin: 0 auto; }
+
+  .tab-bar { display: flex; gap: var(--s-2); border-bottom: 2px solid var(--border); margin-bottom: var(--s-5); }
+  .tab-btn { padding: 10px 20px; font-weight: 600; font-size: 14px; cursor: pointer; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -2px; background: none; border-top: none; border-left: none; border-right: none; transition: all var(--t-fast); }
+  .tab-btn.is-active { color: var(--primary); border-bottom-color: var(--primary); }
+  .tab-panel { display: none; }
+  .tab-panel.is-active { display: block; }
+
+  .month-row { display: flex; gap: var(--s-3); align-items: center; margin-bottom: var(--s-4); flex-wrap: wrap; }
+  .month-row label { font-size: 13px; color: var(--ink-2); }
+  .month-row select { padding: 7px 12px; border-radius: var(--r-sm); background: var(--surface); border: 1px solid var(--border); color: var(--ink); font-size: 14px; font-weight: 500; }
+
+  .lb-row {
+    display: grid;
+    grid-template-columns: 44px 1fr 100px;
+    gap: var(--s-3);
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+    transition: background var(--t-fast);
+  }
+  .lb-row:hover { background: var(--surface-2); }
+  .lb-row.is-leader { background: linear-gradient(90deg, rgba(190,255,58,0.12) 0%, transparent 100%); border-left: 3px solid var(--primary); }
+  .rank-badge { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; background: var(--surface-2); color: var(--ink-2); flex-shrink: 0; }
+  .rank-badge.rank-1 { background: #FFD700; color: #1a1a1a; }
+  .rank-badge.rank-2 { background: #C0C0C0; color: #1a1a1a; }
+  .rank-badge.rank-3 { background: #CD7F32; color: #fff; }
+  .yards-badge { font-family: var(--font-mono); font-size: 18px; font-weight: 700; color: var(--primary); text-align: right; }
+  .player-name { font-weight: 600; font-size: 15px; }
+  .player-meta { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+
+  .record-row {
+    display: grid;
+    grid-template-columns: 1fr 120px;
+    gap: var(--s-3);
+    align-items: center;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+  .record-row:hover { background: var(--surface-2); }
+  .venue-name { font-weight: 600; font-size: 14px; }
+  .venue-meta { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
+  .record-yards { font-family: var(--font-mono); font-size: 18px; font-weight: 700; color: var(--primary); text-align: right; }
+  .record-holder { font-size: 12px; color: var(--ink-2); text-align: right; margin-top: 2px; }
+
+  .empty-state { text-align: center; padding: var(--s-8) var(--s-4); color: var(--ink-2); }
+  .empty-state .icon { font-size: 48px; margin-bottom: var(--s-3); }
+
+  @media (max-width: 480px) {
+    .lb-row { grid-template-columns: 36px 1fr 80px; padding: 12px 14px; }
+    .rank-badge { width: 30px; height: 30px; font-size: 13px; }
+    .yards-badge { font-size: 15px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="global-hero">
+  <a href="/" style="display:inline-block;margin-bottom:var(--s-3);">
+    <img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077"
+         alt="JORD Golf" style="height:48px;width:auto;">
+  </a>
+  <div class="eyebrow">JORD Golf</div>
+  <h1>Global Leaderboard</h1>
+  <p class="sub">The longest fairway drives across all JORD Golf tournaments.</p>
+</div>
+
+<div class="container" style="max-width:700px;">
+
+  <div class="tab-bar">
+    <button class="tab-btn is-active" data-tab="monthly">🏆 Monthly Top 10</button>
+    <button class="tab-btn" data-tab="records">📍 Course Records</button>
+  </div>
+
+  <!-- Monthly top 10 -->
+  <div class="tab-panel is-active" id="tab-monthly">
+    <div class="month-row">
+      <label>Month:</label>
+      <select id="month-select">
+        <option value="">Loading…</option>
+      </select>
+      <span id="month-note" style="font-size:13px;color:var(--ink-2);">Fairway drives only · resets each month</span>
+    </div>
+    <div class="card" id="monthly-list" style="padding:0;overflow:hidden;">
+      <div class="empty-state"><div class="icon">⛳</div><p>Loading…</p></div>
+    </div>
+  </div>
+
+  <!-- Course records -->
+  <div class="tab-panel" id="tab-records">
+    <p style="font-size:14px;color:var(--ink-2);margin-bottom:var(--s-4);">All-time longest fairway drive ever recorded at each course.</p>
+    <div class="card" id="records-list" style="padding:0;overflow:hidden;">
+      <div class="empty-state"><div class="icon">⛳</div><p>Loading…</p></div>
+    </div>
+  </div>
+
+</div>
+
+<footer style="text-align:center;padding:var(--s-6) var(--s-4);color:var(--ink-2);font-size:13px;border-top:1px solid var(--border);margin-top:var(--s-8);">
+  Powered by <strong>JORD Golf</strong> · <a href="https://jordgolf.com" style="color:var(--primary)">jordgolf.com</a>
+</footer>
+
+<script src="/js/jord.js"></script>
+<script>
+(async function() {
+  const $ = JORD.$, el = JORD.el;
+
+  // ── Tabs ──
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('is-active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('is-active'));
+      btn.classList.add('is-active');
+      document.getElementById('tab-' + btn.dataset.tab).classList.add('is-active');
+      if (btn.dataset.tab === 'records') loadRecords();
+    });
+  });
+
+  // ── Monthly leaderboard ──
+  let currentMonth = new Date().toISOString().slice(0, 7);
+
+  async function loadMonthly(month) {
+    const list = $('#monthly-list');
+    try {
+      const data = await JORD.api('/api/global/leaderboard' + (month ? '?month=' + month : ''));
+      currentMonth = data.month;
+
+      // Populate month selector
+      const sel = $('#month-select');
+      sel.innerHTML = '';
+      const months = data.available_months.length ? data.available_months : [data.month];
+      if (!months.includes(data.month)) months.unshift(data.month);
+      months.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = formatMonth(m);
+        opt.selected = m === data.month;
+        sel.appendChild(opt);
+      });
+
+      // Render entries
+      if (!data.entries.length) {
+        list.innerHTML = '<div class="empty-state"><div class="icon">⛳</div><p>No fairway drives recorded this month yet.</p></div>';
+        return;
+      }
+      list.innerHTML = '';
+      data.entries.forEach(e => {
+        const row = el('div', { class: 'lb-row' + (e.rank === 1 ? ' is-leader' : '') },
+          el('div', { class: 'rank-badge rank-' + e.rank }, e.rank <= 3 ? ['🥇','🥈','🥉'][e.rank-1] : String(e.rank)),
+          el('div', null,
+            el('div', { class: 'player-name' }, e.player_name),
+            el('div', { class: 'player-meta' }, e.team_name + ' · ' + (e.venue || e.event_name))
+          ),
+          el('div', { class: 'yards-badge' }, e.yards + ' yd')
+        );
+        list.appendChild(row);
+      });
+    } catch (err) {
+      list.innerHTML = `<div class="empty-state"><p style="color:var(--red);">${err.message}</p></div>`;
+    }
+  }
+
+  $('#month-select').addEventListener('change', e => loadMonthly(e.target.value));
+  await loadMonthly('');
+
+  // ── Course records ──
+  async function loadRecords() {
+    const list = $('#records-list');
+    if (list.dataset.loaded) return;
+    list.dataset.loaded = '1';
+    try {
+      const records = await JORD.api('/api/global/course-records');
+      if (!records.length) {
+        list.innerHTML = '<div class="empty-state"><div class="icon">🏌️</div><p>No course records yet. Complete a tournament to set one.</p></div>';
+        return;
+      }
+      list.innerHTML = '';
+      records.forEach(r => {
+        const row = el('div', { class: 'record-row' },
+          el('div', null,
+            el('div', { class: 'venue-name' }, r.venue),
+            el('div', { class: 'venue-meta' }, r.event_name)
+          ),
+          el('div', null,
+            el('div', { class: 'record-yards' }, r.record_yards + ' yd'),
+            el('div', { class: 'record-holder' }, r.held_by + (r.team_name !== '—' ? ' · ' + r.team_name : ''))
+          )
+        );
+        list.appendChild(row);
+      });
+    } catch (err) {
+      list.innerHTML = `<div class="empty-state"><p style="color:var(--red);">${err.message}</p></div>`;
+    }
+  }
+
+  function formatMonth(m) {
+    if (!m) return '';
+    const [y, mo] = m.split('-');
+    return new Date(parseInt(y), parseInt(mo) - 1, 1).toLocaleString('default', { month: 'long', year: 'numeric' });
+  }
+})();
+</script>
+</body>
+</html>
