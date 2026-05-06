@@ -1424,7 +1424,7 @@ let _coursesCache = null;
 function loadCourses() {
   if (_coursesCache) return _coursesCache;
   try {
-    const text = fs.readFileSync('./data/courses.csv', 'utf8');
+    const text = fs.readFileSync('./courses.csv', 'utf8');
     const rows = [];
     for (const raw of text.split('\n')) {
       const line = raw.trim();
