@@ -7,8 +7,8 @@ Nothing built until confirmed. Move to In Progress / Done as we go.
 
 ## Backlog
 
-**#PRE-1 — Get on HTTPS hosting**
-Required before any live events. iPhone Safari blocks GPS access on plain HTTP — without HTTPS, no iPhone user can submit a scan. Need an SSL certificate on the production server (free via Let's Encrypt on most hosts). Must also update `APP_URL` in `.env` to the HTTPS domain.
+**#PRE-1 — Get on HTTPS hosting** ✓
+Deployed to Railway. Live at https://tournament.jordgolf.com. SSL auto-managed by Railway. Persistent volume at /app/data for SQLite. APP_URL updated. Completed May 2026.
 
 **#PRE-2 — Wire up or formally defer SMS/email (Klaviyo)**
 Klaviyo is integrated in the code but currently mocked — no texts or emails actually send. Options: (a) add the real Klaviyo API key and test the sends, or (b) formally decide to defer and set client expectations in writing before first paid event.

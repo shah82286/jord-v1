@@ -1,0 +1,730 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JORD Golf — System Summary</title>
+  <style>
+    /* ── Screen styles ─────────────────────────────── */
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Georgia', serif;
+      font-size: 14px;
+      line-height: 1.7;
+      color: #1a1a1a;
+      background: #f5f5f0;
+      padding: 40px 20px;
+    }
+
+    .page {
+      max-width: 820px;
+      margin: 0 auto;
+      background: #fff;
+      padding: 64px 72px;
+      box-shadow: 0 4px 32px rgba(0,0,0,0.1);
+    }
+
+    /* ── Cover ─────────────────────────────────────── */
+    .cover {
+      text-align: center;
+      padding: 60px 0 80px;
+      border-bottom: 3px solid #2d5a1b;
+      margin-bottom: 56px;
+    }
+
+    .cover .logo-text {
+      font-size: 56px;
+      font-weight: 900;
+      letter-spacing: -2px;
+      color: #2d5a1b;
+      font-family: 'Georgia', serif;
+    }
+
+    .cover .logo-sub {
+      font-size: 13px;
+      letter-spacing: 6px;
+      text-transform: uppercase;
+      color: #6a8c5a;
+      margin-top: 4px;
+    }
+
+    .cover h1 {
+      font-size: 28px;
+      font-weight: 700;
+      margin-top: 40px;
+      color: #1a1a1a;
+      line-height: 1.3;
+    }
+
+    .cover .meta {
+      margin-top: 20px;
+      font-size: 13px;
+      color: #666;
+    }
+
+    .cover .version-badge {
+      display: inline-block;
+      background: #2d5a1b;
+      color: #fff;
+      font-size: 12px;
+      font-family: 'Courier New', monospace;
+      padding: 4px 14px;
+      border-radius: 20px;
+      margin-top: 12px;
+      letter-spacing: 1px;
+    }
+
+    /* ── Print button (screen only) ───────────────── */
+    .print-bar {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+
+    .print-btn {
+      background: #2d5a1b;
+      color: #fff;
+      border: none;
+      padding: 12px 32px;
+      font-size: 15px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: inherit;
+      letter-spacing: 0.5px;
+    }
+
+    .print-btn:hover { background: #3d7a27; }
+
+    .print-note {
+      font-size: 12px;
+      color: #888;
+      margin-top: 8px;
+    }
+
+    /* ── Headings ──────────────────────────────────── */
+    h2 {
+      font-size: 22px;
+      font-weight: 700;
+      color: #2d5a1b;
+      margin-top: 56px;
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 2px solid #d4e8c8;
+    }
+
+    h3 {
+      font-size: 16px;
+      font-weight: 700;
+      color: #1a1a1a;
+      margin-top: 28px;
+      margin-bottom: 8px;
+    }
+
+    h4 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #3d7a27;
+      margin-top: 20px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    /* ── Body text ─────────────────────────────────── */
+    p { margin-bottom: 12px; }
+
+    ul, ol {
+      margin-left: 24px;
+      margin-bottom: 12px;
+    }
+
+    li { margin-bottom: 5px; }
+
+    strong { color: #1a1a1a; }
+
+    /* ── Tables ────────────────────────────────────── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0 24px;
+      font-size: 13px;
+    }
+
+    th {
+      background: #edf5e8;
+      color: #2d5a1b;
+      font-weight: 700;
+      text-align: left;
+      padding: 8px 12px;
+      border: 1px solid #c8dfc0;
+    }
+
+    td {
+      padding: 7px 12px;
+      border: 1px solid #dce8d4;
+      vertical-align: top;
+    }
+
+    tr:nth-child(even) td { background: #f8fbf6; }
+
+    /* ── Code / mono ──────────────────────────────── */
+    code {
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      background: #f0f4ed;
+      border: 1px solid #ccddc2;
+      border-radius: 3px;
+      padding: 1px 5px;
+      color: #2d5a1b;
+    }
+
+    pre {
+      background: #f0f4ed;
+      border: 1px solid #ccddc2;
+      border-radius: 6px;
+      padding: 16px 18px;
+      font-family: 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      overflow-x: auto;
+      margin: 12px 0 20px;
+      color: #1a3a10;
+    }
+
+    /* ── Callout boxes ─────────────────────────────── */
+    .callout {
+      border-left: 4px solid #2d5a1b;
+      background: #f3f9ee;
+      padding: 14px 18px;
+      margin: 16px 0 20px;
+      border-radius: 0 6px 6px 0;
+    }
+
+    .callout.warning {
+      border-left-color: #c97a00;
+      background: #fdf8ee;
+    }
+
+    .callout.danger {
+      border-left-color: #c0392b;
+      background: #fef6f5;
+    }
+
+    .callout-title {
+      font-weight: 700;
+      font-size: 13px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .callout .callout-title { color: #2d5a1b; }
+    .callout.warning .callout-title { color: #c97a00; }
+    .callout.danger .callout-title { color: #c0392b; }
+
+    /* ── Status chips ──────────────────────────────── */
+    .chip {
+      display: inline-block;
+      font-size: 11px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 12px;
+      margin: 2px 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .chip-green { background: #d4f0c8; color: #1e5c10; }
+    .chip-yellow { background: #fdf0c8; color: #7a5c00; }
+    .chip-red { background: #fdd8d8; color: #7a1010; }
+
+    /* ── Page numbers ──────────────────────────────── */
+    .section-number {
+      display: inline-block;
+      background: #2d5a1b;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      width: 24px;
+      height: 24px;
+      line-height: 24px;
+      text-align: center;
+      border-radius: 50%;
+      margin-right: 10px;
+      vertical-align: middle;
+      font-family: 'Courier New', monospace;
+    }
+
+    /* ── Flow diagram (text-based) ─────────────────── */
+    .flow {
+      background: #f8fbf6;
+      border: 1px solid #ccddc2;
+      border-radius: 8px;
+      padding: 20px 24px;
+      margin: 16px 0;
+    }
+
+    .flow-step {
+      display: flex;
+      align-items: flex-start;
+      margin-bottom: 10px;
+    }
+
+    .flow-step:last-child { margin-bottom: 0; }
+
+    .flow-num {
+      background: #2d5a1b;
+      color: #fff;
+      font-size: 11px;
+      font-weight: 700;
+      width: 22px;
+      height: 22px;
+      min-width: 22px;
+      line-height: 22px;
+      text-align: center;
+      border-radius: 50%;
+      margin-right: 12px;
+      margin-top: 2px;
+      font-family: 'Courier New', monospace;
+    }
+
+    .flow-arrow {
+      color: #6a8c5a;
+      text-align: center;
+      padding: 2px 0 2px 34px;
+      font-size: 18px;
+    }
+
+    /* ── Footer ────────────────────────────────────── */
+    .doc-footer {
+      margin-top: 64px;
+      padding-top: 24px;
+      border-top: 2px solid #d4e8c8;
+      text-align: center;
+      font-size: 12px;
+      color: #888;
+    }
+
+    /* ── Print styles ──────────────────────────────── */
+    @media print {
+      body { background: #fff; padding: 0; }
+      .page { box-shadow: none; padding: 0; max-width: 100%; }
+      .print-bar { display: none; }
+      .cover { padding: 40px 0 60px; }
+      h2 { page-break-before: auto; }
+      h3 { page-break-after: avoid; }
+      table { page-break-inside: avoid; }
+      .callout { page-break-inside: avoid; }
+      pre { page-break-inside: avoid; }
+      @page {
+        margin: 20mm 18mm;
+        size: A4;
+      }
+    }
+  </style>
+</head>
+<body>
+
+<div class="print-bar">
+  <button class="print-btn" onclick="window.print()">🖨 Print / Save as PDF</button>
+  <p class="print-note">Chrome: File → Print → Destination: Save as PDF</p>
+</div>
+
+<div class="page">
+
+  <!-- ═══════════════════════════════════════════════
+       COVER
+  ═══════════════════════════════════════════════ -->
+  <div class="cover">
+    <div class="logo-text">JORD</div>
+    <div class="logo-sub">Golf Tournament System</div>
+    <h1>Complete System Summary<br>What We Built &amp; How It Works</h1>
+    <div class="meta">Prepared May 2026</div>
+    <div class="version-badge">Version 3.0.0</div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════
+       1. WHAT IS JORD
+  ═══════════════════════════════════════════════ -->
+  <h2><span class="section-number">1</span> What Is JORD Golf?</h2>
+
+  <p>JORD is a <strong>web-based tournament management platform</strong> for running <strong>Longest Drive</strong> and <strong>Closest to Pin</strong> contests at golf events. Players use their phones to scan a QR code on a numbered ball, their GPS distance is calculated automatically, and a live leaderboard updates in real-time for everyone watching.</p>
+
+  <p><strong>No app download required.</strong> Everything runs in a phone's web browser. Players simply open a link or scan a code.</p>
+
+  <div class="callout">
+    <div class="callout-title">Core Promise</div>
+    A player hits their ball, walks up to it, opens a link on their phone, hits submit — and their distance appears on the live leaderboard within seconds.
+  </div>
+
+  <h3>Technology Stack</h3>
+  <table>
+    <tr><th>Layer</th><th>Technology</th><th>What It Does</th></tr>
+    <tr><td>Server</td><td>Node.js + Express</td><td>Runs the backend, handles all requests</td></tr>
+    <tr><td>Database</td><td>SQLite (WAL mode)</td><td>Stores all event, player, and score data</td></tr>
+    <tr><td>Maps</td><td>Mapbox GL JS + ESRI World Imagery</td><td>Satellite maps for course setup and leaderboard</td></tr>
+    <tr><td>Real-time</td><td>Server-Sent Events (SSE)</td><td>Live leaderboard updates without refresh</td></tr>
+    <tr><td>Auth</td><td>Session tokens (scrypt hashing)</td><td>Secure admin login, 7-day sessions</td></tr>
+    <tr><td>SMS/Email</td><td>Klaviyo (wired, not yet live)</td><td>Player notifications</td></tr>
+    <tr><td>Testing</td><td>48 automated unit tests</td><td>Verify scoring math and geography logic</td></tr>
+  </table>
+
+
+  <!-- ═══════════════════════════════════════════════
+       2. HOW A TOURNAMENT WORKS
+  ═══════════════════════════════════════════════ -->
+  <h2><span class="section-number">2</span> How a Tournament Works — Start to Finish</h2>
+
+  <div class="flow">
+    <div class="flow-step">
+      <div class="flow-num">1</div>
+      <div><strong>Before the Event</strong> — Admin creates the event, draws the hole zones on the satellite map (fairway, rough, out-of-bounds), places the tee boxes and pin, adds ball drop codes to the pool, and prints QR labels to stick on the balls.</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-step">
+      <div class="flow-num">2</div>
+      <div><strong>Players Arrive</strong> — A QR code at check-in sends players to the registration page. They enter their ball code + name, pick their tee, name the team. Done in under 2 minutes.</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-step">
+      <div class="flow-num">3</div>
+      <div><strong>On Course</strong> — After hitting, players walk to their ball, open the scan link, their phone's GPS locks in. The system auto-detects which zone they're in (fairway, rough, OOB) and pre-selects it. Player hits submit.</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-step">
+      <div class="flow-num">4</div>
+      <div><strong>Live Result</strong> — An animated flyover shows a gold line drawing from the tee to the landing spot on a satellite map. The yardage counts up from 0 to final distance. The leaderboard updates in real-time.</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-step">
+      <div class="flow-num">5</div>
+      <div><strong>During the Round</strong> — Reps watch the monitor dashboard. If something's wrong, they correct any ball score from the monitor page. Alerts pop up if a player hits "I need help."</div>
+    </div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-step">
+      <div class="flow-num">6</div>
+      <div><strong>End of Tournament</strong> — Admin clicks "End Tournament." The leaderboard locks, shows the champion card, zone stats, and total yards. Optionally published to the global leaderboard.</div>
+    </div>
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════
+       3. THE 6 PAGES
+  ═══════════════════════════════════════════════ -->
+  <h2><span class="section-number">3</span> The Six Pages</h2>
+
+  <!-- Admin -->
+  <h3>Page 1 — Admin Panel <code>/admin</code></h3>
+  <p>Where you or a tournament director manages everything. Protected by email + password login.</p>
+
+  <h4>What You Can Do</h4>
+  <ul>
+    <li>Create and configure events (name, venue, dates, contest types)</li>
+    <li><strong>Draw the hole on a satellite map</strong> — trace fairway, rough, and OOB zones by hand. The system auto-clips zones so they never overlap. You can also walk the boundary with your phone and it traces the polygon for you.</li>
+    <li>Place tee boxes (multiple — men's, women's, senior) and the pin</li>
+    <li>Set scoring rules: Does rough count? Does OOB count? What's the penalty?</li>
+    <li>Create a <strong>ball pool</strong> — bulk add drop codes and print QR labels</li>
+    <li>Watch live registrations and scan submissions</li>
+    <li>Make <strong>corrections</strong> to any ball score if something goes wrong</li>
+    <li>End the tournament when complete</li>
+    <li>Export all data to CSV</li>
+  </ul>
+
+  <h4>Multi-Admin System</h4>
+  <p>You are the <strong>Super Admin</strong>. You can create accounts for tournament directors at each event. They only see their own events. You control what each person can do — for example, "allow corrections but not end the tournament."</p>
+
+  <table>
+    <tr><th>Role</th><th>What They Can See</th><th>What They Can Do</th></tr>
+    <tr><td><strong>Super Admin</strong></td><td>All events, all admins</td><td>Everything, including creating other admins and publishing to global leaderboard</td></tr>
+    <tr><td><strong>Tournament Admin</strong></td><td>Their own events only</td><td>Configurable per-admin: corrections, end tournament, manage players, manage balls</td></tr>
+  </table>
+
+  <!-- Registration -->
+  <h3>Page 2 — Player Registration <code>/register/:eventId</code></h3>
+  <p>The page players visit at check-in to claim their ball. No login required.</p>
+
+  <div class="flow">
+    <div class="flow-step"><div class="flow-num">1</div><div>Enter or scan the ball's drop code</div></div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-step"><div class="flow-num">2</div><div>Enter first name, last name, email, phone (optional), and pick tee box</div></div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-step"><div class="flow-num">3</div><div>Repeat for up to 4 players (can submit early with fewer)</div></div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-step"><div class="flow-num">4</div><div>Give the team a name → registration complete</div></div>
+    <div class="flow-arrow">↓</div>
+    <div class="flow-step"><div class="flow-num">5</div><div>Success card shows all ball codes and a link to the live leaderboard</div></div>
+  </div>
+
+  <!-- Scan -->
+  <h3>Page 3 — Scan Page <code>/scan/:code</code></h3>
+  <p>The page players use on-course after hitting their ball. No login required.</p>
+
+  <h4>The Player Experience</h4>
+  <ul>
+    <li>GPS locks in — a badge shows accuracy (waits for a tight reading)</li>
+    <li>The system auto-detects which zone the phone is in and pre-selects it</li>
+    <li>Player confirms the zone (fairway, rough, OOB, or lost ball)</li>
+    <li>Submit → instant animated result</li>
+  </ul>
+
+  <h4>The Result Card Includes</h4>
+  <ul>
+    <li><strong>Flyover animation</strong> — satellite map with a gold line drawing from the tee to the landing spot, then yardage counts up from 0 to final</li>
+    <li>Location badge (fairway, rough, etc.) and yardage</li>
+    <li>Any penalty applied and a plain-English explanation of why</li>
+    <li>A randomized encouragement message based on distance and zone</li>
+    <li>Leaderboard link and admin phone button</li>
+    <li>"I need help" button that sends a GPS-tagged alert to the rep monitor</li>
+  </ul>
+
+  <!-- Leaderboard -->
+  <h3>Page 4 — Live Leaderboard <code>/leaderboard/:eventId</code></h3>
+  <p>Public page, no login required. This is what goes on the TV at the event.</p>
+
+  <h4>Features</h4>
+  <ul>
+    <li>All teams ranked by total yards (LD) or closest to pin (CTP)</li>
+    <li>Click any team to expand and see all 4 players' individual distances</li>
+    <li><strong>Satellite map</strong> with colored dots showing where every ball landed — click a team to highlight their dots only</li>
+    <li><strong>Hole Tour button</strong> — 29-second animated camera flythrough of the hole (tee → fairway → pin approach → 360° orbit → overhead pullback)</li>
+    <li><strong>TV Mode</strong> — full-screen big fonts for display screens and projectors</li>
+    <li>Updates live without refresh using Server-Sent Events</li>
+  </ul>
+
+  <h4>When Tournament Ends</h4>
+  <ul>
+    <li>Champion card with team name and all 4 players' drives</li>
+    <li>Total yards stat with a fun comparison ("3.2× the Golden Gate Bridge")</li>
+    <li>Zone breakdown grid (fairway / rough / OOB counts)</li>
+    <li>Hall of Fame card — shows if a player set the all-time course record that day</li>
+  </ul>
+
+  <!-- Monitor -->
+  <h3>Page 5 — Rep Monitor <code>/monitor</code></h3>
+  <p>Real-time dashboard for your on-course staff. Password protected.</p>
+
+  <h4>Features</h4>
+  <ul>
+    <li>Live satellite map with all player ball positions (colored by team)</li>
+    <li>Real-time team standings with expandable player rows</li>
+    <li><strong>Help alerts</strong> — when a player hits "I need help," it pops up here with their GPS coordinates</li>
+    <li>Correction form — click any ball dot on the map to auto-fill the form and override any score</li>
+    <li>Reset scan — clear a player's submission so they can scan again</li>
+    <li>Stats bar — scanned / total / alerts / teams at a glance</li>
+  </ul>
+
+  <!-- Global -->
+  <h3>Page 6 — Global Leaderboard <code>/global</code></h3>
+  <p>A public page for bragging rights across all events. No login required.</p>
+
+  <ul>
+    <li><strong>Monthly Top 10</strong> — best fairway drives across all published tournaments that month</li>
+    <li><strong>Course Records</strong> — all-time best drive per golf course</li>
+    <li>You (Super Admin) choose which ended events get published here</li>
+    <li>Only fairway drives count — rewards skill, not luck</li>
+  </ul>
+
+
+  <!-- ═══════════════════════════════════════════════
+       4. SCORING LOGIC
+  ═══════════════════════════════════════════════ -->
+  <h2><span class="section-number">4</span> Scoring Logic</h2>
+
+  <h3>Longest Drive</h3>
+  <table>
+    <tr><th>Scenario</th><th>How It Scores</th></tr>
+    <tr><td>Ball lands in <strong>Fairway</strong></td><td>Full distance. No penalty.</td></tr>
+    <tr><td>Ball lands in <strong>Rough</strong> (if rough is allowed)</td><td>Distance minus perpendicular distance from the fairway edge (you set this rule)</td></tr>
+    <tr><td>Ball lands <strong>OOB</strong> (if OOB is allowed)</td><td>Distance minus a fixed penalty OR minus half the hole length (you choose)</td></tr>
+    <tr><td>Ball lands in <strong>Rough/OOB</strong> (if NOT allowed)</td><td>Zero yards — not scored</td></tr>
+    <tr><td><strong>Lost ball</strong></td><td>Zero yards — not scored</td></tr>
+  </table>
+
+  <h3>Closest to Pin</h3>
+  <table>
+    <tr><th>Scenario</th><th>How It Scores</th></tr>
+    <tr><td>Ball on the <strong>green</strong></td><td>GPS distance from ball to pin (in feet)</td></tr>
+    <tr><td>Ball <strong>off the green</strong></td><td>GPS distance + off-green penalty you set (in feet)</td></tr>
+    <tr><td><strong>Rangefinder override</strong></td><td>Player or rep can enter manual feet from a rangefinder — overrides GPS</td></tr>
+  </table>
+
+  <h3>Team Score</h3>
+  <ul>
+    <li><strong>LD:</strong> Sum of all 4 players' final yards</li>
+    <li><strong>CTP:</strong> Best (lowest) distance across all 4 players on the team</li>
+  </ul>
+
+
+  <!-- ═══════════════════════════════════════════════
+       5. DATABASE
+  ═══════════════════════════════════════════════ -->
+  <h2><span class="section-number">5</span> Database — What Gets Stored</h2>
+
+  <p>Everything lives in a single SQLite file at <code>data/jord.db</code>. There are 10 tables:</p>
+
+  <table>
+    <tr><th>Table</th><th>What It Stores</th></tr>
+    <tr><td><code>events</code></td><td>Every tournament — name, venue, GPS, zone polygons, scoring rules, status</td></tr>
+    <tr><td><code>tee_boxes</code></td><td>Tee locations per hole (men's, women's, senior)</td></tr>
+    <tr><td><code>teams</code></td><td>Registered teams — name, event, timestamp</td></tr>
+    <tr><td><code>balls</code></td><td>Every ball / drop code — player info, GPS scan data, distances, penalties, final scores</td></tr>
+    <tr><td><code>admin_corrections</code></td><td>Audit trail of every manual override made by a rep</td></tr>
+    <tr><td><code>rep_alerts</code></td><td>Player help requests with GPS coordinates</td></tr>
+    <tr><td><code>sms_log</code></td><td>History of all Klaviyo message sends</td></tr>
+    <tr><td><code>admins</code></td><td>Admin accounts — email, hashed password, role, permissions</td></tr>
+    <tr><td><code>sessions</code></td><td>Active login tokens (7-day expiry)</td></tr>
+    <tr><td><code>password_reset_tokens</code></td><td>Temporary reset links (1-hour expiry)</td></tr>
+  </table>
+
+  <p>The database also stores <strong>2,700+ US golf courses</strong> loaded from a CSV file — used for the venue autocomplete when creating an event. Selecting a course auto-fills the GPS coordinates and flies the map to that location.</p>
+
+
+  <!-- ═══════════════════════════════════════════════
+       6. PRE-LAUNCH ISSUES
+  ═══════════════════════════════════════════════ -->
+  <h2><span class="section-number">6</span> Pre-Launch Issues to Fix</h2>
+
+  <div class="callout danger">
+    <div class="callout-title">🚨 Required Before Live Events</div>
+    <strong>HTTPS is mandatory for iPhone GPS.</strong> Safari on iPhone blocks geolocation on plain HTTP. Your hosting must have an SSL certificate (HTTPS). Without it, no iPhone user can submit a scan. Free via Let's Encrypt on most hosts.
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠ Email/SMS Not Connected</div>
+    Klaviyo is wired into the code but sends are currently mocked — no texts or emails go out. Players don't receive a confirmation after registering. Set client expectations accordingly, or connect Klaviyo before launch.
+  </div>
+
+  <div class="callout warning">
+    <div class="callout-title">⚠ Monitor Page Uses Old Auth</div>
+    The Rep Monitor uses a simple shared password (stored in browser localStorage) rather than the full session-token login system the Admin Panel uses. This means anyone who knows the password can access it. Upgrade before events with paying clients.
+  </div>
+
+  <div class="callout">
+    <div class="callout-title">Recommended: Add a Backup</div>
+    The database is a single file. Set up automatic backups (copy the file every 10 minutes during active tournaments) so there's a recovery path if something goes wrong mid-event.
+  </div>
+
+
+  <!-- ═══════════════════════════════════════════════
+       7. FEATURES TO ADD
+  ═══════════════════════════════════════════════ -->
+  <h2><span class="section-number">7</span> Recommended Features</h2>
+
+  <h3>Before Going Live (High Priority)</h3>
+
+  <table>
+    <tr><th>Feature</th><th>Why It Matters</th><th>Effort</th></tr>
+    <tr>
+      <td><strong>Connect Klaviyo SMS/Email</strong></td>
+      <td>Players get a text confirmation after scanning. "You hit 287 yards!" is a premium experience and increases word-of-mouth.</td>
+      <td><span class="chip chip-yellow">Medium</span></td>
+    </tr>
+    <tr>
+      <td><strong>Rep GPS map link on alerts</strong></td>
+      <td>When a player calls for help, the alert shows GPS coords but doesn't link to Google Maps. A tap-to-navigate link would save reps minutes per alert.</td>
+      <td><span class="chip chip-green">Small</span></td>
+    </tr>
+    <tr>
+      <td><strong>"Print check-in QR" button in admin</strong></td>
+      <td>A one-click button to print or download the registration QR code for check-in tables. Currently you have to know the URL.</td>
+      <td><span class="chip chip-green">Small</span></td>
+    </tr>
+    <tr>
+      <td><strong>Upgrade monitor auth to session login</strong></td>
+      <td>Security improvement — reps get proper accounts instead of a shared password.</td>
+      <td><span class="chip chip-yellow">Medium</span></td>
+    </tr>
+  </table>
+
+  <h3>Phase 2 — After First Live Events</h3>
+
+  <table>
+    <tr><th>Feature</th><th>Why It Matters</th><th>Effort</th></tr>
+    <tr>
+      <td><strong>Per-event branding</strong></td>
+      <td>Upload a client logo, pick an accent color. It shows on registration, scan result, and leaderboard. Clients will pay more for white-label.</td>
+      <td><span class="chip chip-yellow">Medium</span></td>
+    </tr>
+    <tr>
+      <td><strong>End-of-event summary email to all players</strong></td>
+      <td>When tournament ends, auto-email everyone their distance, final rank, and leaderboard link. High perceived value.</td>
+      <td><span class="chip chip-yellow">Medium</span></td>
+    </tr>
+    <tr>
+      <td><strong>Stripe payments + self-serve booking</strong></td>
+      <td>Let event organizers create and pay for their own event without calling you. Essential for scaling.</td>
+      <td><span class="chip chip-red">Large</span></td>
+    </tr>
+    <tr>
+      <td><strong>AI Help Agent on scan page</strong></td>
+      <td>A "Questions?" chat button answers rules questions ("Does my ball count if it's in the rough?"). Reduces rep calls. Claude API key already in the codebase.</td>
+      <td><span class="chip chip-yellow">Medium</span></td>
+    </tr>
+    <tr>
+      <td><strong>Combined LD + CTP scoring</strong></td>
+      <td>A single ranked list blending both contest scores. Required for serious tournament formats.</td>
+      <td><span class="chip chip-yellow">Medium</span></td>
+    </tr>
+    <tr>
+      <td><strong>Leaderboard embed code</strong></td>
+      <td>A snippet organizers paste on their own website to show the live leaderboard. Good for golf club websites.</td>
+      <td><span class="chip chip-green">Small</span></td>
+    </tr>
+    <tr>
+      <td><strong>PWA offline mode</strong></td>
+      <td>Scan page works if the player loses cell signal mid-course. Scan queues locally and submits when signal returns.</td>
+      <td><span class="chip chip-red">Large</span></td>
+    </tr>
+  </table>
+
+
+  <!-- ═══════════════════════════════════════════════
+       8. WHAT'S TECHNICALLY STRONG
+  ═══════════════════════════════════════════════ -->
+  <h2><span class="section-number">8</span> What's Technically Strong</h2>
+
+  <ul>
+    <li><strong>Real-time, no refresh needed</strong> — The leaderboard updates live the moment someone scans, using Server-Sent Events. No polling, no manual refresh.</li>
+    <li><strong>GPS accuracy controls</strong> — The scan page shows a live accuracy badge and waits for a tight GPS lock before allowing submission. Players can't submit a wild reading.</li>
+    <li><strong>Zone auto-detection with lock</strong> — The phone's GPS is checked against the polygons you drew on the map. The correct zone is pre-selected and locked. Players can't cheat by selecting fairway when they're in the rough.</li>
+    <li><strong>Penalty math is automatic</strong> — Perpendicular distance to fairway for rough penalties, half-hole or fixed penalties for OOB. All calculated server-side, never client-side.</li>
+    <li><strong>48 automated tests</strong> — Scoring math and geography logic are tested automatically so future changes don't break things.</li>
+    <li><strong>Concurrent safe</strong> — SQLite WAL mode allows multiple players to submit scans at the same time without data corruption.</li>
+    <li><strong>Multi-admin with full audit trail</strong> — Every correction is logged with before/after values and a reason. You always know who changed what and why.</li>
+    <li><strong>Course autocomplete from 2,700+ US courses</strong> — Setting up a new event auto-fills the GPS coordinates and flies the map to the golf course.</li>
+    <li><strong>No external map tiles needed</strong> — ESRI World Imagery satellite tiles are embedded via Mapbox GL JS. No separate satellite tile subscription.</li>
+  </ul>
+
+
+  <!-- ═══════════════════════════════════════════════
+       9. BOTTOM LINE
+  ═══════════════════════════════════════════════ -->
+  <h2><span class="section-number">9</span> Bottom Line</h2>
+
+  <p>The core product is <strong>fully built and works end-to-end.</strong> You can run a real tournament with it today. The tech foundation is solid — real-time, GPS-accurate, multi-admin, tested.</p>
+
+  <div class="callout">
+    <div class="callout-title">Three Things Before Charging Clients</div>
+    <ol>
+      <li><strong>Get on HTTPS hosting</strong> — Required for iPhone GPS. Non-negotiable.</li>
+      <li><strong>Wire up or formally defer SMS/email</strong> — Set client expectations clearly if notifications aren't live yet.</li>
+      <li><strong>Upgrade monitor page auth</strong> — Move from shared password to session login before paid events.</li>
+    </ol>
+  </div>
+
+  <p>Everything else is polish or Phase 2. The architecture is designed to grow — a path to PostgreSQL for multi-server scale, the Claude API key is already in the environment for the AI Help Agent, and the Klaviyo integration just needs its credentials turned on.</p>
+
+  <p>You've built a legitimate SaaS product. The next step is getting it in front of paying clients.</p>
+
+
+  <!-- Footer -->
+  <div class="doc-footer">
+    <p>JORD Golf Tournament System — System Summary v3.0.0</p>
+    <p>Confidential — Internal Use Only</p>
+  </div>
+
+</div><!-- /page -->
+
+</body>
+</html>
