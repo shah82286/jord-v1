@@ -535,27 +535,196 @@ function broadcast(eventId) {
 }
 
 // ─── KLAVIYO ─────────────────────────────────────────────────────────────────
-async function sendKlaviyo(type, recipients, data) {
-  if (!KLAVIYO_KEY) { console.log(`[Klaviyo MOCK] ${type}:`, data.message || data.subject); return; }
+
+// Send a Klaviyo event for one recipient. The event properties carry both the
+// raw data AND pre-built SmsText / EmailSubject / EmailBodyHtml so that a
+// simple Klaviyo Flow can deliver the message without any template logic.
+async function sendKlaviyo(type, recipient, data) {
+  if (!KLAVIYO_KEY) {
+    console.log(`[Klaviyo MOCK] ${type} → ${recipient.email || recipient.phone}:`, data.SmsText || data.EmailSubject || '(no message)');
+    return;
+  }
   try {
     const fetch = require('node-fetch');
     await fetch('https://a.klaviyo.com/api/events/', {
       method: 'POST',
-      headers: { 'Authorization': `Klaviyo-API-Key ${KLAVIYO_KEY}`, 'Content-Type': 'application/json', 'revision': '2024-02-15' },
+      headers: {
+        'Authorization': `Klaviyo-API-Key ${KLAVIYO_KEY}`,
+        'Content-Type': 'application/json',
+        'revision': '2024-02-15'
+      },
       body: JSON.stringify({
         data: {
           type: 'event',
           attributes: {
             properties: { ...data, app: 'JORD Golf Tournament' },
             metric: { data: { type: 'metric', attributes: { name: `jord_${type}` } } },
-            profile: { data: { type: 'profile', attributes: { email: recipients[0]?.email, phone_number: recipients[0]?.phone } } }
+            profile: { data: { type: 'profile', attributes: {
+              email:        recipient.email        || undefined,
+              phone_number: recipient.phone        || undefined,
+              first_name:   recipient.first_name   || undefined,
+              last_name:    recipient.last_name     || undefined,
+            }}}
           }
         }
       })
     });
     db.prepare('INSERT INTO sms_log (id,event_id,recipient,message,type) VALUES (?,?,?,?,?)')
-      .run(uid(), data.event_id, recipients.map(r=>r.email||r.phone).join(','), data.message||data.subject, type);
-  } catch (e) { console.error('Klaviyo error:', e.message); }
+      .run(uid(), data.event_id || '', recipient.email || recipient.phone || '', data.SmsText || data.EmailSubject || type, type);
+  } catch (e) { console.error('[Klaviyo] error:', e.message); }
+}
+
+// ── Message builders ────────────────────────────────────────────────────────
+
+function msgRegistration({ firstName, teamName, eventName, venue, dropCode, leaderboardUrl, adminPhone }) {
+  const sms =
+    `⛳ You're in, ${firstName}! "${teamName}" is registered for ${eventName} at ${venue}. ` +
+    `Your ball code is ${dropCode}. Watch the live leaderboard: ${leaderboardUrl}` +
+    (adminPhone ? ` | Questions? Call: ${adminPhone}` : '');
+
+  const subject = `You're registered for ${eventName}!`;
+
+  const emailHtml = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0C2010;color:#F0F7E8;padding:32px;border-radius:12px">
+  <h1 style="color:#BEFF3A;font-size:28px;margin:0 0 8px">You're in, ${firstName}! ⛳</h1>
+  <p style="color:#7FA882;margin:0 0 24px;font-size:16px">${eventName} &mdash; ${venue}</p>
+  <div style="background:#142B17;border-radius:8px;padding:20px;margin-bottom:24px">
+    <p style="margin:0 0 8px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Your Team</p>
+    <p style="margin:0;font-size:22px;font-weight:700;color:#BEFF3A">${teamName}</p>
+  </div>
+  <div style="background:#142B17;border-radius:8px;padding:20px;margin-bottom:24px">
+    <p style="margin:0 0 8px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Your Ball Code</p>
+    <p style="margin:0;font-size:32px;font-weight:700;color:#fff;letter-spacing:4px">${dropCode}</p>
+    <p style="margin:8px 0 0;font-size:13px;color:#7FA882">Scan the QR code on your ball when you're ready to submit your shot.</p>
+  </div>
+  <a href="${leaderboardUrl}" style="display:block;background:#BEFF3A;color:#0C2010;text-align:center;padding:16px;border-radius:8px;font-weight:700;font-size:16px;text-decoration:none;margin-bottom:24px">📊 Watch the Live Leaderboard</a>
+  ${adminPhone ? `<p style="text-align:center;color:#7FA882;font-size:13px">Need help on course? Call your JORD rep: <strong style="color:#F0F7E8">${adminPhone}</strong></p>` : ''}
+  <p style="text-align:center;color:#4A5B52;font-size:12px;margin-top:24px">Powered by JORD Golf</p>
+</div>`.trim();
+
+  return { SmsText: sms, EmailSubject: subject, EmailBodyHtml: emailHtml };
+}
+
+function msgLDScan({ firstName, teamName, eventName, venue, finalYards, rawYards, penaltyYards, locationType, teamRank, teamTotalYards, leaderboardUrl }) {
+  const locLabel = { fairway: 'fairway ✅', rough: 'rough', oob: 'out of bounds', lost: 'lost ball' }[locationType] || locationType;
+  const scored   = Math.round(finalYards);
+  const raw      = Math.round(rawYards);
+  const pen      = Math.round(penaltyYards);
+  const rankText = teamRank === 1 ? '🥇 Your team is LEADING!' : `Your team is ranked #${teamRank}`;
+  const penNote  = pen > 0 ? ` (${raw} raw − ${pen} penalty)` : '';
+
+  const sms =
+    `📍 ${firstName}, you hit ${scored} yards${penNote} in the ${locLabel} at ${eventName}! ` +
+    `${rankText} with ${Math.round(teamTotalYards)} total yards. ` +
+    `Leaderboard: ${leaderboardUrl}`;
+
+  const subject = `Your drive: ${scored} yards at ${eventName}`;
+
+  const rankColor = teamRank === 1 ? '#BEFF3A' : '#F0F7E8';
+  const locColor  = locationType === 'fairway' ? '#3B82F6' : locationType === 'rough' ? '#EAB308' : '#DC2626';
+
+  const emailHtml = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0C2010;color:#F0F7E8;padding:32px;border-radius:12px">
+  <h1 style="color:#BEFF3A;font-size:28px;margin:0 0 4px">Nice swing, ${firstName}! 🏌️</h1>
+  <p style="color:#7FA882;margin:0 0 24px;font-size:15px">${eventName} &mdash; ${venue}</p>
+  <div style="background:#142B17;border-radius:8px;padding:24px;margin-bottom:16px;text-align:center">
+    <p style="margin:0 0 4px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Your Distance</p>
+    <p style="margin:0;font-size:56px;font-weight:700;color:#BEFF3A;line-height:1">${scored}</p>
+    <p style="margin:4px 0 0;font-size:16px;color:#7FA882">yards</p>
+    ${pen > 0 ? `<p style="margin:8px 0 0;font-size:13px;color:#EAB308">${raw} raw &minus; ${pen} penalty (${locLabel})</p>` : ''}
+  </div>
+  <div style="display:flex;gap:12px;margin-bottom:24px">
+    <div style="flex:1;background:#142B17;border-radius:8px;padding:16px;text-align:center">
+      <p style="margin:0 0 4px;font-size:12px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Location</p>
+      <p style="margin:0;font-size:15px;font-weight:700;color:${locColor}">${locLabel}</p>
+    </div>
+    <div style="flex:1;background:#142B17;border-radius:8px;padding:16px;text-align:center">
+      <p style="margin:0 0 4px;font-size:12px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Team Rank</p>
+      <p style="margin:0;font-size:15px;font-weight:700;color:${rankColor}">${teamRank === 1 ? '🥇 #1' : `#${teamRank}`}</p>
+    </div>
+    <div style="flex:1;background:#142B17;border-radius:8px;padding:16px;text-align:center">
+      <p style="margin:0 0 4px;font-size:12px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Team Total</p>
+      <p style="margin:0;font-size:15px;font-weight:700;color:#F0F7E8">${Math.round(teamTotalYards)} yds</p>
+    </div>
+  </div>
+  <a href="${leaderboardUrl}" style="display:block;background:#BEFF3A;color:#0C2010;text-align:center;padding:16px;border-radius:8px;font-weight:700;font-size:16px;text-decoration:none;margin-bottom:16px">📊 View Live Leaderboard</a>
+  <p style="text-align:center;color:#4A5B52;font-size:12px;margin-top:16px">Powered by JORD Golf</p>
+</div>`.trim();
+
+  return { SmsText: sms, EmailSubject: subject, EmailBodyHtml: emailHtml };
+}
+
+function msgCTPScan({ firstName, teamName, eventName, venue, distanceFt, onGreen, isLeader, teamRank, leaderboardUrl }) {
+  const ft       = distanceFt.toFixed(1);
+  const greenNote = onGreen ? '' : ' (off green — penalty applied)';
+  const rankText  = isLeader ? '🥇 Your team is leading!' : `Your team is ranked #${teamRank}`;
+
+  const sms =
+    `📍 ${firstName}, you landed ${ft} feet from the pin${greenNote} at ${eventName}! ` +
+    `${rankText} Leaderboard: ${leaderboardUrl}`;
+
+  const subject = `Your CTP result: ${ft} ft at ${eventName}`;
+
+  const rankColor = isLeader ? '#BEFF3A' : '#F0F7E8';
+
+  const emailHtml = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0C2010;color:#F0F7E8;padding:32px;border-radius:12px">
+  <h1 style="color:#BEFF3A;font-size:28px;margin:0 0 4px">Closest to the Pin, ${firstName}! 🎯</h1>
+  <p style="color:#7FA882;margin:0 0 24px;font-size:15px">${eventName} &mdash; ${venue}</p>
+  <div style="background:#142B17;border-radius:8px;padding:24px;margin-bottom:16px;text-align:center">
+    <p style="margin:0 0 4px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Distance to Pin</p>
+    <p style="margin:0;font-size:56px;font-weight:700;color:#BEFF3A;line-height:1">${ft}</p>
+    <p style="margin:4px 0 0;font-size:16px;color:#7FA882">feet</p>
+    ${!onGreen ? `<p style="margin:8px 0 0;font-size:13px;color:#EAB308">⚠️ Off green — penalty applied</p>` : ''}
+  </div>
+  <div style="display:flex;gap:12px;margin-bottom:24px">
+    <div style="flex:1;background:#142B17;border-radius:8px;padding:16px;text-align:center">
+      <p style="margin:0 0 4px;font-size:12px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Team</p>
+      <p style="margin:0;font-size:14px;font-weight:700;color:#F0F7E8">${teamName}</p>
+    </div>
+    <div style="flex:1;background:#142B17;border-radius:8px;padding:16px;text-align:center">
+      <p style="margin:0 0 4px;font-size:12px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Standing</p>
+      <p style="margin:0;font-size:14px;font-weight:700;color:${rankColor}">${isLeader ? '🥇 Leading' : `#${teamRank}`}</p>
+    </div>
+  </div>
+  <a href="${leaderboardUrl}" style="display:block;background:#BEFF3A;color:#0C2010;text-align:center;padding:16px;border-radius:8px;font-weight:700;font-size:16px;text-decoration:none;margin-bottom:16px">📊 View Live Leaderboard</a>
+  <p style="text-align:center;color:#4A5B52;font-size:12px;margin-top:16px">Powered by JORD Golf</p>
+</div>`.trim();
+
+  return { SmsText: sms, EmailSubject: subject, EmailBodyHtml: emailHtml };
+}
+
+function msgTournamentEnded({ firstName, teamName, eventName, venue, winnerTeam, playerYards, playerFt, dashboardUrl, isLD }) {
+  const resultText = isLD
+    ? (playerYards ? `You hit ${Math.round(playerYards)} yards.` : '')
+    : (playerFt    ? `You finished ${playerFt.toFixed(1)} feet from the pin.` : '');
+
+  const sms =
+    `🏆 ${eventName} is a wrap! "${winnerTeam}" took the title. ${resultText} ` +
+    `See your full results: ${dashboardUrl}`;
+
+  const subject = `Your results from ${eventName}`;
+
+  const emailHtml = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0C2010;color:#F0F7E8;padding:32px;border-radius:12px">
+  <h1 style="color:#BEFF3A;font-size:28px;margin:0 0 4px">Tournament Complete! 🏆</h1>
+  <p style="color:#7FA882;margin:0 0 24px;font-size:15px">${eventName} &mdash; ${venue}</p>
+  <div style="background:#142B17;border-radius:8px;padding:20px;margin-bottom:16px;text-align:center">
+    <p style="margin:0 0 4px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Champion</p>
+    <p style="margin:0;font-size:24px;font-weight:700;color:#BEFF3A">🥇 ${winnerTeam}</p>
+  </div>
+  ${resultText ? `
+  <div style="background:#142B17;border-radius:8px;padding:20px;margin-bottom:16px;text-align:center">
+    <p style="margin:0 0 4px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Your Result, ${firstName}</p>
+    <p style="margin:0;font-size:20px;font-weight:700;color:#F0F7E8">${resultText}</p>
+    <p style="margin:4px 0 0;font-size:13px;color:#7FA882">Team: ${teamName}</p>
+  </div>` : ''}
+  <a href="${dashboardUrl}" style="display:block;background:#BEFF3A;color:#0C2010;text-align:center;padding:16px;border-radius:8px;font-weight:700;font-size:16px;text-decoration:none;margin-bottom:16px">📊 See Your Full Results</a>
+  <p style="text-align:center;color:#7FA882;font-size:14px">Thanks for playing with JORD Golf!</p>
+  <p style="text-align:center;color:#4A5B52;font-size:12px;margin-top:8px">Powered by JORD Golf</p>
+</div>`.trim();
+
+  return { SmsText: sms, EmailSubject: subject, EmailBodyHtml: emailHtml };
 }
 
 async function subscribeKlaviyo({ email, phone, firstName, lastName, emailOptIn, smsOptIn }) {
@@ -605,14 +774,16 @@ async function checkLeadershipChange(eventId, newLB) {
     if (team.id !== leader.id && team.notified_lead) {
       // This team just lost the lead
       const balls = db.prepare('SELECT * FROM balls WHERE team_id=? AND event_id=?').all(team.id, eventId);
-      const recipients = balls.filter(b => b.email || b.phone).map(b => ({ email: b.email, phone: b.phone }));
       const funny = [
         `⛳ Rough news — Team "${leader.team_name}" just drove past you with ${leader.total_yards} yards. Maybe the wind helped them...`,
         `😬 Heads up — "${leader.team_name}" just took the top spot at ${leader.total_yards} yards. Your reign was beautiful while it lasted.`,
         `🏌️ Breaking news: "${leader.team_name}" would like you to know they hit it farther. ${leader.total_yards} yards to be exact. Yikes.`,
       ];
       const msg = funny[Math.floor(Math.random() * funny.length)];
-      await sendKlaviyo('dethroned', recipients, { message: msg, event_id: eventId, new_leader: leader.team_name });
+      for (const b of balls.filter(b => b.email || b.phone)) {
+        await sendKlaviyo('dethroned', { email: b.email, phone: b.phone, first_name: b.first_name, last_name: b.last_name },
+          { SmsText: msg, EmailSubject: 'You\'ve been overtaken on the leaderboard!', EmailBodyHtml: `<p>${msg}</p>`, event_id: eventId, new_leader: leader.team_name });
+      }
       db.prepare('UPDATE teams SET notified_lead=0 WHERE id=?').run(team.id);
     }
   }
@@ -886,16 +1057,25 @@ app.post('/api/events/:id/end', requireAuth, async (req, res) => {
 
   for (const ball of allBalls) {
     if (!ball.email && !ball.phone) continue;
-    const dashUrl = `${APP_URL}/dashboard/${req.params.id}/${encodeURIComponent(ball.drop_code)}`;
-    await sendKlaviyo('tournament_ended', [{ email: ball.email, phone: ball.phone }], {
-      event_id:      req.params.id,
-      event_name:    event.name,
-      player_name:   `${ball.first_name} ${ball.last_name}`,
-      winner_team:   winner?.team_name || '—',
-      dashboard_url: dashUrl,
-      message:       `🏆 ${event.name} has ended! Winner: ${winner?.team_name||'TBD'}. See your results: ${dashUrl}`,
-      subject:       `Your JORD Golf results from ${event.name}`
+    const dashUrl  = `${APP_URL}/dashboard/${req.params.id}/${encodeURIComponent(ball.drop_code)}`;
+    const myTeamLD = ldLB.find(t => t.balls?.some(b => b.drop_code === ball.drop_code));
+    const myBallLD = myTeamLD?.balls?.find(b => b.drop_code === ball.drop_code);
+    const myTeamCP = cpLB.find(t => t.balls?.some(b => b.drop_code === ball.drop_code));
+    const myBallCP = myTeamCP?.balls?.find(b => b.drop_code === ball.drop_code);
+    const msg = msgTournamentEnded({
+      firstName:   ball.first_name,
+      teamName:    ball.team_name || '',
+      eventName:   event.name,
+      venue:       event.venue || '',
+      winnerTeam:  winner?.team_name || 'TBD',
+      playerYards: myBallLD?.ld_final_yards || null,
+      playerFt:    myBallCP?.cp_distance_ft || null,
+      dashboardUrl: dashUrl,
+      isLD:        !!event.has_longest_drive,
     });
+    await sendKlaviyo('tournament_ended',
+      { email: ball.email, phone: ball.phone, first_name: ball.first_name, last_name: ball.last_name },
+      { ...msg, event_id: req.params.id, dashboard_url: dashUrl, winner_team: winner?.team_name || 'TBD' });
   }
 
   broadcast(req.params.id);
@@ -1083,6 +1263,30 @@ app.post('/api/events/:eventId/finalize-team', (req, res) => {
 
   broadcast(eventId);
   res.json({ team_id: teamId, team_name: team_name.trim(), drop_codes });
+
+  // Fire registration confirmation for each player (non-blocking)
+  setImmediate(async () => {
+    try {
+      const ev      = db.prepare('SELECT name, venue, admin_phone FROM events WHERE id=?').get(eventId);
+      const players = db.prepare(`SELECT * FROM balls WHERE team_id=?`).all(teamId);
+      const lbUrl   = `${APP_URL}/leaderboard/${eventId}`;
+      for (const p of players) {
+        if (!p.email && !p.phone) continue;
+        const msg = msgRegistration({
+          firstName:     p.first_name,
+          teamName:      team_name.trim(),
+          eventName:     ev.name,
+          venue:         ev.venue || '',
+          dropCode:      p.drop_code,
+          leaderboardUrl: lbUrl,
+          adminPhone:    ev.admin_phone || null,
+        });
+        await sendKlaviyo('registered',
+          { email: p.email, phone: p.phone, first_name: p.first_name, last_name: p.last_name },
+          { ...msg, event_id: eventId, team_name: team_name.trim() });
+      }
+    } catch (e) { console.error('[Klaviyo] registration notification error:', e.message); }
+  });
 });
 
 // ─── BALL LOOKUP ─────────────────────────────────────────────────────────────
@@ -1193,6 +1397,32 @@ app.post('/api/scan/ld/:code', (req, res) => {
   broadcast(ball.event_id);
   checkLeadershipChange(ball.event_id, newLB);
 
+  // Fire scan confirmation (non-blocking)
+  setImmediate(async () => {
+    try {
+      if (!ball.email && !ball.phone) return;
+      const ev      = db.prepare('SELECT name, venue FROM events WHERE id=?').get(ball.event_id);
+      const myTeam  = newLB.find(t => t.balls?.some(b => b.drop_code === code));
+      const teamRank = myTeam ? newLB.indexOf(myTeam) + 1 : 99;
+      const msg = msgLDScan({
+        firstName:      ball.first_name,
+        teamName:       ball.team_name || '',
+        eventName:      ev.name,
+        venue:          ev.venue || '',
+        finalYards,
+        rawYards,
+        penaltyYards,
+        locationType:   location_type,
+        teamRank,
+        teamTotalYards: myTeam?.total_yards || finalYards,
+        leaderboardUrl: `${APP_URL}/leaderboard/${ball.event_id}`,
+      });
+      await sendKlaviyo('ball_scanned',
+        { email: ball.email, phone: ball.phone, first_name: ball.first_name, last_name: ball.last_name },
+        { ...msg, event_id: ball.event_id, contest: 'ld' });
+    } catch (e) { console.error('[Klaviyo] LD scan notification error:', e.message); }
+  });
+
   res.json({
     success: true,
     drop_code: code,
@@ -1265,6 +1495,29 @@ app.post('/api/scan/cp/:code', (req, res) => {
     on_green: onGreen,
     is_current_leader: isLeader,
     current_leader: isLeader ? null : { team: leader?.team_name, distance_ft: leader?.best_ft }
+  });
+
+  // Fire scan confirmation (non-blocking)
+  setImmediate(async () => {
+    try {
+      if (!ball.email && !ball.phone) return;
+      const ev      = db.prepare('SELECT name, venue FROM events WHERE id=?').get(ball.event_id);
+      const teamRank = myTeam ? cpLB.indexOf(myTeam) + 1 : 99;
+      const msg = msgCTPScan({
+        firstName:     ball.first_name,
+        teamName:      ball.team_name || '',
+        eventName:     ev.name,
+        venue:         ev.venue || '',
+        distanceFt:    distFt,
+        onGreen,
+        isLeader,
+        teamRank,
+        leaderboardUrl: `${APP_URL}/leaderboard/${ball.event_id}`,
+      });
+      await sendKlaviyo('ball_scanned',
+        { email: ball.email, phone: ball.phone, first_name: ball.first_name, last_name: ball.last_name },
+        { ...msg, event_id: ball.event_id, contest: 'ctp' });
+    } catch (e) { console.error('[Klaviyo] CTP scan notification error:', e.message); }
   });
 });
 
