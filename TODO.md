@@ -10,8 +10,8 @@ Nothing built until confirmed. Move to In Progress / Done as we go.
 **#PRE-1 — Get on HTTPS hosting** ✓
 Deployed to Railway. Live at https://tournament.jordgolf.com. SSL auto-managed by Railway. Persistent volume at /app/data for SQLite. APP_URL updated. Completed May 2026.
 
-**#PRE-2 — Wire up or formally defer SMS/email (Klaviyo)**
-Klaviyo is integrated in the code but currently mocked — no texts or emails actually send. Options: (a) add the real Klaviyo API key and test the sends, or (b) formally decide to defer and set client expectations in writing before first paid event.
+**#PRE-2 — Wire up or formally defer SMS/email (Klaviyo)** ✓
+Completed May 2026. Full Klaviyo integration live. 4 event metrics fire from the server: `jord_registered`, `jord_ball_scanned`, `jord_tournament_ended`, `jord_dethroned`. 4 Klaviyo Flows built and set to Live — each delivers a branded dark-theme HTML email + SMS. Players opted in at registration receive messages automatically. Real Klaviyo API key set in Railway environment variables.
 
 **#PRE-3 — Upgrade monitor page to session auth**
 The rep monitor (`/monitor`) still uses an old shared-password system stored in `localStorage`. The admin panel uses proper session tokens. Monitor should be upgraded to the same login system so reps get their own accounts and the shared password is retired.

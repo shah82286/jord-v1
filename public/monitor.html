@@ -371,8 +371,9 @@
       }
     });
     map.once('load', function () {
-      if (snap && !mapCentered) {
-        centerMapOnCourse(snap.event || {});
+      if (snap) {
+        if (!mapCentered) centerMapOnCourse(snap.event || {});
+        updateZoneLayers(snap.event || {});
       }
     });
   }

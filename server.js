@@ -768,21 +768,43 @@ async function checkLeadershipChange(eventId, newLB) {
   const prev   = db.prepare('SELECT notified_lead FROM teams WHERE id=?').get(leader.id);
   if (!prev) return;
 
-  // Find team that was previously first and is no longer
+  const lbUrl = `${APP_URL}/leaderboard/${eventId}`;
+
   const allTeams = db.prepare('SELECT * FROM teams WHERE event_id=?').all(eventId);
   for (const team of allTeams) {
     if (team.id !== leader.id && team.notified_lead) {
-      // This team just lost the lead
       const balls = db.prepare('SELECT * FROM balls WHERE team_id=? AND event_id=?').all(team.id, eventId);
-      const funny = [
-        `⛳ Rough news — Team "${leader.team_name}" just drove past you with ${leader.total_yards} yards. Maybe the wind helped them...`,
-        `😬 Heads up — "${leader.team_name}" just took the top spot at ${leader.total_yards} yards. Your reign was beautiful while it lasted.`,
-        `🏌️ Breaking news: "${leader.team_name}" would like you to know they hit it farther. ${leader.total_yards} yards to be exact. Yikes.`,
+      const taunts = [
+        `Rough news — they might have had a tailwind... or maybe they're just better. Either way, time to regroup.`,
+        `Your reign was beautiful while it lasted. The leaderboard waits for no one.`,
+        `They'd like you to know they hit it farther. We're just the messenger. Don't shoot us.`,
       ];
-      const msg = funny[Math.floor(Math.random() * funny.length)];
+      const taunt = taunts[Math.floor(Math.random() * taunts.length)];
+      const yards  = Math.round(leader.total_yards);
+
       for (const b of balls.filter(b => b.email || b.phone)) {
-        await sendKlaviyo('dethroned', { email: b.email, phone: b.phone, first_name: b.first_name, last_name: b.last_name },
-          { SmsText: msg, EmailSubject: 'You\'ve been overtaken on the leaderboard!', EmailBodyHtml: `<p>${msg}</p>`, event_id: eventId, new_leader: leader.team_name });
+        const sms = `👑 ${b.first_name}, you've been knocked off #1! "${leader.team_name}" just took the lead with ${yards} total yards. Fight back: ${lbUrl}`;
+
+        const emailHtml = `
+<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0C2010;color:#F0F7E8;padding:32px;border-radius:12px">
+  <h1 style="color:#FF4C4C;font-size:28px;margin:0 0 8px">You've been dethroned! 👑</h1>
+  <p style="color:#7FA882;margin:0 0 24px;font-size:16px">Hey ${b.first_name} — someone just took the top spot.</p>
+  <div style="background:#142B17;border-radius:8px;padding:20px;margin-bottom:24px;border-left:4px solid #FF4C4C">
+    <p style="margin:0 0 8px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">New #1 Team</p>
+    <p style="margin:0;font-size:24px;font-weight:700;color:#FF4C4C">${leader.team_name}</p>
+    <p style="margin:8px 0 0;font-size:20px;font-weight:700;color:#F0F7E8">${yards} total yards</p>
+  </div>
+  <div style="background:#1C0A0A;border-radius:8px;padding:20px;margin-bottom:24px;border:1px solid #FF4C4C44">
+    <p style="margin:0;font-size:15px;color:#FFA0A0;font-style:italic">"${taunt}"</p>
+  </div>
+  <a href="${lbUrl}" style="display:block;background:#BEFF3A;color:#0C2010;text-align:center;padding:16px;border-radius:8px;font-weight:700;font-size:16px;text-decoration:none;margin-bottom:24px">📊 See the Live Leaderboard</a>
+  <p style="text-align:center;color:#4A5B52;font-size:12px;margin-top:24px">Powered by JORD Golf</p>
+</div>`.trim();
+
+        await sendKlaviyo('dethroned',
+          { email: b.email, phone: b.phone, first_name: b.first_name, last_name: b.last_name },
+          { SmsText: sms, EmailSubject: `👑 You've been knocked off #1, ${b.first_name}!`, EmailBodyHtml: emailHtml, event_id: eventId }
+        );
       }
       db.prepare('UPDATE teams SET notified_lead=0 WHERE id=?').run(team.id);
     }

@@ -28,7 +28,7 @@ JORD is a web-based tournament management platform for running **Longest Drive (
 | Drawing | MapboxDraw v1.4.3 + Turf.js | Freehand polygon draw + auto-clipping |
 | Real-time | Server-Sent Events (SSE) | Full state broadcast on every change |
 | Auth | Session tokens (scrypt hashing) | 7-day sessions stored in `sessions` table |
-| Notifications | Klaviyo | Wired but currently mocked — not live yet |
+| Notifications | Klaviyo | Live — 4 flows: registered, ball scanned, tournament ended, dethroned |
 | Shared JS | `public/js/jord.js` | API client, QR scanner, toast UI, map helpers |
 | CSS | `public/css/jord.css` | Rumble Golf dark theme, CSS variables |
 
@@ -320,15 +320,55 @@ broadcast(eventId):
 
 ---
 
-## 12. Known Gaps & Planned Features
+## 12. Klaviyo Messaging
+
+### Architecture
+- Server fires Klaviyo Events API (`POST /api/events/`) for each metric
+- Each event carries pre-built `SmsText`, `EmailSubject`, and `EmailBodyHtml` as event properties
+- Klaviyo Flows pick up these properties using `{{ event.SmsText }}` and `{{ event.EmailBodyHtml|safe }}`
+- All sends are non-blocking (`setImmediate`) — player API responses are never delayed
+
+### 4 Active Metrics & Flows
+
+| Metric | Trigger | Message content |
+|---|---|---|
+| `jord_registered` | Team finalized at registration | Team name, ball code, leaderboard link |
+| `jord_ball_scanned` | Player submits LD or CTP shot | Distance, zone, team rank, leaderboard link |
+| `jord_tournament_ended` | Admin ends tournament | Final rank, player's yards/feet, winner team |
+| `jord_dethroned` | Team knocked off #1 | New leader name + total yards, sarcastic taunt, leaderboard button |
+
+### Message Builders (server.js)
+- `msgRegistration()` — dark green JORD email with team card + ball code card + leaderboard button
+- `msgLDScan()` — yards hit, zone badge, team rank, leaderboard button
+- `msgCTPScan()` — feet from pin, on/off green, team rank, leaderboard button
+- `msgTournamentEnded()` — final results card, winner team, personal yards/feet
+- `checkLeadershipChange()` — dethroned email with red theme, new leader card, sarcastic quote, leaderboard button
+
+### Klaviyo Flow Settings (all 4 flows)
+- Re-entry: **Allow re-entry** (players can register/scan at multiple tournaments)
+- Smart Sending: **Off** (tournament messages must always deliver)
+- Transactional: **Checked** (bypasses marketing consent — confirmational messages)
+- Email template: HTML block containing `{{ event.EmailBodyHtml|safe }}`
+- SMS template: `{{ event.SmsText }}`
+
+### Environment Variables Required
+```
+KLAVIYO_API_KEY=pk_...
+KLAVIYO_EMAIL_LIST_ID=...   # for subscription opt-ins
+KLAVIYO_SMS_LIST_ID=...     # for subscription opt-ins
+```
+
+---
+
+## 13. Known Gaps & Planned Features
 
 ### Pre-Launch Issues
 | Issue | Severity | Status |
 |---|---|---|
-| HTTPS required for iPhone GPS | Critical | Not yet — needed before live events |
-| SMS/Email (Klaviyo) not connected | High | Wired but mocked — no messages sent |
-| Monitor page uses old shared-password auth | Medium | Not yet upgraded to session tokens |
-| No automated database backup | Medium | Needs cron job for `data/jord.db` |
+| HTTPS required for iPhone GPS | Critical | ✅ Resolved — Railway + tournament.jordgolf.com |
+| SMS/Email (Klaviyo) not connected | High | ✅ Resolved — 4 flows Live in Klaviyo |
+| Monitor page uses old shared-password auth | Medium | Open — not yet upgraded to session tokens |
+| No automated database backup | Medium | Open — needs cron job for `data/jord.db` |
 
 ### Phase 2 Features
 - Rep alert GPS → tap-to-navigate (Google Maps link)

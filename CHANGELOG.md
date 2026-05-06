@@ -2,6 +2,59 @@
 
 ---
 
+## v3.4.0 — 2026-05-05
+### Session 16 — Klaviyo Flows Live, Dethroned Email Redesign, Dashboard Flash Fix
+
+#### What Changed
+
+##### Klaviyo Flows — all 4 now Live
+- 4 Klaviyo Flows created and set to Live: `jord_registered`, `jord_ball_scanned`, `jord_tournament_ended`, `jord_dethroned`
+- Each flow: Allow re-entry, Smart Sending off, Transactional checked
+- Email template uses HTML block with `{{ event.EmailBodyHtml|safe }}` (|safe required to render HTML, not escaped text)
+- SMS template uses `{{ event.SmsText }}`
+- Preview texts set per flow
+
+##### Dethroned email redesigned
+- `checkLeadershipChange()` in `server.js` rebuilt with full JORD dark-theme HTML email
+- New layout: red "You've been dethroned! 👑" header, new #1 team card with yards, dark red sarcastic quote block, neon green leaderboard button
+- Subject line personalized: `👑 You've been knocked off #1, {firstName}!`
+- SMS updated to include leaderboard URL
+
+##### Dashboard page flash fix (`public/dashboard.html`)
+- Dashboard subscribes to SSE for live score updates — previously showed a full-page spinner on every SSE event
+- Fixed with `loaded` flag: spinner only shown on first load; subsequent SSE-triggered refreshes update silently
+
+---
+
+## v3.3.0 — 2026-05-05
+### Session 15 — Full Klaviyo Integration
+
+#### What Changed
+- `sendKlaviyo(type, recipient, data)` function — single recipient, fires Klaviyo Events API
+- 4 message builders: `msgRegistration()`, `msgLDScan()`, `msgCTPScan()`, `msgTournamentEnded()`
+- `jord_registered` fires in `finalize-team` via `setImmediate` for each player
+- `jord_ball_scanned` fires in both LD and CTP scan endpoints via `setImmediate`
+- `jord_dethroned` fires in `checkLeadershipChange()` when a team loses #1 spot
+- `jord_tournament_ended` fires in `/api/events/:id/end` for all players
+- Real Klaviyo API key + list IDs set in Railway environment variables
+- `courses.csv` moved to project root to avoid Railway volume overlay hiding it
+
+---
+
+## v3.2.0 — 2026-05-05
+### Session 15 — Railway Deployment, Rate Limiting, System Docs
+
+#### What Changed
+- Deployed to Railway — live at https://tournament.jordgolf.com
+- Custom domain: tournament.jordgolf.com (GoDaddy CNAME → Railway)
+- In-memory rate limiter added (no external package): login 5/15min, forgot-password 3/15min, reset-password 5/15min
+- `railway.toml` created for build/deploy config
+- `SYSTEM_UNDERSTANDING.md` created — living 15-section system reference
+- `public/system-summary.html` created — printable system summary at `/system-summary`
+- `.gitignore` updated: blocks `data/*.db*` only (not whole `data/` dir) so courses.csv deploys
+
+---
+
 ## v3.1.0 — 2026-05-05
 ### Session 14 — Zone Map Polish, Marketing Opt-In, Scorecard Removal
 
