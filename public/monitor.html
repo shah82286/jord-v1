@@ -249,14 +249,14 @@
       var btn = document.createElement('button');
       btn.textContent = label;
       btn.dataset.mode = mode;
-      btn.style.cssText = 'font-size:12px;font-weight:600;padding:4px 12px;border-radius:calc(var(--r-md) - 2px);border:none;cursor:pointer;transition:background 0.15s,color 0.15s';
+      btn.style.cssText = 'font-size:13px;font-weight:600;padding:6px 14px;border-radius:calc(var(--r-md) - 2px);border:none;cursor:pointer;transition:background 0.15s,color 0.15s;min-height:36px';
       function refresh() {
         if (mapViewMode === mode) {
           btn.style.background = 'var(--primary)';
-          btn.style.color = '#fff';
+          btn.style.color = '#0C2010';
         } else {
           btn.style.background = 'transparent';
-          btn.style.color = 'var(--ink-2)';
+          btn.style.color = 'var(--ink)';
         }
       }
       refresh();
@@ -264,9 +264,9 @@
         mapViewMode = mode;
         toggleWrap.querySelectorAll('button').forEach(function (b) {
           if (b.dataset.mode === mapViewMode) {
-            b.style.background = 'var(--primary)'; b.style.color = '#fff';
+            b.style.background = 'var(--primary)'; b.style.color = '#0C2010';
           } else {
-            b.style.background = 'transparent'; b.style.color = 'var(--ink-2)';
+            b.style.background = 'transparent'; b.style.color = 'var(--ink)';
           }
         });
         if (snap) updateMapDots(snap);
