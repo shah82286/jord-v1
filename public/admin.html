@@ -77,17 +77,21 @@
     .editor-nav .nav-item { flex-shrink: 0; white-space: nowrap; }
   }
   @media (max-width: 640px) {
-    /* Event header — stack name and buttons */
+    /* Events list header — stack title and buttons */
+    #view-list > .row.row-between { flex-direction: column; align-items: flex-start; gap: var(--s-3); }
+    #view-list > .row.row-between > .row { flex-wrap: wrap; gap: var(--s-2); }
+
+    /* Event editor header — stack name and buttons */
     #view-editor > .row.row-between { flex-direction: column; align-items: flex-start; gap: var(--s-3); }
     #view-editor > .row.row-between > .row { flex-wrap: wrap; gap: var(--s-2); }
     #view-editor > .row.row-between > .row .btn { font-size: 12px; padding: 8px 12px; min-height: 36px; }
 
-    /* Map tools — smaller, touch-friendly */
-    .map-tools { gap: 6px; }
-    .map-tools .btn, .map-tools select { font-size: 12px; padding: 8px 10px; min-height: 36px; }
+    /* Map tools — horizontal scroll so buttons stay on one line and don't push map down */
+    .map-tools { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; gap: 6px; }
+    .map-tools .btn, .map-tools select { flex-shrink: 0; font-size: 12px; padding: 8px 10px; min-height: 44px; }
     .draw-kind-btn { font-size: 12px; }
     .map-hole-tab { padding: 7px 12px; font-size: 12px; }
-    #search-place { min-width: 100px; }
+    #search-place { min-width: 120px; flex-shrink: 0; }
 
     /* Tee coord inputs — prevent overflow */
     .tee-coords { flex-wrap: wrap; }
@@ -1564,6 +1568,7 @@
       freehandActive = false;
       isDrawingFreehand = false;
       map.dragPan.enable();
+      map.touchZoomRotate.enable();
       canvas.style.cursor = '';
       $$('.draw-kind-btn').forEach(b => b.classList.remove('is-drawing'));
       freehandPoints = [];
@@ -1574,6 +1579,7 @@
       if (!isDrawingFreehand) return;
       isDrawingFreehand = false;
       map.dragPan.enable();
+      map.touchZoomRotate.enable();
       map.getSource('freehand-preview').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
       if (freehandPoints.length < 3) {
         JORD.warn('Draw a larger area — hold mouse button and drag around the zone');
@@ -1600,6 +1606,42 @@
     }
     canvas.addEventListener('mouseup', finishFreehand);
     canvas.addEventListener('mouseleave', () => { if (isDrawingFreehand) finishFreehand(); });
+
+    // Touch equivalents — finger drawing on mobile
+    function getTouchOffset(t) {
+      const r = canvas.getBoundingClientRect();
+      return [t.clientX - r.left, t.clientY - r.top];
+    }
+    canvas.addEventListener('touchstart', (e) => {
+      if (!freehandActive) return;
+      e.preventDefault(); e.stopPropagation();
+      map.dragPan.disable();
+      map.touchZoomRotate.disable();
+      isDrawingFreehand = true;
+      freehandPoints = [];
+      const [ox, oy] = getTouchOffset(e.touches[0]);
+      const c = map.unproject([ox, oy]);
+      freehandPoints.push([c.lng, c.lat]);
+    }, { passive: false });
+    canvas.addEventListener('touchmove', (e) => {
+      if (!isDrawingFreehand) return;
+      e.preventDefault();
+      const [ox, oy] = getTouchOffset(e.touches[0]);
+      if (freehandPoints.length > 0) {
+        const last = freehandPoints[freehandPoints.length - 1];
+        const px = map.project(last);
+        if (Math.hypot(ox - px.x, oy - px.y) < 6) return;
+      }
+      const c = map.unproject([ox, oy]);
+      freehandPoints.push([c.lng, c.lat]);
+      map.getSource('freehand-preview').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: freehandPoints } });
+    }, { passive: false });
+    canvas.addEventListener('touchend', (e) => {
+      if (!isDrawingFreehand) return;
+      e.preventDefault();
+      finishFreehand();
+    }, { passive: false });
+    canvas.addEventListener('touchcancel', () => { if (isDrawingFreehand) finishFreehand(); });
 
     // Escape key or click outside the map exits draw/node-edit mode
     document.addEventListener('keydown', (e) => {
