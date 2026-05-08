@@ -425,9 +425,12 @@
         if (scanner) { scanner.stop(); scanner = null; }
         var phone = phoneInput.value.trim();
         players.push({ code: code, first: first, last: last, phone: phone });
-        /* Store phone number for leaderboard "My Team" feature */
+        /* Store phone number and drop code for leaderboard "My Team" feature */
         if (!localStorage.getItem('jord_player_phone') && phone) {
           localStorage.setItem('jord_player_phone', phone);
+        }
+        if (!localStorage.getItem('jord_drop_code') && code) {
+          localStorage.setItem('jord_drop_code', code);
         }
         renderStep();
       })
