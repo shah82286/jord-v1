@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Sign Up Your Tournament · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  body { background: var(--surface); }
+  .signup-wrap {
+    min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    padding: 40px 20px;
+  }
+  .signup-card {
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-lg);
+    padding: 48px 40px; max-width: 600px; width: 100%;
+  }
+  .signup-header { text-align: center; margin-bottom: 40px; }
+  .signup-header a { display: inline-block; margin-bottom: 24px; }
+  .signup-header a img { height: 36px; width: auto; }
+  .signup-header h1 { font-family: var(--font-display); font-size: 2.2rem; margin-bottom: 8px; }
+  .signup-header p { font-size: 14px; color: var(--ink-2); }
+
+  .form-group { margin-bottom: 24px; }
+  .form-group label { display: block; margin-bottom: 8px; font-weight: 500; font-size: 14px; }
+  .form-group input,
+  .form-group select,
+  .form-group textarea {
+    width: 100%; padding: 10px 14px;
+    border: 1px solid var(--border); border-radius: var(--r-sm);
+    background: var(--surface); color: var(--ink); font-size: 14px;
+    font-family: inherit;
+  }
+  .form-group textarea { min-height: 100px; resize: vertical; }
+  .form-group input:focus,
+  .form-group select:focus,
+  .form-group textarea:focus {
+    outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(190,255,58,0.1);
+  }
+
+  .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 480px) { .form-row { grid-template-columns: 1fr; } }
+
+  .form-group.checkbox-group { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 20px; }
+  .form-group.checkbox-group input { width: auto; margin-top: 2px; }
+  .form-group.checkbox-group label { margin-bottom: 0; }
+
+  .submit-row { display: flex; gap: 12px; margin-top: 32px; }
+  .btn { font-size: 14px; padding: 10px 20px; }
+  .btn-primary { flex: 1; }
+
+  #success-message {
+    display: none; padding: 32px; text-align: center;
+  }
+  #success-message .icon { font-size: 56px; margin-bottom: 16px; }
+  #success-message h2 { font-family: var(--font-display); font-size: 1.8rem; margin-bottom: 12px; color: var(--primary); }
+  #success-message p { font-size: 14px; color: var(--ink-2); line-height: 1.6; margin-bottom: 12px; }
+  #success-message a { color: var(--primary); font-weight: 600; text-decoration: none; }
+
+  @media (max-width: 640px) {
+    .signup-card { padding: 32px 20px; }
+    .signup-header h1 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<div class="signup-wrap">
+  <div class="signup-card">
+    <div class="signup-header">
+      <a href="/">
+        <img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077" alt="JORD Golf">
+      </a>
+      <h1>Sign Up Your Tournament</h1>
+      <p>Tell us about your event and we'll get you set up with live scoring.</p>
+    </div>
+
+    <form id="signup-form">
+      <div class="form-group">
+        <label for="tournament-name">Tournament Name *</label>
+        <input type="text" id="tournament-name" name="tournament_name" placeholder="e.g. Spring Championship 2026" required>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label for="event-date">Event Date *</label>
+          <input type="date" id="event-date" name="event_date" required>
+        </div>
+        <div class="form-group">
+          <label for="venue">Course / Venue *</label>
+          <input type="text" id="venue" name="venue" placeholder="Golf course name" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="location">Location (City, State) *</label>
+        <input type="text" id="location" name="location" placeholder="e.g. Austin, TX" required>
+      </div>
+
+      <div class="form-group">
+        <label for="contest-type">Contest Type *</label>
+        <select id="contest-type" name="contest_type" required>
+          <option value="">— Select —</option>
+          <option value="ld">Longest Drive</option>
+          <option value="ctp">Closest to Pin</option>
+          <option value="both">Both</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="expected-players">Expected Number of Players *</label>
+        <input type="number" id="expected-players" name="expected_players" placeholder="e.g. 48" min="1" required>
+      </div>
+
+      <div style="border-top:1px solid var(--border);padding-top:24px;margin-top:24px">
+        <h3 style="font-size:15px;font-weight:600;margin-bottom:20px">Your Contact Information</h3>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="admin-name">Name *</label>
+            <input type="text" id="admin-name" name="admin_name" placeholder="Your name" required>
+          </div>
+          <div class="form-group">
+            <label for="admin-email">Email *</label>
+            <input type="email" id="admin-email" name="admin_email" placeholder="you@company.com" required>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="admin-phone">Phone *</label>
+          <input type="tel" id="admin-phone" name="admin_phone" placeholder="(555) 000-0000" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="notes">Additional Notes</label>
+        <textarea id="notes" name="notes" placeholder="Tell us anything else about your tournament..."></textarea>
+      </div>
+
+      <div class="submit-row">
+        <a href="/" class="btn btn-ghost">Back</a>
+        <button type="submit" class="btn btn-primary">Submit Request</button>
+      </div>
+    </form>
+
+    <div id="success-message">
+      <div class="icon">✅</div>
+      <h2>Thank You!</h2>
+      <p>We've received your tournament request.</p>
+      <p>Our team will get back to you within <strong>48 hours</strong> with next steps and pricing.</p>
+      <p style="margin-top:20px">In the meantime, learn more about JORD Golf at <a href="https://www.jordgolf.com" target="_blank">jordgolf.com</a></p>
+    </div>
+  </div>
+</div>
+
+<script src="/js/jord.js"></script>
+<script>
+(async function() {
+  const form = document.getElementById('signup-form');
+  const successMsg = document.getElementById('success-message');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const formData = new FormData(form);
+    const data = Object.fromEntries(formData.entries());
+
+    try {
+      const res = await fetch('/api/tournament-signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        JORD.error(err.error || 'Something went wrong');
+        return;
+      }
+
+      form.style.display = 'none';
+      successMsg.style.display = 'block';
+    } catch (err) {
+      JORD.error('Network error. Please try again.');
+    }
+  });
+})();
+</script>
+</body>
+</html>

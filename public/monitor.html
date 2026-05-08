@@ -481,16 +481,15 @@
       el.style.cssText = 'width:14px;height:14px;border-radius:50%;background:' + color + ';border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer;transition:opacity 0.2s;opacity:' + (dimmed ? '0.18' : '1');
       el.title = (b.player_name || b.drop_code) + ' — ' + item.team;
 
-      var popup = new mapboxgl.Popup({ offset: 12 }).setHTML(
-        '<div style="color:#1a1a1a;font-size:13px;line-height:1.6">'
-        + '<strong style="color:#0a0a0a;display:block;margin-bottom:2px">' + (b.player_name || b.drop_code) + '</strong>'
-        + '<span style="font-family:monospace;font-size:13px;font-weight:700;background:#e8e8e8;padding:1px 6px;border-radius:4px;color:#1a1a1a">' + b.drop_code + '</span><br>'
-        + '<span style="color:#444">' + item.team + '</span><br>'
+      var popupHtml = '<div style="color:#1a1a1a;font-size:13px;line-height:1.6">'
+        + '<strong style="color:#0a0a0a;display:block;margin-bottom:2px">' + JORD.escapeHtml(b.player_name || b.drop_code) + '</strong>'
+        + '<span style="font-family:monospace;font-size:13px;font-weight:700;background:#e8e8e8;padding:1px 6px;border-radius:4px;color:#1a1a1a">' + JORD.escapeHtml(b.drop_code) + '</span><br>'
+        + '<span style="color:#444">' + JORD.escapeHtml(item.team) + '</span><br>'
         + '<span style="color:#555">' + (b.location_type ? b.location_type : 'not scanned') + '</span><br>'
         + (b.final_yards != null ? '<span style="font-weight:600;color:#1a1a1a">' + b.final_yards + ' yd</span>' : b.distance_ft != null ? '<span style="font-weight:600;color:#1a1a1a">' + b.distance_ft + ' ft</span>' : '')
-        + '<br><button onclick="var c=document.getElementById(\'corr-code\');if(c){c.value=\'' + b.drop_code + '\';c.closest(\'.card\').scrollIntoView({behavior:\'smooth\'});}" style="margin-top:6px;font-size:11px;padding:3px 8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;color:#333">Fill correction form</button>'
-        + '</div>'
-      );
+        + '<br><button class="fill-corr-btn" data-code="' + JORD.escapeHtml(b.drop_code) + '" style="margin-top:6px;font-size:11px;padding:3px 8px;border:1px solid #ccc;border-radius:4px;background:#fff;cursor:pointer;color:#333">Fill correction form</button>'
+        + '</div>';
+      var popup = new mapboxgl.Popup({ offset: 12 }).setHTML(popupHtml);
 
       var marker = new mapboxgl.Marker(el).setLngLat([lon, lat]).setPopup(popup).addTo(map);
       markers[b.drop_code] = marker;
@@ -560,10 +559,10 @@
         '<span class="mon-team-arrow">▶</span>'
         + '<span style="width:10px;height:10px;border-radius:50%;background:' + tColor + ';flex-shrink:0;display:inline-block;margin-right:4px"></span>'
         + '<span style="min-width:24px;font-weight:700;color:var(--ink-2)">' + t.rank + '</span>'
-        + '<span style="flex:1;font-weight:600">' + t.team_name + '</span>'
+        + '<span style="flex:1;font-weight:600">' + JORD.escapeHtml(t.team_name) + '</span>'
         + '<span style="font-family:var(--font-mono);font-weight:700;margin-right:var(--s-2)">' + score + '</span>'
         + '<span style="font-size:12px;color:var(--ink-2);margin-right:var(--s-2)">' + scannedCnt + '</span>'
-        + '<button class="map-focus-btn" data-team="' + t.team_name.replace(/"/g, '&quot;') + '" title="Focus map on this team"'
+        + '<button class="map-focus-btn" data-team="' + JORD.escapeHtml(t.team_name) + '" title="Focus map on this team"'
         + ' style="font-size:11px;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:' + (mapTeamFilter === t.team_name ? 'var(--primary)' : 'transparent') + ';color:' + (mapTeamFilter === t.team_name ? '#0C2010' : 'var(--ink-2)') + ';cursor:pointer;flex-shrink:0">📍</button>';
       teamRow.addEventListener('click', function () { teamRow.classList.toggle('is-open'); bodyDiv.classList.toggle('is-open'); });
       teamRow.querySelector('.map-focus-btn').addEventListener('click', function (e) {
@@ -587,8 +586,8 @@
         pRow.className = 'mon-player-row';
         pRow.innerHTML =
           '<span style="font-size:12px;color:var(--ink-2);min-width:16px">' + (b.player_index || '') + '</span>'
-          + '<span style="flex:1;font-size:13px">' + (b.player_name || '<em style="color:var(--ink-2)">unregistered</em>') + '</span>'
-          + '<span style="font-family:var(--font-mono);font-size:11px;color:var(--ink-2);margin-right:var(--s-2)">' + b.drop_code + '</span>'
+          + '<span style="flex:1;font-size:13px">' + (b.player_name ? JORD.escapeHtml(b.player_name) : '<em style="color:var(--ink-2)">unregistered</em>') + '</span>'
+          + '<span style="font-family:var(--font-mono);font-size:11px;color:var(--ink-2);margin-right:var(--s-2)">' + JORD.escapeHtml(b.drop_code) + '</span>'
           + '<span style="font-size:12px;font-weight:600">' + playerScore + locBadge + '</span>';
 
         /* Action buttons row */
@@ -790,6 +789,21 @@
     card.appendChild(errEl);
     return card;
   }
+
+  /* Handle "Fill correction form" button clicks from map popups */
+  document.addEventListener('click', function (e) {
+    if (e.target && e.target.classList.contains('fill-corr-btn')) {
+      var code = e.target.getAttribute('data-code');
+      if (code) {
+        var codeInput = document.getElementById('corr-code');
+        if (codeInput) {
+          codeInput.value = code;
+          var card = codeInput.closest('.card');
+          if (card) card.scrollIntoView({ behavior: 'smooth' });
+        }
+      }
+    }
+  });
 })();
 </script>
 </body>

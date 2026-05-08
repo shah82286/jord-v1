@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>JORD Golf — Tournament Management Platform</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  html { scroll-behavior: smooth; }
+  body { overflow-x: hidden; }
+
+  .landing-nav {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 28px; background: var(--surface);
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100;
+  }
+  .landing-nav .logo { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+  .landing-nav .logo img { height: 32px; width: auto; }
+  .landing-nav .logo-text { font-weight: 700; font-size: 18px; }
+  .landing-nav .nav-right { display: flex; gap: 12px; align-items: center; }
+  .landing-nav .btn { font-size: 13px; padding: 8px 16px; }
+
+  .hero {
+    position: relative; height: 620px; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .hero-bg {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: linear-gradient(135deg, rgba(12,32,16,0.85), rgba(20,43,23,0.85)), url('https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?w=1400&h=700&fit=crop') center/cover;
+    z-index: -1;
+  }
+  .hero-content { text-align: center; color: white; max-width: 700px; padding: 0 28px; }
+  .hero-content h1 {
+    font-family: var(--font-display); font-size: clamp(2.2rem, 6vw, 3.8rem);
+    margin-bottom: 12px; font-weight: 700; line-height: 1.1;
+  }
+  .hero-content .sub {
+    font-size: clamp(1rem, 2vw, 1.2rem); color: #e0e0e0; margin-bottom: 28px;
+    line-height: 1.6;
+  }
+  .hero-content .cta-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .hero-content .btn { font-size: 15px; padding: 12px 28px; min-height: auto; }
+
+  .features {
+    padding: 80px 28px; background: var(--bg);
+  }
+  .features-inner { max-width: 1000px; margin: 0 auto; }
+  .features h2 { font-family: var(--font-display); font-size: 2.6rem; text-align: center; margin-bottom: 14px; }
+  .features-sub { text-align: center; color: var(--ink-2); font-size: 16px; margin-bottom: 56px; max-width: 600px; margin-left: auto; margin-right: auto; }
+
+  .features-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 28px;
+  }
+  .feature-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+    padding: 32px 28px; text-align: center;
+  }
+  .feature-card .icon { font-size: 44px; margin-bottom: 16px; }
+  .feature-card h3 { font-size: 18px; font-weight: 600; margin-bottom: 10px; }
+  .feature-card p { font-size: 14px; color: var(--ink-2); line-height: 1.6; }
+
+  .how-it-works {
+    padding: 80px 28px; background: var(--surface);
+  }
+  .how-inner { max-width: 900px; margin: 0 auto; }
+  .how-it-works h2 { font-family: var(--font-display); font-size: 2.6rem; text-align: center; margin-bottom: 56px; }
+
+  .steps {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 24px;
+  }
+  .step {
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: 28px 24px; text-align: center;
+  }
+  .step-num {
+    width: 44px; height: 44px; border-radius: 50%; background: var(--primary);
+    color: var(--primary-ink); font-weight: 700; font-size: 18px;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 16px;
+  }
+  .step h3 { font-size: 17px; font-weight: 600; margin-bottom: 8px; }
+  .step p { font-size: 13px; color: var(--ink-2); line-height: 1.6; }
+
+  .cta-section {
+    padding: 80px 28px; background: var(--bg); text-align: center;
+  }
+  .cta-inner { max-width: 700px; margin: 0 auto; }
+  .cta-section h2 { font-family: var(--font-display); font-size: 2.4rem; margin-bottom: 20px; }
+  .cta-section p { font-size: 16px; color: var(--ink-2); margin-bottom: 32px; line-height: 1.7; }
+  .cta-section .btn { font-size: 16px; padding: 14px 40px; min-height: auto; }
+
+  footer {
+    padding: 40px 28px; background: var(--surface); border-top: 1px solid var(--border);
+    text-align: center; color: var(--ink-2); font-size: 13px;
+  }
+  footer a { color: var(--primary); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  @media (max-width: 640px) {
+    .landing-nav { padding: 12px 14px; flex-wrap: wrap; gap: 12px; }
+    .landing-nav .logo-text { display: none; }
+    .hero { height: 480px; }
+    .hero-content h1 { font-size: 2rem; margin-bottom: 10px; }
+    .hero-content .sub { font-size: 15px; margin-bottom: 20px; }
+    .features { padding: 60px 14px; }
+    .features h2 { font-size: 2rem; }
+    .features-grid { gap: 16px; }
+    .feature-card { padding: 24px 16px; }
+    .how-it-works { padding: 60px 14px; }
+    .how-it-works h2 { font-size: 2rem; margin-bottom: 40px; }
+    .cta-section { padding: 60px 14px; }
+    .cta-section h2 { font-size: 1.8rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="landing-nav">
+  <a href="/" class="logo">
+    <img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077" alt="JORD Golf">
+    <div class="logo-text">JORD GOLF</div>
+  </a>
+  <div class="nav-right">
+    <a href="/admin" class="btn btn-ghost">Login</a>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-content">
+    <h1>Live Golf Tournament Management</h1>
+    <p class="sub">Real-time scoring for Longest Drive and Closest to Pin contests. GPS-powered accuracy. Instant leaderboards.</p>
+    <div class="cta-row">
+      <a href="/signup" class="btn btn-primary">Sign My Tournament Up</a>
+      <a href="https://www.jordgolf.com" target="_blank" class="btn btn-ghost" style="color:#fff;border-color:#fff">Learn More</a>
+    </div>
+  </div>
+</section>
+
+<section class="features">
+  <div class="features-inner">
+    <h2>Why JORD Golf?</h2>
+    <p class="features-sub">Purpose-built for golf events. No setup required. Real results in real time.</p>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="icon">📍</div>
+        <h3>GPS-Powered Scoring</h3>
+        <p>Players scan a QR code on their ball and submit their position instantly. Accurate yardage every time.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">📺</div>
+        <h3>Live Leaderboard</h3>
+        <p>Real-time updates to a stunning leaderboard. Viewers watch scores change as shots happen on the course.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🗺️</div>
+        <h3>Course Mapping</h3>
+        <p>Define fairways, rough, and out-of-bounds on a satellite map. Auto-detect zone from GPS submission.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">📊</div>
+        <h3>Full Analytics</h3>
+        <p>Track fairway %, rough penalties, OOB counts. Export all tournament data to CSV for analysis.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">👥</div>
+        <h3>Team Registration</h3>
+        <p>Players self-register with a drop code. Organize teams any way you want. No manual data entry.</p>
+      </div>
+      <div class="feature-card">
+        <div class="icon">🏌️</div>
+        <h3>Mobile First</h3>
+        <p>Full phone experience for players. Works on any device with GPS. No app download needed.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="how-it-works">
+  <div class="how-inner">
+    <h2>How It Works</h2>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">1</div>
+        <h3>Setup Your Course</h3>
+        <p>Define your tournament hole on a satellite map. Draw fairways, rough, and OOB zones.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">2</div>
+        <h3>Register Players</h3>
+        <p>Print QR codes on balls. Players scan and enter their info. Teams form automatically.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">3</div>
+        <h3>Scan & Score</h3>
+        <p>Players scan a QR on their ball after hitting. GPS locks position. Zone auto-detects.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">4</div>
+        <h3>Watch Live</h3>
+        <p>Live leaderboard updates in real time. Viewers see shots land on a satellite map.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="cta-section">
+  <div class="cta-inner">
+    <h2>Ready to Run Your Tournament?</h2>
+    <p>Set up a live leaderboard in minutes. No technical knowledge required. Fair scoring for every event.</p>
+    <a href="/signup" class="btn btn-primary" style="font-size:16px;padding:14px 40px">Sign My Tournament Up</a>
+  </div>
+</section>
+
+<footer>
+  <p>© 2026 JORD Golf, Inc. All rights reserved. | <a href="https://www.jordgolf.com" target="_blank">jordgolf.com</a> | <a href="mailto:support@jordgolf.com">support@jordgolf.com</a></p>
+</footer>
+
+</body>
+</html>

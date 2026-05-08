@@ -12,6 +12,7 @@ const cors     = require('cors');
 const path     = require('path');
 const crypto   = require('crypto');
 const fs       = require('fs');
+const nodemailer = require('nodemailer');
 
 // Load env
 const env = {};
@@ -24,11 +25,21 @@ try {
 
 const PORT           = env.PORT           || process.env.PORT           || 3000;
 const APP_URL        = env.APP_URL        || process.env.APP_URL         || `http://localhost:${PORT}`;
-const ADMIN_PASSWORD = env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD  || 'jord2026';
+// Admin password MUST be set - no hardcoded defaults for security
+const ADMIN_PASSWORD = env.ADMIN_PASSWORD || process.env.ADMIN_PASSWORD  || (() => {
+  const pwd = crypto.randomBytes(16).toString('hex');
+  console.log(`[Auth] Generated random admin password (set ADMIN_PASSWORD env to use a custom one): ${pwd}`);
+  return pwd;
+})();
 const MAPBOX_TOKEN   = env.MAPBOX_TOKEN   || process.env.MAPBOX_TOKEN    || '';
 const KLAVIYO_KEY          = env.KLAVIYO_API_KEY     || process.env.KLAVIYO_API_KEY      || '';
 const KLAVIYO_EMAIL_LIST   = env.KLAVIYO_EMAIL_LIST_ID|| process.env.KLAVIYO_EMAIL_LIST_ID || '';
 const KLAVIYO_SMS_LIST     = env.KLAVIYO_SMS_LIST_ID  || process.env.KLAVIYO_SMS_LIST_ID   || '';
+const SMTP_HOST      = env.SMTP_HOST      || process.env.SMTP_HOST       || '';
+const SMTP_PORT      = parseInt(env.SMTP_PORT || process.env.SMTP_PORT || '587');
+const SMTP_USER      = env.SMTP_USER      || process.env.SMTP_USER       || '';
+const SMTP_PASS      = env.SMTP_PASS      || process.env.SMTP_PASS       || '';
+const SUPPORT_EMAIL  = env.SUPPORT_EMAIL  || process.env.SUPPORT_EMAIL   || 'support@jordgolf.com';
 
 const app = express();
 if (!fs.existsSync('./data')) fs.mkdirSync('./data');
@@ -262,8 +273,33 @@ function getSessionAdmin(token) {
 
 // ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
 app.use(cors({ origin: '*' }));
+
+// ─── SECURITY HEADERS ─────────────────────────────────────────────────────────
+// Must be before express.static so headers are applied to all responses
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+
+  // Enforce HTTPS in production
+  if (process.env.NODE_ENV === 'production' && req.header('x-forwarded-proto') !== 'https') {
+    return res.redirect(301, `https://${req.header('host')}${req.url}`);
+  }
+  next();
+});
+
 app.use(express.json());
 app.use(express.static('public'));
+
+// ─── EMAIL ────────────────────────────────────────────────────────────────────
+const transporter = SMTP_HOST && SMTP_USER ? nodemailer.createTransport({
+  host: SMTP_HOST,
+  port: SMTP_PORT,
+  secure: SMTP_PORT === 465,
+  auth: { user: SMTP_USER, pass: SMTP_PASS }
+}) : null;
 
 // ─── RATE LIMITER ─────────────────────────────────────────────────────────────
 // In-memory store: { key → { count, resetAt } }
@@ -301,6 +337,9 @@ setInterval(() => {
 const loginLimiter    = rateLimit({ max: 5,  windowMs: 15 * 60 * 1000, message: 'Too many login attempts. Please wait 15 minutes and try again.' });
 const forgotLimiter   = rateLimit({ max: 3,  windowMs: 15 * 60 * 1000, message: 'Too many requests. Please wait 15 minutes and try again.' });
 const resetLimiter    = rateLimit({ max: 5,  windowMs: 15 * 60 * 1000, message: 'Too many reset attempts. Please wait 15 minutes and try again.' });
+const scanLimiter     = rateLimit({ max: 30, windowMs: 60 * 1000, message: 'Too many scans from your device. Please wait 1 minute before scanning again.' });
+const registerLimiter = rateLimit({ max: 15, windowMs: 60 * 1000, message: 'Too many registration attempts. Please wait 1 minute before trying again.' });
+const alertLimiter    = rateLimit({ max: 20, windowMs: 60 * 1000, message: 'Too many alerts. Please wait 1 minute before reporting another issue.' });
 
 function requireAuth(req, res, next) {
   const token = req.headers['x-admin-token'] || req.query.token;
@@ -1232,11 +1271,25 @@ app.get('/api/events/:eventId/info', (req, res) => {
 // ─── REGISTRATION ─────────────────────────────────────────────────────────────
 // Register one player at a time. Team name submitted after 4th player.
 // No auth required — drop_code validation is the access control.
-app.post('/api/events/:eventId/register-player', async (req, res) => {
+app.post('/api/events/:eventId/register-player', registerLimiter, async (req, res) => {
   const { drop_code, first_name, last_name, email, phone, tee_box_id, player_index, team_id, email_opt_in, sms_opt_in } = req.body;
   const { eventId } = req.params;
 
   if (!drop_code || !first_name || !last_name) return res.status(400).json({ error: 'drop_code, first_name, last_name required' });
+
+  // Validate input lengths and format
+  if (typeof first_name !== 'string' || first_name.trim().length < 1 || first_name.trim().length > 100) {
+    return res.status(400).json({ error: 'First name must be 1-100 characters' });
+  }
+  if (typeof last_name !== 'string' || last_name.trim().length < 1 || last_name.trim().length > 100) {
+    return res.status(400).json({ error: 'Last name must be 1-100 characters' });
+  }
+  if (email && (typeof email !== 'string' || email.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+    return res.status(400).json({ error: 'Invalid email format' });
+  }
+  if (phone && (typeof phone !== 'string' || phone.length > 20)) {
+    return res.status(400).json({ error: 'Phone must be 20 characters or less' });
+  }
 
   const event = db.prepare('SELECT status FROM events WHERE id=?').get(eventId);
   if (!event) return res.status(404).json({ error: 'Event not found' });
@@ -1351,7 +1404,7 @@ app.get('/api/ball/:code', (req, res) => {
 });
 
 // ─── LONGEST DRIVE SCAN ───────────────────────────────────────────────────────
-app.post('/api/scan/ld/:code', (req, res) => {
+app.post('/api/scan/ld/:code', scanLimiter, (req, res) => {
   const code = req.params.code.toUpperCase();
   const { lat, lon, location_type } = req.body; // location_type: fairway|rough|oob|lost
   if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
@@ -1466,7 +1519,7 @@ app.post('/api/scan/ld/:code', (req, res) => {
 });
 
 // ─── CLOSEST TO PIN SCAN ─────────────────────────────────────────────────────
-app.post('/api/scan/cp/:code', (req, res) => {
+app.post('/api/scan/cp/:code', scanLimiter, (req, res) => {
   const code = req.params.code.toUpperCase();
   const { lat, lon, manual_ft } = req.body;
   if (!lat || !lon) return res.status(400).json({ error: 'lat and lon required' });
@@ -1610,7 +1663,7 @@ app.patch('/api/events/:eventId/balls/:code/reset-scan', requireAuth, (req, res)
 });
 
 // ─── REP ALERTS ──────────────────────────────────────────────────────────────
-app.post('/api/alerts', (req, res) => {
+app.post('/api/alerts', alertLimiter, (req, res) => {
   const { event_id, drop_code, team_name, player_name, lat, lon, message } = req.body;
   const id = uid('ALERT');
   db.prepare('INSERT INTO rep_alerts (id,event_id,drop_code,team_name,player_name,lat,lon,message) VALUES (?,?,?,?,?,?,?,?)')
@@ -1971,15 +2024,66 @@ app.get('/api/global/events', requireAuth, requireSuper, (req, res) => {
   res.json(events);
 });
 
+// ─── TOURNAMENT SIGNUP ─────────────────────────────────────────────────────────
+app.post('/api/tournament-signup', async (req, res) => {
+  try {
+    const { tournament_name, event_date, venue, location, contest_type, expected_players, admin_name, admin_email, admin_phone, notes } = req.body;
+
+    // Validate required fields
+    if (!tournament_name || !event_date || !venue || !location || !contest_type || !expected_players || !admin_name || !admin_email || !admin_phone) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Format the email content
+    const emailBody = `
+Tournament Signup Request
+
+Tournament Details:
+- Name: ${tournament_name}
+- Date: ${event_date}
+- Venue: ${venue}
+- Location: ${location}
+- Contest Type: ${contest_type === 'ld' ? 'Longest Drive' : contest_type === 'ctp' ? 'Closest to Pin' : 'Both'}
+- Expected Players: ${expected_players}
+
+Admin Contact:
+- Name: ${admin_name}
+- Email: ${admin_email}
+- Phone: ${admin_phone}
+
+Additional Notes:
+${notes || 'None'}
+    `.trim();
+
+    // Send email if transporter is configured
+    if (transporter) {
+      await transporter.sendMail({
+        from: SMTP_USER,
+        to: SUPPORT_EMAIL,
+        subject: `New Tournament Signup: ${tournament_name}`,
+        text: emailBody
+      });
+    } else {
+      console.log('[Email] Transporter not configured. Email would have been sent to:', SUPPORT_EMAIL);
+      console.log('[Email] Subject: New Tournament Signup:', tournament_name);
+      console.log('[Email] Body:', emailBody);
+    }
+
+    res.json({ success: true, message: 'Tournament signup request submitted successfully' });
+  } catch (err) {
+    console.error('[Signup Error]', err);
+    res.status(500).json({ error: 'Failed to submit signup request' });
+  }
+});
+
 // ─── PAGES ───────────────────────────────────────────────────────────────────
-const pages = { '/admin': 'admin.html', '/register/:id': 'register.html',
+const pages = { '/': 'landing.html', '/landing': 'landing.html', '/signup': 'signup.html', '/admin': 'admin.html', '/register/:id': 'register.html',
   '/scan': 'scan.html', '/scan/:code': 'scan.html', '/leaderboard/:id': 'leaderboard.html',
   '/dashboard/:eid/:code': 'dashboard.html', '/monitor/:id': 'monitor.html',
   '/global': 'global.html', '/test': 'test.html', '/system-summary': 'system-summary.html' };
 Object.entries(pages).forEach(([route, file]) => {
   app.get(route, (_, res) => res.sendFile(path.join(__dirname, 'public', file)));
 });
-app.get('/', (_, res) => res.redirect('/admin'));
 
 // ─── START ────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
