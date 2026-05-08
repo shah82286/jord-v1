@@ -42,9 +42,16 @@ const SMTP_PASS      = env.SMTP_PASS      || process.env.SMTP_PASS       || '';
 const SUPPORT_EMAIL  = env.SUPPORT_EMAIL  || process.env.SUPPORT_EMAIL   || 'support@jordgolf.com';
 
 const app = express();
-if (!fs.existsSync('./data')) fs.mkdirSync('./data');
-const db = new Database('./data/jord.db');
-db.pragma('journal_mode = WAL');
+if (!fs.existsSync('./data')) fs.mkdirSync('./data', { recursive: true });
+let db;
+try {
+  db = new Database('./data/jord.db');
+  db.pragma('journal_mode = WAL');
+  console.log('[DB] Connected to SQLite');
+} catch (err) {
+  console.error('[FATAL] Database initialization failed:', err.message);
+  process.exit(1);
+}
 
 // ─── SCHEMA ───────────────────────────────────────────────────────────────────
 db.exec(`
@@ -2085,7 +2092,19 @@ Object.entries(pages).forEach(([route, file]) => {
   app.get(route, (_, res) => res.sendFile(path.join(__dirname, 'public', file)));
 });
 
+// ─── ERROR HANDLING ──────────────────────────────────────────────────────────
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception:', err);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[FATAL] Unhandled rejection at:', promise, 'reason:', reason);
+  process.exit(1);
+});
+
 // ─── START ────────────────────────────────────────────────────────────────────
+console.log(`[Server] Starting on 0.0.0.0:${PORT}...`);
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`
 ╔══════════════════════════════════════════════════════╗
