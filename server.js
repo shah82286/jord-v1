@@ -1,6 +1,6 @@
 /**
  * JORD Golf Tournament System — Server
- * Version: 1.0.0 | Built: 2026-04-26
+ * Version: 3.5.0 | Built: 2026-05-07
  *
  * Supports: Team Longest Drive + Closest to the Pin
  * Stack: Node.js / Express / SQLite / Mapbox GL
@@ -1750,8 +1750,13 @@ app.get('/api/dashboard/:eventId/:code', (req, res) => {
 });
 
 // ─── CONFIG ENDPOINT (for frontend) ─────────────────────────────────────────
+// Simple healthcheck that doesn't depend on anything
+app.get('/ping', (req, res) => {
+  res.status(200).send('OK');
+});
+
 app.get('/api/config', (req, res) => {
-  res.json({ mapbox_token: MAPBOX_TOKEN, version: '1.0.0', build_date: '2026-04-26' });
+  res.json({ mapbox_token: MAPBOX_TOKEN, version: '3.5.0', build_date: '2026-05-07' });
 });
 
 // ─── COURSE SEARCH (from courses.csv) ────────────────────────────────────────
