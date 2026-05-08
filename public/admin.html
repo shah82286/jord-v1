@@ -103,12 +103,13 @@
     #view-editor > .row.row-between > .row { flex-wrap: wrap; gap: var(--s-2); }
     #view-editor > .row.row-between > .row .btn { font-size: 12px; padding: 8px 12px; min-height: 36px; }
 
-    /* Map tools — horizontal scroll so buttons stay on one line and don't push map down */
-    .map-tools { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; gap: 4px; }
+    /* Map tools — wrap on mobile so all items are visible in multiple rows */
+    .map-tools { flex-wrap: wrap; padding-bottom: 0; gap: 4px; }
     .map-tools .btn, .map-tools select { flex-shrink: 0; font-size: 10px; padding: 5px 7px; min-height: 32px; white-space: nowrap; }
+    .map-tools > span { display: none; } /* Hide separator line on mobile */
     .draw-kind-btn { font-size: 10px; }
     .map-hole-tab { padding: 7px 12px; font-size: 12px; }
-    #search-place { min-width: 100px; flex-shrink: 0; font-size: 11px; padding: 6px 8px; }
+    #search-place { flex-basis: 100%; min-width: 100%; flex-shrink: 0; font-size: 11px; padding: 6px 8px; margin-top: 4px; }
 
     /* Course map — increase map height on mobile for better usability */
     #map { min-height: 380px !important; }
@@ -119,8 +120,14 @@
     .tee-coords { flex-wrap: wrap; }
     .tee-coord-input { width: 100px !important; font-size: 12px !important; }
 
-    /* Pin coords box — stack vertically */
-    .pin-coords-box { flex-direction: column; gap: var(--s-2); }
+    /* Pin coords box — stack vertically and make more compact */
+    .pin-coords-box { flex-direction: column; gap: var(--s-1); padding: 8px 10px; }
+    .pin-coords-box .coord-label { font-size: 10px; }
+    .pin-coords-box .coord-val { font-size: 12px; }
+
+    /* Tee boxes — reduce spacing on mobile */
+    .tee-list { gap: 8px; }
+    .tee-row { padding: 8px 10px; gap: 6px; }
 
     /* Hole dist section — reduce padding */
     #hole-dist-section { padding: 8px 10px; font-size: 12px; }
