@@ -89,8 +89,10 @@
   .pill-link { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--primary); font-size: 12px; font-weight: 600; }
   @media (max-width: 800px) {
     .editor-grid { grid-template-columns: 1fr; }
-    .editor-nav { display: flex; flex-direction: row; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: var(--s-1); padding-bottom: var(--s-2); }
+    .editor-nav { display: flex; flex-direction: row; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: var(--s-1); padding-bottom: var(--s-2); padding-right: 140px; position: relative; }
     .editor-nav .nav-item { flex-shrink: 0; white-space: nowrap; }
+    /* Gradient hint that there's more content to scroll */
+    .editor-nav::after { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 80px; background: linear-gradient(to right, transparent, var(--bg) 70%); pointer-events: none; z-index: 10; }
   }
   @media (max-width: 640px) {
     /* Events list header — stack title and buttons, make button row scrollable on very small screens */
