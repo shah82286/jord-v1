@@ -7,6 +7,9 @@ Nothing built until confirmed. Move to In Progress / Done as we go.
 
 ## Backlog
 
+**#SECURITY-1 — Set up quarterly API key rotation reminders**
+Email reminders to shah82286@gmail.com on Jan 1, Apr 1, Jul 1, Oct 1 at 9am to rotate Mapbox, Anthropic, and Klaviyo API keys. Use Google Calendar or phone calendar with email notifications. See SECURITY_FIXES_APPLIED.md for details. ~60 seconds setup.
+
 **#PRE-1 — Get on HTTPS hosting** ✓
 Deployed to Railway. Live at https://tournament.jordgolf.com. SSL auto-managed by Railway. Persistent volume at /app/data for SQLite. APP_URL updated. Completed May 2026.
 
