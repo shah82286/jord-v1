@@ -374,6 +374,7 @@
       if (snap) {
         if (!mapCentered) centerMapOnCourse(snap.event || {});
         updateZoneLayers(snap.event || {});
+        addMapMarkers(snap.event || {});
       }
     });
   }
@@ -401,6 +402,39 @@
       addZone('mon-ctp-green', ev.ctp_green_polygon, '#22C55E', 0.35);
     }
     if (map.isStyleLoaded()) { doZones(); } else { map.once('load', doZones); }
+  }
+
+  function addMapMarkers(ev) {
+    if (!map) return;
+    /* LD Pin marker */
+    if (ev.pin_lat && ev.pin_lon) {
+      var pinEl = document.createElement('div');
+      pinEl.style.cssText = 'background:#C0392B;color:white;border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:grid;place-items:center;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,0.4)';
+      pinEl.textContent = '⚑';
+      new mapboxgl.Marker({ element: pinEl }).setLngLat([ev.pin_lon, ev.pin_lat])
+        .setPopup(new mapboxgl.Popup({ offset: 12 }).setHTML('<div style="color:#1a1a1a;font-size:13px;font-weight:600">📍 Longest Drive Pin</div>')).addTo(map);
+    }
+    /* CTP Pin marker */
+    if (ev.ctp_pin_lat && ev.ctp_pin_lon) {
+      var ctpPinEl = document.createElement('div');
+      ctpPinEl.style.cssText = 'background:#3B82F6;color:white;border:2px solid #fff;border-radius:50%;width:26px;height:26px;display:grid;place-items:center;font-size:14px;box-shadow:0 2px 6px rgba(0,0,0,0.4)';
+      ctpPinEl.textContent = '⚑';
+      new mapboxgl.Marker({ element: ctpPinEl }).setLngLat([ev.ctp_pin_lon, ev.ctp_pin_lat])
+        .setPopup(new mapboxgl.Popup({ offset: 12 }).setHTML('<div style="color:#1a1a1a;font-size:13px;font-weight:600">📍 Closest to Pin</div>')).addTo(map);
+    }
+    /* Tee boxes — show all tees regardless of contest */
+    (ev.tee_boxes || []).forEach(function (t) {
+      var label = (t.name || 'Tee').substring(0, 8);
+      var tEl = document.createElement('div');
+      tEl.style.cssText = 'background:#BEFF3A;color:#0C2010;border:2px solid #fff;border-radius:20px;padding:0 8px;height:24px;display:inline-flex;align-items:center;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer';
+      tEl.textContent = label;
+      var popupHtml = '<div style="color:#1a1a1a;font-size:13px;line-height:1.6;min-width:120px">'
+        + '<strong style="color:#0a0a0a;display:block">' + (t.name || 'Tee Box') + '</strong>'
+        + '<span style="color:#555;font-size:12px">Tee Box</span>'
+        + '</div>';
+      new mapboxgl.Marker({ element: tEl }).setLngLat([t.lon, t.lat])
+        .setPopup(new mapboxgl.Popup({ offset: 12 }).setHTML(popupHtml)).addTo(map);
+    });
   }
 
   function centerMapOnCourse(ev) {
