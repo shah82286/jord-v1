@@ -95,6 +95,8 @@
   var players           = [];   /* {code, first, last, email, phone, tee_box_id} */
   var MAX               = 4;
   var submittingWithFewer = false;
+  var teamCode          = null;  /* Generated after player 1 registers */
+  var bulkRegistering   = false; /* Flag for alternate bulk registration mode */
 
   /* ── Bootstrap ── */
   document.addEventListener('DOMContentLoaded', function () {
@@ -132,8 +134,33 @@
     getRoot().innerHTML = '<div class="empty" style="padding:80px 24px"><div class="empty-icon">⚠️</div><div class="empty-title">Oops</div><p>' + msg + '</p><a href="/admin" class="btn btn-ghost mt-3">← Back to Admin</a></div>';
   }
 
+  /* Generate a 6-character team code */
+  function generateTeamCode() {
+    var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    var code = '';
+    for (var i = 0; i < 6; i++) {
+      code += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return code;
+  }
+
+  /* Generate QR code using QR server API */
+  function generateQRCode(containerId, text) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(text);
+    container.innerHTML = '<img src="' + qrUrl + '" style="max-width:200px;border-radius:var(--r-md);border:2px solid var(--border)">';
+  }
+
   function renderStep() {
     var root = getRoot();
+
+    /* If in bulk registration mode, show bulk form instead */
+    if (bulkRegistering) {
+      showBulkRegistrationForm(root);
+      return;
+    }
+
     var playerIndex = players.length + 1;
     var onTeamStep  = players.length >= MAX || submittingWithFewer;
 
@@ -144,7 +171,7 @@
     evHead.style.cssText = 'margin-bottom:var(--s-5)';
     evHead.innerHTML = '<div class="hero-eyebrow">' + (eventInfo.venue || 'JORD Golf Tournament') + '</div>'
       + '<h2 class="mt-1">' + eventInfo.name + '</h2>'
-      + '<p class="text-muted" style="margin-top:4px;font-size:14px">Register your team below. Each player needs their unique drop code.</p>';
+      + '<p class="text-muted" style="margin-top:4px;font-size:14px">Register your team below. Total of 4 drop codes needed.</p>';
     root.appendChild(evHead);
 
     /* Step bar — 4 player pips + 1 team pip */
@@ -185,8 +212,54 @@
       /* All 4 entered, or user chose to submit with fewer — show team name */
       showTeamForm(root, submittingWithFewer);
 
-    } else {
-      /* Between 1–3 players — show action buttons */
+    } else if (players.length === 1) {
+      /* After player 1 — show team code + options */
+      if (!teamCode) teamCode = generateTeamCode();
+
+      var actions = document.createElement('div');
+
+      /* Show team code + QR code */
+      var codeBox = document.createElement('div');
+      codeBox.style.cssText = 'background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s-4);margin-bottom:var(--s-4);text-align:center';
+      codeBox.innerHTML = '<div style="font-size:11px;color:var(--ink-2);margin-bottom:6px;text-transform:uppercase;font-weight:700">Share this code with your team</div>'
+        + '<div style="font-family:var(--font-mono);font-size:28px;font-weight:700;letter-spacing:2px;margin-bottom:var(--s-3)">' + teamCode + '</div>'
+        + '<div id="qr-container" style="margin:var(--s-3) 0"></div>'
+        + '<div style="font-size:12px;color:var(--ink-2);margin-top:var(--s-2)">Players 2-4 can scan this QR code on their phones to join</div>';
+      root.appendChild(codeBox);
+
+      /* Generate QR code for team URL */
+      var teamUrl = window.location.origin + '/register/' + eid + '?team=' + teamCode;
+      generateQRCode('qr-container', teamUrl);
+
+      /* Primary: Add next player via QR */
+      var addBtn = document.createElement('button');
+      addBtn.className = 'btn btn-primary btn-block btn-lg';
+      addBtn.innerHTML = '＋ Add Player ' + playerIndex;
+      addBtn.addEventListener('click', function () {
+        showPlayerForm(root, playerIndex);
+      });
+      actions.appendChild(addBtn);
+
+      /* Divider */
+      var orDiv = document.createElement('div');
+      orDiv.style.cssText = 'display:flex;align-items:center;gap:12px;margin:var(--s-3) 0;color:var(--ink-3);font-size:13px';
+      orDiv.innerHTML = '<div style="flex:1;height:1px;background:var(--border)"></div>or<div style="flex:1;height:1px;background:var(--border)"></div>';
+      actions.appendChild(orDiv);
+
+      /* Secondary: Bulk registration for teams without 4 players */
+      var bulkBtn = document.createElement('button');
+      bulkBtn.className = 'btn btn-ghost btn-block';
+      bulkBtn.textContent = 'Don\'t have all 4 players? →';
+      bulkBtn.addEventListener('click', function () {
+        bulkRegistering = true;
+        renderStep();
+      });
+      actions.appendChild(bulkBtn);
+
+      root.appendChild(actions);
+
+    } else if (players.length > 1 && players.length < MAX) {
+      /* Between 2–3 players — show action buttons */
       var actions = document.createElement('div');
 
       /* Primary: Add next player */
@@ -208,7 +281,7 @@
       /* Secondary: Submit with fewer */
       var fewerBtn = document.createElement('button');
       fewerBtn.className = 'btn btn-ghost btn-block';
-      fewerBtn.textContent = 'Submit with ' + players.length + ' player' + (players.length > 1 ? 's' : '') + ' →';
+      fewerBtn.textContent = 'We\'re ready to play →';
       fewerBtn.addEventListener('click', function () {
         /* Inline confirmation — no popup */
         actions.innerHTML = '';
@@ -239,6 +312,213 @@
 
       root.appendChild(actions);
     }
+  }
+
+  function showBulkRegistrationForm(root) {
+    root.innerHTML = '';
+
+    /* Header */
+    var evHead = document.createElement('div');
+    evHead.style.cssText = 'margin-bottom:var(--s-5)';
+    evHead.innerHTML = '<div class="hero-eyebrow">' + (eventInfo.venue || 'JORD Golf Tournament') + '</div>'
+      + '<h2 class="mt-1">' + eventInfo.name + '</h2>'
+      + '<p class="text-muted" style="margin-top:4px;font-size:14px">Register all your players at once. You need 4 total drop codes.</p>';
+    root.appendChild(evHead);
+
+    var card = document.createElement('div');
+    card.className = 'card';
+
+    var title = document.createElement('h3');
+    title.className = 'card-title';
+    title.textContent = 'Team Registration';
+    card.appendChild(title);
+
+    var sub = document.createElement('p');
+    sub.className = 'card-sub';
+    sub.textContent = 'Add 1-4 players and distribute 4 total drop codes among them.';
+    card.appendChild(sub);
+
+    /* Player entries container */
+    var playersContainer = document.createElement('div');
+    playersContainer.id = 'bulk-players';
+    playersContainer.style.cssText = 'display:flex;flex-direction:column;gap:var(--s-3);margin-bottom:var(--s-4)';
+
+    /* Add first player form */
+    addBulkPlayerRow(playersContainer, 1);
+
+    card.appendChild(playersContainer);
+
+    /* Add more button */
+    var addMoreBtn = document.createElement('button');
+    addMoreBtn.className = 'btn btn-ghost btn-block';
+    addMoreBtn.textContent = '＋ Add Another Player';
+    addMoreBtn.addEventListener('click', function() {
+      var count = playersContainer.querySelectorAll('.bulk-player-row').length + 1;
+      if (count <= 4) {
+        addBulkPlayerRow(playersContainer, count);
+      } else {
+        JORD.warn('Maximum 4 players per team');
+      }
+    });
+    card.appendChild(addMoreBtn);
+
+    /* Code count info */
+    var codeInfo = document.createElement('div');
+    codeInfo.style.cssText = 'background:var(--surface-2);border-radius:var(--r-md);padding:10px 14px;margin-top:var(--s-3);font-size:13px;color:var(--ink-2)';
+    codeInfo.innerHTML = '<span id="code-count">0</span> of 4 drop codes entered';
+    card.appendChild(codeInfo);
+
+    root.appendChild(card);
+
+    /* Submit button */
+    var submitBtn = document.createElement('button');
+    submitBtn.className = 'btn btn-primary btn-block btn-lg mt-4';
+    submitBtn.textContent = 'Complete Registration →';
+    submitBtn.addEventListener('click', function() {
+      submitBulkRegistration(playersContainer);
+    });
+    root.appendChild(submitBtn);
+
+    /* Error message */
+    var errEl = document.createElement('div');
+    errEl.style.cssText = 'color:var(--danger);font-size:13px;margin-top:var(--s-2)';
+    errEl.id = 'bulk-error';
+    root.appendChild(errEl);
+
+    updateCodeCount();
+  }
+
+  function addBulkPlayerRow(container, index) {
+    var row = document.createElement('div');
+    row.className = 'bulk-player-row';
+    row.style.cssText = 'background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s-3)';
+
+    var nameField = document.createElement('div');
+    nameField.className = 'field';
+    nameField.innerHTML = '<label>Player ' + index + ' Name</label>';
+    var nameInput = document.createElement('input');
+    nameInput.className = 'input input-name';
+    nameInput.placeholder = 'First and Last Name';
+    nameField.appendChild(nameInput);
+    row.appendChild(nameField);
+
+    var phoneField = document.createElement('div');
+    phoneField.className = 'field';
+    phoneField.innerHTML = '<label>Phone Number</label>';
+    var phoneInput = document.createElement('input');
+    phoneInput.className = 'input input-phone';
+    phoneInput.type = 'tel';
+    phoneInput.placeholder = '(555) 123-4567';
+    phoneField.appendChild(phoneInput);
+    row.appendChild(phoneField);
+
+    var codesField = document.createElement('div');
+    codesField.className = 'field';
+    codesField.innerHTML = '<label>Drop Code(s) for this player</label>'
+      + '<p style="font-size:12px;color:var(--ink-2);margin-bottom:8px">Enter 1-4 codes, separated by commas</p>';
+    var codesInput = document.createElement('input');
+    codesInput.className = 'input input-codes';
+    codesInput.placeholder = 'e.g., ABC123 or ABC123, DEF456';
+    codesInput.addEventListener('input', updateCodeCount);
+    codesField.appendChild(codesInput);
+    row.appendChild(codesField);
+
+    /* Remove button (only if more than 1 player) */
+    if (container.querySelectorAll('.bulk-player-row').length > 0) {
+      var removeBtn = document.createElement('button');
+      removeBtn.className = 'btn btn-ghost';
+      removeBtn.style.width = '100%';
+      removeBtn.textContent = '✕ Remove';
+      removeBtn.addEventListener('click', function() {
+        row.remove();
+        updateCodeCount();
+      });
+      row.appendChild(removeBtn);
+    }
+
+    container.appendChild(row);
+  }
+
+  function updateCodeCount() {
+    var count = 0;
+    document.querySelectorAll('.input-codes').forEach(function(input) {
+      var codes = input.value.trim().split(',').filter(function(c) { return c.trim().length > 0; });
+      count += codes.length;
+    });
+    var countEl = document.getElementById('code-count');
+    if (countEl) countEl.textContent = count;
+  }
+
+  function submitBulkRegistration(playersContainer) {
+    var errEl = document.getElementById('bulk-error');
+    errEl.textContent = '';
+
+    var playerRows = playersContainer.querySelectorAll('.bulk-player-row');
+    if (playerRows.length < 1 || playerRows.length > 4) {
+      errEl.textContent = 'Please add 1-4 players';
+      return;
+    }
+
+    var bulkPlayers = [];
+    var totalCodes = 0;
+
+    playerRows.forEach(function(row) {
+      var name = row.querySelector('.input-name').value.trim();
+      var phone = row.querySelector('.input-phone').value.trim();
+      var codesStr = row.querySelector('.input-codes').value.trim();
+      var codes = codesStr.split(',').map(function(c) { return c.trim().toUpperCase(); }).filter(function(c) { return c.length > 0; });
+
+      if (!name) {
+        errEl.textContent = 'All players need a name';
+        return;
+      }
+
+      bulkPlayers.push({ name: name, phone: phone, codes: codes });
+      totalCodes += codes.length;
+    });
+
+    if (totalCodes !== 4) {
+      errEl.textContent = 'You must enter exactly 4 drop codes total (currently ' + totalCodes + ')';
+      return;
+    }
+
+    /* Register all players at once */
+    var teamName = prompt('Enter team name:', '') || '';
+    if (!teamName) return;
+
+    registerBulkTeam(bulkPlayers, teamName);
+  }
+
+  function registerBulkTeam(bulkPlayers, teamName) {
+    /* Flatten all codes and register them */
+    var allCodes = [];
+    bulkPlayers.forEach(function(p) {
+      p.codes.forEach(function(code) {
+        allCodes.push(code);
+      });
+    });
+
+    fetch('/api/events/' + eid + '/finalize-team', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ team_name: teamName, drop_codes: allCodes })
+    })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.error) {
+        document.getElementById('bulk-error').textContent = data.error;
+        return;
+      }
+      /* Store first player's phone and code */
+      if (bulkPlayers[0] && bulkPlayers[0].phone && bulkPlayers[0].codes[0]) {
+        localStorage.setItem('jord_player_phone', bulkPlayers[0].phone);
+        localStorage.setItem('jord_drop_code', bulkPlayers[0].codes[0]);
+      }
+      renderSuccess(teamName, data);
+    })
+    .catch(function () {
+      document.getElementById('bulk-error').textContent = 'Network error. Try again.';
+    });
   }
 
   function showPlayerForm(root, playerIndex) {
