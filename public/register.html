@@ -423,7 +423,12 @@
       .then(function (data) {
         if (data.error) { errEl.textContent = data.error; submitBtn.disabled = false; submitBtn.textContent = 'Save Player ' + playerIndex; return; }
         if (scanner) { scanner.stop(); scanner = null; }
-        players.push({ code: code, first: first, last: last });
+        var phone = phoneInput.value.trim();
+        players.push({ code: code, first: first, last: last, phone: phone });
+        /* Store phone number for leaderboard "My Team" feature */
+        if (!localStorage.getItem('jord_player_phone') && phone) {
+          localStorage.setItem('jord_player_phone', phone);
+        }
         renderStep();
       })
       .catch(function (e) {

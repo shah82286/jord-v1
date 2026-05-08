@@ -252,6 +252,11 @@
 <div class="lb-content">
   <!-- Scores column -->
   <div class="lb-scores-col">
+    <!-- Search & filter bar -->
+    <div style="display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap;align-items:center">
+      <input type="text" id="lb-search" placeholder="Search team or player…" style="flex:1;min-width:200px;padding:8px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);color:var(--ink);font-size:14px">
+      <button id="btn-my-team" style="display:none;font-size:12px;font-weight:700;padding:7px 12px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--primary);color:var(--primary-ink);cursor:pointer">👤 My Team</button>
+    </div>
     <div class="lb-inner" id="lb-inner">
       <div class="lb-empty">
         <div class="lb-empty-icon">⛳</div>
@@ -313,6 +318,8 @@
   var tourActive = false;
   var tourTimers = [];
   var tourRafId  = null;
+  var searchFilter = ''; /* search term to filter teams/players */
+  var myTeamName = null; /* user's team name if found */
 
   function addZone(id, geojsonStr, color, opacity) {
     if (!geojsonStr || !lbMap) return;
@@ -536,11 +543,45 @@
     return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
 
+  /* Detect user's team from phone stored in localStorage */
+  function detectMyTeam() {
+    var phone = localStorage.getItem('jord_player_phone');
+    if (!phone || !snap) return null;
+    var allTeams = snap.ld || [];
+    var allTeams2 = snap.cp || [];
+    var allTeamsUnique = {};
+    allTeams.concat(allTeams2 || []).forEach(function(team) {
+      if (allTeamsUnique[team.team_name]) return;
+      allTeamsUnique[team.team_name] = team;
+      var found = (team.balls || []).find(function(b) { return b.phone === phone; });
+      if (found) { myTeamName = team.team_name; }
+    });
+    return myTeamName;
+  }
+
+  /* Filter rows by search term and/or mapFilter */
+  function filterRows(rows) {
+    if (!searchFilter && !mapFilter) return rows;
+    return rows.filter(function(team) {
+      if (mapFilter && team.team_name !== mapFilter) return false;
+      if (!searchFilter) return true;
+      var term = searchFilter.toLowerCase();
+      if (team.team_name.toLowerCase().includes(term)) return true;
+      var hasMatch = (team.balls || []).some(function(b) {
+        return (b.player_name || '').toLowerCase().includes(term);
+      });
+      return hasMatch;
+    });
+  }
+
   /* ── Scores render ── */
   function render() {
     if (!snap) return;
     var rows  = (mode === 'ld' ? snap.ld : snap.cp) || [];
     var inner = document.getElementById('lb-inner');
+
+    /* Apply filters */
+    rows = filterRows(rows);
 
     if (!rows.length) {
       inner.innerHTML = '<div class="lb-empty"><div class="lb-empty-icon">⛳</div><h2>No scores yet</h2><p>Waiting for players to scan on course.</p></div>';
@@ -1071,6 +1112,31 @@
       document.getElementById('btn-tv').textContent = '⛶ TV Mode';
     }
   });
+
+  /* Search input — filter teams and players */
+  document.getElementById('lb-search').addEventListener('input', function(e) {
+    searchFilter = e.target.value.trim();
+    render();
+    if (mapLoaded) updateMapMarkers();
+  });
+
+  /* My Team button — show user's team if phone found */
+  document.getElementById('btn-my-team').addEventListener('click', function() {
+    if (myTeamName) {
+      mapFilter = mapFilter === myTeamName ? null : myTeamName;
+      if (mapLoaded) updateMapMarkers();
+      render();
+    }
+  });
+
+  /* On data load, detect user's team and show My Team button if found */
+  var originalRender = render;
+  render = function() {
+    if (snap && !myTeamName) detectMyTeam();
+    var myBtn = document.getElementById('btn-my-team');
+    if (myBtn) myBtn.style.display = myTeamName ? 'inline-block' : 'none';
+    return originalRender.call(this);
+  };
 })();
 </script>
 </body>
