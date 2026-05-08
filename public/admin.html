@@ -16,6 +16,22 @@
   .event-grid { display: grid; gap: var(--s-3); grid-template-columns: 1fr; }
   .event-card { display: grid; grid-template-columns: 1fr auto; gap: var(--s-3); align-items: center; cursor: pointer; padding: var(--s-4) var(--s-5); transition: box-shadow var(--t-fast); }
   .event-card:hover { box-shadow: var(--shadow-md); }
+  @media (max-width: 640px) {
+    .event-card { grid-template-columns: 1fr; align-items: start; padding: var(--s-3) var(--s-3); }
+    .event-card > .row { width: 100%; }
+  }
+
+  /* Tooltip system */
+  .help-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+    border-radius: 50%; background: var(--surface-2); color: var(--ink-2); font-size: 11px; font-weight: 700;
+    cursor: help; margin-left: 4px; position: relative; flex-shrink: 0; }
+  .help-icon:hover { background: var(--accent); color: var(--primary-ink); }
+  .tooltip { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px;
+    font-size: 12px; color: var(--ink); white-space: nowrap; z-index: 1000; margin-bottom: 4px;
+    box-shadow: var(--shadow-md); }
+  .help-icon:hover .tooltip { display: block; }
+  .label-with-help { display: flex; align-items: center; gap: 0; }
   .event-meta { display: flex; gap: var(--s-3); flex-wrap: wrap; align-items: center; margin-top: 6px; color: var(--ink-2); font-size: 13px; }
   .editor-grid { display: grid; grid-template-columns: 320px 1fr; gap: var(--s-5); }
   .editor-nav .nav-item { display: flex; align-items: center; gap: var(--s-2); padding: 12px 14px; border-radius: var(--r-md); color: var(--ink); font-weight: 500; cursor: pointer; }
@@ -94,6 +110,11 @@
     .map-hole-tab { padding: 7px 12px; font-size: 12px; }
     #search-place { min-width: 120px; flex-shrink: 0; }
 
+    /* Course map — increase map height on mobile for better usability */
+    #map { min-height: 380px !important; }
+    .map-legend { font-size: 11px; gap: var(--s-2); margin-top: var(--s-1); }
+    .map-hole-tabs { gap: var(--s-1); margin-bottom: var(--s-2); }
+
     /* Tee coord inputs — prevent overflow */
     .tee-coords { flex-wrap: wrap; }
     .tee-coord-input { width: 100px !important; font-size: 12px !important; }
@@ -101,8 +122,8 @@
     /* Pin coords box — stack vertically */
     .pin-coords-box { flex-direction: column; gap: var(--s-2); }
 
-    /* Hole dist section */
-    #hole-dist-section { padding: 8px 10px; }
+    /* Hole dist section — reduce padding */
+    #hole-dist-section { padding: 8px 10px; font-size: 12px; }
 
     /* Card padding tighter */
     .panel.card { padding: var(--s-4); }
@@ -291,11 +312,11 @@
             <form id="form-settings" class="col gap-3">
               <div class="field-grid">
                 <div class="field">
-                  <label>Name</label>
+                  <label class="label-with-help">Name <span class="help-icon" title="Tournament name">ℹ<span class="tooltip">Tournament display name</span></span></label>
                   <input class="input" name="name" required title="The display name for this tournament event" placeholder="e.g. Charity Classic 2026">
                 </div>
                 <div class="field">
-                  <label>Venue</label>
+                  <label class="label-with-help">Venue <span class="help-icon" title="Venue">ℹ<span class="tooltip">Golf course location</span></span></label>
                   <input class="input" name="venue" id="venue-input" placeholder="Start typing course name…" autocomplete="off" title="Golf course or event location. Start typing to search.">
                   <input type="hidden" name="venue_lat" id="venue-lat">
                   <input type="hidden" name="venue_lon" id="venue-lon">
