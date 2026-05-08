@@ -27,7 +27,7 @@ On first run, super admin is auto-seeded from `.env`.
 
 ---
 
-### Current State (as of v3.1.0 — 2026-05-05)
+### Current State (as of v3.5.0 — 2026-05-07)
 
 #### What's fully working
 - Tournament event creation with Longest Drive and/or Closest to Pin contests
@@ -42,6 +42,7 @@ On first run, super admin is auto-seeded from `.env`.
   - Pin placement via map click, GPS grab (10-second accuracy sampling), or drag
   - GPS Trace tool (walk the boundary with phone) with warm-up accuracy phase
   - Selective clear (clear selected polygon only, or confirm-clear all)
+  - **Delete pin button** — moved into the pin location box; labeled "LD Pin Location" or "CTP Pin Location" depending on active tab. Trash icon button inside the box deletes the current pin with confirmation.
   - **CTP off-green penalty** — admin sets penalty in feet; if a CTP shot lands outside the green polygon, that many feet are added to the raw distance. Shown in leaderboard and scan result.
   - Zone polygon rendering: `syncZoneLayers()` maintains 5 dedicated GeoJSON sources. `turf.simplify` reduces freehand paths to ~10–30 vertices. `scheduleClipZones()` called after freehand and GPS trace draw complete.
   - **Multiple polygons per zone** — each zone type stored as a FeatureCollection; multiple fairways, roughs, OOB areas all supported. `loadPolygon` handles both old (bare Polygon) and new (FeatureCollection) format.
@@ -58,10 +59,11 @@ On first run, super admin is auto-seeded from `.env`.
 - **Tournament lifecycle gate**: players cannot register or submit shots until the admin clicks "▶ Start tournament" (status = `active`). Server returns 403 for all player-facing routes when status is `setup` or `ended`. Both register.html and scan.html show friendly "not started yet" or "ended" messages.
 - **Live leaderboard** at `/leaderboard/:eventId`:
   - Penalty display: team total shows post-penalty final yards; per-player rows show `raw − pen = final` badge; team badge reads "N yd penalty applied" (not a future deduction).
+  - **Search & filter**: search bar filters teams/players by name. "My Team" button uses stored `jord_player_phone` from localStorage to auto-detect user's team + toggle view. Both filters respect the LD/CTP hole tab selection.
   - **Map full-screen expand**: "Map" toggle hides the scores column and expands the map to fill the full content area. A scrollable team strip below the map shows rank + name + score per row; tap a row to filter the map to that team's dots (tap again to clear). `min-height: 0` on `.lb-map-container` prevents flex layout from clipping the map bottom.
   - Map-selected visual: blue ring/left-border (`#3B82F6`).
   - Map popups: all text forced dark (`color:#1a1a1a`) via inline styles.
-  - **Hole Tour**: "🎬 Hole Tour" button in map toolbar. Animated satellite camera tour — tee → fairway sweep → pin approach → 360° orbit → overhead pullback. ~29 seconds. Works for LD and CTP tabs.
+  - **Hole Tour**: "🎬 Hole Tour" button in map toolbar. Animated satellite camera tour — tee → fairway sweep → pin approach (zoom 19.5 for close-up) → 360° orbit (zoom 17) → overhead pullback. ~29 seconds. Works for LD and CTP tabs.
   - **End-of-tournament screen**: when status = `ended`, a summary section prepends the rankings: Total Yards hero with fun comparison phrase, zone stats grid (Fairway / Rough / OOB / Lost in zone colours), Champion showcase card (winning team + sorted player drives), **Hall of Fame card** (all-time course record for this venue, loaded async from `/api/global/venue-record`), "All Teams" divider. Map auto-opens showing all ball dots.
 - **Monitor dashboard** at `/monitor/:eventId`:
   - Map toggle: **On Hole** / **All Players** — "On Hole" hides fully-submitted teams to reduce clutter.
@@ -71,12 +73,19 @@ On first run, super admin is auto-seeded from `.env`.
 - **Admin correction**: "Distance Drove" field = raw yards; penalty is subtracted server-side to get final score.
 - **Admin Players tab**: each player row now shows a Score column — `final_yards yd` with location sub-line, red penalty breakdown if applicable, or `—` if not yet scanned.
 - **Admin tab state on reload**: reloading the admin panel restores the active event and panel. `showPanel()` writes `#eventId/panel` to the URL hash via `history.replaceState`; `init()` reads and restores it on load. `backToList()` clears the hash.
-- **Player registration** (`/register/:eventId`): all 4 player codes must be entered before the team name step appears. Team name is always the last step. "Submit with fewer" shows an inline yellow warning + confirm (no browser alert). On confirm, jumps straight to the team name form.
+- **Player registration** (`/register/:eventId`): 
+  - **Normal flow (4-player teams)**: first player scans QR, gets team code + QR image to share. After player 1, "Add Player 2" button shown + "Don't have all 4 players?" button
+  - **Bulk registration flow**: "Don't have all 4 players?" opens alternate form for flexible team sizes (1-4 players). Each player gets name + phone + comma-separated codes. Validates 1–4 players + exactly 4 codes total + team name. Submits all at once via `finalize-team`
+  - All 4 player codes must be distributed across the team (normal flow defaults to all 4 on first player, bulk allows splitting)
+  - Team name always appears after code setup complete. "Submit with fewer" shows inline yellow warning + confirm (no browser alert)
+  - `localStorage` stores `jord_player_phone` + `jord_drop_code` for quick recall across sessions
 - **Player registration opt-in** (`/register/:eventId`): email and SMS marketing checkboxes with TCPA fine print. Consents stored in `balls` table and sent to Klaviyo subscription lists when API key is configured.
 - Demo scan mode — no ball code needed, calculates distance client-side
 - End tournament — locks scoring, Klaviyo notifications
 - CSV export of all player/team data
 - Full mobile responsive design across all pages
+  - **Event editor navigation scroll hint** (v3.5.0): `.editor-nav` adds visual gradient overlay on the right edge + padding-right buffer to show that more tabs exist. Helps mobile users discover Settings, Course Map, Ball Codes, etc. without guessing.
+  - **Button scaling** (v3.5.0): Events list and course map buttons drastically reduced on mobile (11–10px font, 5–6px padding) so all buttons fit without horizontal scroll. Responsive media queries at 640px breakpoint.
 - **ngrok phone testing** — full player experience testable on iPhone via ngrok HTTPS tunnel
   - `ngrok http 3000` exposes localhost; Safari GPS works because HTTPS
   - Test page at `/test.html` auto-generates QR codes for every page using current origin (works on both localhost and ngrok URL)

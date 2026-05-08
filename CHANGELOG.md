@@ -3,27 +3,32 @@
 ---
 
 ## v3.5.0 — 2026-05-07
-### Session 17 — Admin Management, Mobile UI Fixes, Hole Tour Animation
+### Session 17 — Dual Registration Flows, Leaderboard Search, Mobile Polish
 
 #### What Changed
 
-##### Super Admin account creation and promotion
-- Super Admins can now create new admin accounts with selectable role (Tournament Admin or Super Admin)
-- New account creation form has role dropdown with clear descriptions of each role's capabilities
-- Existing Tournament Admins can be promoted to Super Admin via the edit modal
-- When role is set to Super Admin, individual permissions section is hidden (Super Admins have all permissions)
-- Success messages reflect the role created/updated
+##### Dual registration flows (`/register/:eventId`)
+- **Normal flow (4-player teams)**: first player enters phone + gets 4 codes by default. QR code generated and displayed for other players to scan. "Add Player 2", "Add Player 3", "Add Player 4" buttons appear. Team name entered as final step.
+- **Bulk registration flow**: "Don't have all 4 players?" button opens alternate form. Allows 1–4 players with flexible code distribution (e.g., 1 player with 2 codes + 1 player with 2 codes, or 1 player with all 4). Each player: name + phone + comma-separated codes. Validates exactly 4 codes total. Submits all via `finalize-team` in one API call.
+- **QR code generation**: uses `api.qrserver.com` external API. QR encodes team code for easy mobile scanning.
+- **Phone/code persistence**: `localStorage` saves `jord_player_phone` + `jord_drop_code` for quick recall across sessions (avoids re-entry for subsequent players joining same team)
 
-##### Mobile button scaling
-- Events list buttons (Global LB, Manage Admins, New Event): reduced from 12px → 11px font, 8px 12px → 6px 9px padding
-- Course map toolbar buttons: drastically reduced from 12px → 10px font, 8px 10px → 5px 7px padding, gap 6px → 4px
-- Search input: 120px → 100px min-width, font-size 12px → 11px, tighter padding
-- All buttons now fit in one horizontal-scroll row on mobile without cutoff
+##### Leaderboard search & team filter
+- Search bar: filters visible teams by team name or player name in real-time. Case-insensitive partial match.
+- "My Team" button: detects user's team by matching localStorage `jord_player_phone` against all team player phones. Auto-selects and highlights their team. Clicking again clears filter (shows all teams).
+- Filters work independently and can be combined. Respects LD/CTP hole tab selection.
 
-##### Leaderboard UI fixes
-- "All Teams" button text color: white (#fff) → dark (var(--primary-ink)) for visibility on lime green background
-- Hole Tour animation restored: zooms in to 19.5 at pin approach (was 16), then zooms out to 17 before orbit
-  - Sequence now: tee view (16.5) → fairway (16) → **pin close-up (19.5)** → orbit height (17) → overhead (15)
+##### Delete pin button (Course Map)
+- Pin location box now labeled "LD Pin Location" or "CTP Pin Location" depending on active tab
+- Trash icon button inside box deletes the current pin with confirmation
+- Pin location displays as "GPS: [lat], [lon]" with delete button inline
+
+##### Mobile UI polish
+- Events list buttons: reduced 12px → 11px font, 8px 12px → 6px 9px padding
+- Course map toolbar: reduced 12px → 10px font, 8px 10px → 5px 7px padding, gap 4px
+- Event editor navigation: gradient overlay on right edge + padding buffer to signal more tabs beyond visible area (Settings, Course Map, Ball Codes, etc.)
+- "All Teams" button text: white → dark (var(--primary-ink)) for visibility on lime green background
+- Hole Tour animation: zoom to 19.5 at pin approach for closer green view, 17 for orbit height
 
 ---
 
