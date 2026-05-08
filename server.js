@@ -2109,7 +2109,7 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // ─── START ────────────────────────────────────────────────────────────────────
-console.log(`[Server] Starting on 0.0.0.0:${PORT}...`);
+console.log(`[Server] Starting on 0.0.0.0:${PORT}... [LIVE BUILD]`);
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`
 ╔══════════════════════════════════════════════════════╗
