@@ -2,10 +2,17 @@
 
 ---
 
-## v3.5.0 — 2026-05-05
-### Session 17 — Mobile UI Fixes: Button Overflow & Hole Tour Animation
+## v3.5.0 — 2026-05-07
+### Session 17 — Admin Management, Mobile UI Fixes, Hole Tour Animation
 
 #### What Changed
+
+##### Super Admin account creation and promotion
+- Super Admins can now create new admin accounts with selectable role (Tournament Admin or Super Admin)
+- New account creation form has role dropdown with clear descriptions of each role's capabilities
+- Existing Tournament Admins can be promoted to Super Admin via the edit modal
+- When role is set to Super Admin, individual permissions section is hidden (Super Admins have all permissions)
+- Success messages reflect the role created/updated
 
 ##### Mobile button scaling
 - Events list buttons (Global LB, Manage Admins, New Event): reduced from 12px → 11px font, 8px 12px → 6px 9px padding

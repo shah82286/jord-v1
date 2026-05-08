@@ -869,6 +869,11 @@
     const nameInput  = el('input', { class: 'input', type: 'text', value: a.name, placeholder: 'Full name' });
     const emailInput = el('input', { class: 'input', type: 'email', value: a.email, placeholder: 'Email' });
     const pwdInput   = el('input', { class: 'input', type: 'password', placeholder: 'New password (leave blank to keep)' });
+    const roleSelect = el('select', { class: 'input' },
+      el('option', { value: 'admin' }, 'Tournament Admin (manage events, players, corrections)'),
+      el('option', { value: 'super' }, 'Super Admin (all access, can create other admins)')
+    );
+    roleSelect.value = a.role || 'admin';
     const checks = ['perm_corrections','perm_end_tournament','perm_manage_players','perm_manage_balls'].map(p => {
       const cb = el('input', { type: 'checkbox' }); cb.checked = !!a[p]; cb.dataset.perm = p;
       const label = { perm_corrections: 'Run corrections', perm_end_tournament: 'End tournament', perm_manage_players: 'Manage players', perm_manage_balls: 'Manage balls' }[p];
@@ -877,29 +882,43 @@
     const activeBox = el('input', { type: 'checkbox' }); activeBox.checked = !!a.active;
     const activeLabel = el('label', { class: 'row gap-2', style: { fontSize: '13px', alignItems: 'center' } }, activeBox, 'Account active');
 
+    const permSection = el('div', { class: 'col gap-2' }, el('label', null, 'Permissions'), ...checks);
+
     const body = el('div', { class: 'col gap-3' },
       el('div', { class: 'field' }, el('label', null, 'Name'), nameInput),
       el('div', { class: 'field' }, el('label', null, 'Email'), emailInput),
       el('div', { class: 'field' }, el('label', null, 'New password'), pwdInput, el('div', { class: 'hint' }, 'Leave blank to keep current password')),
-      el('div', { class: 'col gap-2' }, el('label', null, 'Permissions'), ...checks),
+      el('div', { class: 'field' }, el('label', null, 'Role'), roleSelect),
+      permSection,
       activeLabel
     );
+
+    // Show/hide permissions based on role
+    const updatePermDisplay = () => {
+      permSection.style.display = roleSelect.value === 'super' ? 'none' : 'block';
+    };
+    roleSelect.addEventListener('change', updatePermDisplay);
+    updatePermDisplay();
+
     const saveBtn = el('button', { class: 'btn btn-primary', on: { click: async () => {
       const updates = {
         name: nameInput.value.trim(),
         email: emailInput.value.trim(),
+        role: roleSelect.value,
         active: activeBox.checked ? 1 : 0,
       };
-      checks.forEach(l => {
-        const cb = l.querySelector('input[type=checkbox]');
-        updates[cb.dataset.perm] = cb.checked ? 1 : 0;
-      });
+      if (roleSelect.value === 'admin') {
+        checks.forEach(l => {
+          const cb = l.querySelector('input[type=checkbox]');
+          updates[cb.dataset.perm] = cb.checked ? 1 : 0;
+        });
+      }
       try {
         await JORD.api(`/api/admins/${a.id}`, { method: 'PATCH', body: updates });
         if (pwdInput.value.trim().length >= 6) {
           await JORD.api(`/api/admins/${a.id}/password`, { method: 'PATCH', body: { password: pwdInput.value.trim() } });
         }
-        m.close(); loadAdmins(); JORD.success('Admin updated');
+        m.close(); loadAdmins(); JORD.success(`${roleSelect.value === 'super' ? 'Super admin' : 'Admin'} updated`);
       } catch (err) { JORD.error(err.message); }
     }}}, 'Save changes');
     const m = JORD.modal({ title: `Edit ${a.name}`, body, footer: saveBtn, lg: true });
@@ -909,21 +928,26 @@
     const nameInput  = el('input', { class: 'input', type: 'text', placeholder: 'Full name' });
     const emailInput = el('input', { class: 'input', type: 'email', placeholder: 'Email address' });
     const pwdInput   = el('input', { class: 'input', type: 'password', placeholder: 'Temporary password' });
+    const roleSelect = el('select', { class: 'input' },
+      el('option', { value: 'admin' }, 'Tournament Admin (manage events, players, corrections)'),
+      el('option', { value: 'super' }, 'Super Admin (all access, can create other admins)')
+    );
     const body = el('div', { class: 'col gap-3' },
       el('div', { class: 'field' }, el('label', null, 'Name'), nameInput),
       el('div', { class: 'field' }, el('label', null, 'Email'), emailInput),
-      el('div', { class: 'field' }, el('label', null, 'Temporary password'), pwdInput, el('div', { class: 'hint' }, 'Minimum 6 characters'))
+      el('div', { class: 'field' }, el('label', null, 'Temporary password'), pwdInput, el('div', { class: 'hint' }, 'Minimum 6 characters')),
+      el('div', { class: 'field' }, el('label', null, 'Role'), roleSelect)
     );
     const createBtn = el('button', { class: 'btn btn-primary', on: { click: async () => {
       if (!nameInput.value.trim() || !emailInput.value.trim() || pwdInput.value.length < 6) {
         JORD.warn('Name, email, and a password (6+ chars) are required'); return;
       }
       try {
-        await JORD.api('/api/admins', { method: 'POST', body: { name: nameInput.value.trim(), email: emailInput.value.trim(), password: pwdInput.value, role: 'admin' } });
-        m.close(); loadAdmins(); JORD.success('Admin account created');
+        await JORD.api('/api/admins', { method: 'POST', body: { name: nameInput.value.trim(), email: emailInput.value.trim(), password: pwdInput.value, role: roleSelect.value } });
+        m.close(); loadAdmins(); JORD.success(`${roleSelect.value === 'super' ? 'Super admin' : 'Admin'} account created`);
       } catch (err) { JORD.error(err.message); }
     }}}, 'Create admin');
-    const m = JORD.modal({ title: 'New Tournament Admin', body, footer: createBtn, lg: false });
+    const m = JORD.modal({ title: 'New Admin Account', body, footer: createBtn, lg: false });
     nameInput.focus();
   });
 
