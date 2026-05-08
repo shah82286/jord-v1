@@ -268,7 +268,7 @@
       <span id="map-player-count" style="color:var(--ink-2)"></span>
     </div>
     <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;font-size:12px">
-      <button id="map-btn-all" style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--primary);color:#fff;cursor:pointer">All Teams</button>
+      <button id="map-btn-all" style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--primary);color:var(--primary-ink);cursor:pointer">All Teams</button>
       <span id="map-filter-label" style="color:var(--ink-2);font-size:11px;display:none">← tap team row to filter</span>
       <button id="btn-hole-tour" style="margin-left:auto;font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface-2);color:var(--ink);cursor:pointer">🎬 Hole Tour</button>
     </div>
@@ -628,7 +628,7 @@
           }
           br.style.gridTemplateColumns = '28px 1fr 90px 90px';
           br.innerHTML = '<span style="font-family:var(--font-mono);font-size:11px;opacity:.45">' + (b.player_index||'') + '</span>'
-            + '<span class="lb-ball-name">' + (b.player_name || b.drop_code) + '</span>'
+            + '<span class="lb-ball-name">' + JORD.escapeHtml(b.player_name || b.drop_code) + '</span>'
             + '<span class="lb-ball-loc">'  + (b.location_type || (b.scanned ? '—' : 'not scanned')) + '</span>'
             + '<span class="lb-ball-score" style="line-height:1.2;text-align:right">' + scoreHtml + '</span>';
         } else {
@@ -643,7 +643,7 @@
           }
           br.style.gridTemplateColumns = '28px 1fr 110px';
           br.innerHTML = '<span style="font-family:var(--font-mono);font-size:11px;opacity:.45">' + (b.player_index||'') + '</span>'
-            + '<span class="lb-ball-name">'  + (b.player_name || b.drop_code) + '</span>'
+            + '<span class="lb-ball-name">'  + JORD.escapeHtml(b.player_name || b.drop_code) + '</span>'
             + '<span class="lb-ball-score" style="line-height:1.2;text-align:right">' + cpScoreHtml + '</span>';
         }
         ballsDiv.appendChild(br);
@@ -1021,16 +1021,16 @@
       lbMap.easeTo({ center: [midLon, midLat], zoom: 16, pitch: 55, bearing: bearing, duration: 5000, essential: true });
     }, 3700));
 
-    /* 3 — Approach the pin */
+    /* 3 — Approach the pin close-up */
     tourTimers.push(setTimeout(function () {
       if (!tourActive) return;
-      lbMap.easeTo({ center: [pinLon, pinLat], zoom: 16, pitch: 45, bearing: bearing, duration: 3500, essential: true });
+      lbMap.easeTo({ center: [pinLon, pinLat], zoom: 19.5, pitch: 45, bearing: bearing, duration: 3500, essential: true });
     }, 9000));
 
     /* 4 — Zoom out to orbit height before spinning */
     tourTimers.push(setTimeout(function () {
       if (!tourActive) return;
-      lbMap.easeTo({ center: [pinLon, pinLat], zoom: 14.5, pitch: 20, bearing: bearing, duration: 2000, essential: true });
+      lbMap.easeTo({ center: [pinLon, pinLat], zoom: 17, pitch: 20, bearing: bearing, duration: 2000, essential: true });
     }, 12700));
 
     /* 5 — Orbit */

@@ -95,8 +95,8 @@
   @media (max-width: 640px) {
     /* Events list header — stack title and buttons, make button row scrollable on very small screens */
     #view-list > .row.row-between { flex-direction: column; align-items: flex-start; gap: var(--s-3); }
-    #view-list > .row.row-between > .row { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: var(--s-2); padding-bottom: 4px; }
-    #view-list > .row.row-between > .row .btn { flex-shrink: 0; }
+    #view-list > .row.row-between > .row { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 6px; padding-bottom: 4px; }
+    #view-list > .row.row-between > .row .btn { flex-shrink: 0; font-size: 11px; padding: 6px 9px; min-height: 32px; }
 
     /* Event editor header — stack name and buttons */
     #view-editor > .row.row-between { flex-direction: column; align-items: flex-start; gap: var(--s-3); }
@@ -104,11 +104,11 @@
     #view-editor > .row.row-between > .row .btn { font-size: 12px; padding: 8px 12px; min-height: 36px; }
 
     /* Map tools — horizontal scroll so buttons stay on one line and don't push map down */
-    .map-tools { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; gap: 6px; }
-    .map-tools .btn, .map-tools select { flex-shrink: 0; font-size: 12px; padding: 8px 10px; min-height: 44px; }
-    .draw-kind-btn { font-size: 12px; }
+    .map-tools { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 4px; gap: 4px; }
+    .map-tools .btn, .map-tools select { flex-shrink: 0; font-size: 10px; padding: 5px 7px; min-height: 32px; white-space: nowrap; }
+    .draw-kind-btn { font-size: 10px; }
     .map-hole-tab { padding: 7px 12px; font-size: 12px; }
-    #search-place { min-width: 120px; flex-shrink: 0; }
+    #search-place { min-width: 100px; flex-shrink: 0; font-size: 11px; padding: 6px 8px; }
 
     /* Course map — increase map height on mobile for better usability */
     #map { min-height: 380px !important; }

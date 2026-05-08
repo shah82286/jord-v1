@@ -2,6 +2,24 @@
 
 ---
 
+## v3.5.0 — 2026-05-05
+### Session 17 — Mobile UI Fixes: Button Overflow & Hole Tour Animation
+
+#### What Changed
+
+##### Mobile button scaling
+- Events list buttons (Global LB, Manage Admins, New Event): reduced from 12px → 11px font, 8px 12px → 6px 9px padding
+- Course map toolbar buttons: drastically reduced from 12px → 10px font, 8px 10px → 5px 7px padding, gap 6px → 4px
+- Search input: 120px → 100px min-width, font-size 12px → 11px, tighter padding
+- All buttons now fit in one horizontal-scroll row on mobile without cutoff
+
+##### Leaderboard UI fixes
+- "All Teams" button text color: white (#fff) → dark (var(--primary-ink)) for visibility on lime green background
+- Hole Tour animation restored: zooms in to 19.5 at pin approach (was 16), then zooms out to 17 before orbit
+  - Sequence now: tee view (16.5) → fairway (16) → **pin close-up (19.5)** → orbit height (17) → overhead (15)
+
+---
+
 ## v3.4.0 — 2026-05-05
 ### Session 16 — Klaviyo Flows Live, Dethroned Email Redesign, Dashboard Flash Fix
 
