@@ -2113,7 +2113,7 @@ console.log(`[Server] Starting on 0.0.0.0:${PORT}... [LIVE BUILD]`);
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`
 ╔══════════════════════════════════════════════════════╗
-║   JORD Golf Tournament System  v1.0.0               ║
+║   JORD Golf Tournament System  v3.5.0               ║
 ║   http://localhost:${PORT}                              ║
 ║                                                      ║
 ║   Admin:       /admin                               ║
