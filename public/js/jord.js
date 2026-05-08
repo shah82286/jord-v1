@@ -47,6 +47,19 @@
     });
   };
 
+  /* ─── HTML Escaping (XSS Prevention) ───────────────────────────────── */
+  APP.escapeHtml = function (text) {
+    if (typeof text !== 'string') return '';
+    const map = {
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
+  };
+
   /* ─── Toasts ─────────────────────────────────────────────────────── */
   function ensureStack() {
     let s = document.getElementById('toast-stack');
@@ -136,7 +149,6 @@
       const noBtn = APP.el('button', { class: 'btn btn-ghost',   on: { click: () => { m.close(); resolve(null); } } }, 'Cancel');
       const footer = APP.el('div', { class: 'row gap-3' }, noBtn, okBtn);
       const m = APP.modal({ title: msg, body, footer });
-      input.focus();
       input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { m.close(); resolve(input.value.trim() || null); } });
     });
   };

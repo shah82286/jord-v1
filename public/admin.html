@@ -472,6 +472,10 @@
               <div style="font-size:11px;color:var(--ink-2);align-self:flex-end;padding-bottom:2px" id="pin-coords-hole-label"></div>
             </div>
 
+            <div class="row gap-3 mt-3">
+              <button class="btn btn-ghost" id="btn-delete-pin" title="Remove the pin and reset it so you can place a new one.">🗑 Delete Pin</button>
+            </div>
+
             <div class="row gap-3 mt-4">
               <button class="btn btn-primary" id="btn-save-map">Save map</button>
             </div>
@@ -1725,6 +1729,25 @@
       else { ctpPinPickerActive = true; }
       canvas.style.cursor = 'crosshair';
       JORD.toast('Click the map to place the pin for this hole', 'warn');
+    };
+
+    // Delete pin — clear the pin for the current hole
+    $('#btn-delete-pin').onclick = async () => {
+      const pinExists = currentHoleTab === 'ld'
+        ? (currentEvent.pin_lat && currentEvent.pin_lon)
+        : (currentEvent.ctp_pin_lat && currentEvent.ctp_pin_lon);
+      if (!pinExists) { JORD.warn('No pin set for this hole'); return; }
+      if (!await JORD.confirm('Remove the pin for this hole? You can set a new one after saving.')) return;
+
+      if (currentHoleTab === 'ld') {
+        currentEvent.pin_lat = null; currentEvent.pin_lon = null;
+        if (mapMarkers.pin) { mapMarkers.pin.remove(); mapMarkers.pin = null; }
+      } else {
+        currentEvent.ctp_pin_lat = null; currentEvent.ctp_pin_lon = null;
+        if (mapMarkers.ctpPin) { mapMarkers.ctpPin.remove(); mapMarkers.ctpPin = null; }
+      }
+      updateHoleDistanceDisplay(); updatePinCoordsDisplay();
+      JORD.success('Pin removed — Save map to confirm');
     };
 
     // GPS Pin Grab — watches for up to 10 s and uses the reading with best accuracy
