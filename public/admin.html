@@ -460,20 +460,21 @@
               </div>
             </div>
 
-            <div class="pin-coords-box" id="pin-coords-section">
-              <div>
-                <div class="coord-label">Pin latitude</div>
-                <div class="coord-val" id="pin-lat-display">—</div>
+            <div style="background:var(--surface-2);border-radius:var(--r-sm);padding:12px 14px;margin-top:var(--s-3)">
+              <div style="font-size:11px;color:var(--ink-2);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.04em" id="pin-location-title">LD Pin Location</div>
+              <div class="pin-coords-box" id="pin-coords-section" style="background:transparent;padding:0;gap:8px">
+                <div>
+                  <div class="coord-label">Latitude</div>
+                  <div class="coord-val" id="pin-lat-display">—</div>
+                </div>
+                <div>
+                  <div class="coord-label">Longitude</div>
+                  <div class="coord-val" id="pin-lon-display">—</div>
+                </div>
               </div>
-              <div>
-                <div class="coord-label">Pin longitude</div>
-                <div class="coord-val" id="pin-lon-display">—</div>
+              <div class="row gap-2 mt-2">
+                <button class="btn btn-ghost" id="btn-delete-pin" title="Remove the pin and reset it so you can place a new one.">🗑 Delete</button>
               </div>
-              <div style="font-size:11px;color:var(--ink-2);align-self:flex-end;padding-bottom:2px" id="pin-coords-hole-label"></div>
-            </div>
-
-            <div class="row gap-3 mt-3">
-              <button class="btn btn-ghost" id="btn-delete-pin" title="Remove the pin and reset it so you can place a new one.">🗑 Delete Pin</button>
             </div>
 
             <div class="row gap-3 mt-4">
@@ -1353,6 +1354,11 @@
     if (lbl) lbl.textContent = isLd ? 'LD hole pin' : 'CTP hole pin';
   }
 
+  function updatePinLocationTitle() {
+    const titleEl = $('#pin-location-title');
+    if (titleEl) titleEl.textContent = currentHoleTab === 'ld' ? 'LD Pin Location' : 'CTP Pin Location';
+  }
+
   function flyAdminToVenue() {
     if (!map || !currentEvent) return;
     const allTees = currentEvent.tee_boxes || [];
@@ -1556,6 +1562,7 @@
       const hasBoth = currentEvent.has_longest_drive && currentEvent.has_closest_pin;
       $('#hole-tabs').style.display = hasBoth ? 'flex' : 'none';
       applyHoleTabTools();
+      updatePinLocationTitle();
 
       flyAdminToVenue();
     });
@@ -1954,6 +1961,7 @@
         currentHoleTab = btn.dataset.hole;
         $$('.map-hole-tab').forEach(b => b.classList.toggle('is-active', b === btn));
         applyHoleTabTools();
+        updatePinLocationTitle();
         const tabTees = (currentEvent.tee_boxes || []).filter(t =>
           currentHoleTab === 'ctp' ? t.hole_type === 'closest_pin' : t.hole_type !== 'closest_pin'
         );
