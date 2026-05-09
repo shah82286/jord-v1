@@ -44,7 +44,7 @@
   .map-legend { display: flex; flex-wrap: wrap; gap: var(--s-3); font-size: 12px; color: var(--ink-2); margin-top: var(--s-2); }
   .map-legend span { display: inline-flex; align-items: center; gap: 6px; }
   .map-legend span::before { content: ''; display: inline-block; width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
-  .legend-tee::before { background: #BEFF3A; }
+  .legend-tee::before { background: #EAD9B0; }
   /* Force all map popups to be legible regardless of page theme */
   .mapboxgl-popup-content {
     background: #fff !important;
@@ -150,7 +150,7 @@
 
   /* ── Ended lock ── */
   .ended-banner {
-    background: rgba(190,255,58,0.1); border: 1px solid var(--accent);
+    background: rgba(234,217,176,0.1); border: 1px solid var(--accent);
     border-radius: var(--r-md); padding: 14px 18px;
     display: flex; justify-content: space-between; align-items: center; gap: var(--s-3);
     margin-bottom: var(--s-3);
@@ -295,6 +295,7 @@
             <span id="event-status" class="badge">setup</span>
             <span id="event-when"></span>
             <span id="event-venue"></span>
+            <span id="event-creator" style="color:var(--ink-2)"></span>
           </div>
         </div>
         <div class="row gap-2">
@@ -735,6 +736,7 @@
             el('span', null, JORD.fmt.date(ev.starts_at) + ' → ' + JORD.fmt.date(ev.ends_at)),
             el('span', null, `${ev.team_count || 0} teams`),
             el('span', null, `${ev.ball_count || 0} balls`),
+            ev.creator_name ? el('span', { style: { color: 'var(--ink-2)' }, title: ev.creator_email || '' }, '👤 ' + ev.creator_name + (ev.creator_role === 'super' ? ' (super)' : '')) : null,
           )
         ),
         el('div', { class: 'row gap-2' },
@@ -1013,6 +1015,13 @@
     $('#event-status').className = 'badge ' + (currentEvent.status === 'active' ? 'badge-primary' : currentEvent.status === 'ended' ? 'badge-accent' : '');
     $('#event-when').textContent = JORD.fmt.datetime(currentEvent.starts_at) + ' → ' + JORD.fmt.datetime(currentEvent.ends_at);
     $('#event-venue').textContent = currentEvent.venue || '';
+    const creatorEl = $('#event-creator');
+    if (currentEvent.creator_name) {
+      creatorEl.textContent = '👤 Created by ' + currentEvent.creator_name + (currentEvent.creator_role === 'super' ? ' (super)' : '');
+      creatorEl.title = currentEvent.creator_email || '';
+    } else {
+      creatorEl.textContent = '';
+    }
     $('#btn-view-leaderboard').onclick = () => window.open(`/leaderboard/${currentEvent.id}`);
     $('#btn-view-monitor').onclick = () => window.open(`/monitor/${currentEvent.id}`);
     $('#btn-export').onclick = () => window.open(`/api/events/${currentEvent.id}/export.csv?token=${encodeURIComponent(JORD.getToken())}`);
@@ -1775,8 +1784,8 @@
           pinBadge.style.color = '#22C55E';
           pinBadge.textContent = `✓ Locked ±${Math.round(accuracyM)}m`;
         } else if (isGood) {
-          pinBadge.style.borderColor = '#BEFF3A';
-          pinBadge.style.color = '#BEFF3A';
+          pinBadge.style.borderColor = '#EAD9B0';
+          pinBadge.style.color = '#EAD9B0';
           pinBadge.textContent = `✓ Good ±${Math.round(accuracyM)}m`;
         } else {
           pinBadge.style.borderColor = '#EAB308';
@@ -1876,8 +1885,8 @@
           pinBadge.style.color = '#22C55E';
           pinBadge.textContent = `✓ Locked ±${Math.round(accuracyM)}m`;
         } else if (isGood) {
-          pinBadge.style.borderColor = '#BEFF3A';
-          pinBadge.style.color = '#BEFF3A';
+          pinBadge.style.borderColor = '#EAD9B0';
+          pinBadge.style.color = '#EAD9B0';
           pinBadge.textContent = `✓ Good ±${Math.round(accuracyM)}m`;
         } else {
           pinBadge.style.borderColor = '#EAB308';
@@ -2006,8 +2015,8 @@
       accuracyBadge.style.display = '';
       if (traceReady) {
         const isExcellent = accuracyM <= GPS_ACCURACY_THRESHOLD;
-        accuracyBadge.style.borderColor = isExcellent ? '#22C55E' : '#BEFF3A';
-        accuracyBadge.style.color       = isExcellent ? '#22C55E' : '#BEFF3A';
+        accuracyBadge.style.borderColor = isExcellent ? '#22C55E' : '#EAD9B0';
+        accuracyBadge.style.color       = isExcellent ? '#22C55E' : '#EAD9B0';
         accuracyBadge.textContent = isExcellent ? `✓ Trace ±${Math.round(accuracyM)}m` : `✓ Walk ±${Math.round(accuracyM)}m`;
       } else {
         accuracyBadge.style.borderColor = '#EAB308';
@@ -2112,7 +2121,7 @@
       const group = isLd ? ldTees : ctpTees;
       const num = group.indexOf(t) + 1;
       const elDiv = document.createElement('div');
-      elDiv.style.cssText = `background:${isLd ? '#BEFF3A' : '#3B82F6'};color:${isLd ? '#1a1a1a' : '#fff'};border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:grid;place-items:center;font-size:11px;font-weight:700;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,0.3);`;
+      elDiv.style.cssText = `background:${isLd ? '#EAD9B0' : '#3B82F6'};color:${isLd ? '#1a1a1a' : '#fff'};border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:grid;place-items:center;font-size:11px;font-weight:700;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,0.3);`;
       elDiv.textContent = `T${num}`;
       elDiv.title = `T${num} ${t.name} (${isLd ? 'LD' : 'CTP'}) — drag to reposition`;
       const m = new mapboxgl.Marker({ element: elDiv, draggable: true })
@@ -2360,7 +2369,7 @@
   .qr-card.assigned { background: #f0f8f0; border-color: #a0d4a0; }
   .qr-label { font-size: 13px; font-weight: 700; word-break: break-all; margin-top: 2px; }
   .qr-sub { font-size: 10px; color: #666; margin-top: 3px; }
-  .print-btn { padding: 8px 20px; background: #BEFF3A; color: #0C2010; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-bottom: 20px; }
+  .print-btn { padding: 8px 20px; background: #EAD9B0; color: #0C2010; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-bottom: 20px; }
   @media print { .print-btn { display: none; } }
 </style></head><body>
 <h1>${currentEvent.name}</h1>

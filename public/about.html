@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>How It Works · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  html { scroll-behavior: smooth; }
+  body { overflow-x: hidden; }
+
+  /* Nav */
+  .nav {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 14px 28px; background: var(--surface);
+    border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 100;
+  }
+  .nav .logo { display: flex; align-items: center; gap: var(--s-3); cursor: pointer; color: var(--ink); }
+  .nav .logo:hover { text-decoration: none; }
+  .nav .logo img { height: 36px; width: auto; }
+  .nav .logo-text {
+    font-family: var(--font-display); font-size: 22px; font-weight: 700;
+    letter-spacing: 0.02em; color: var(--ink);
+  }
+  .nav .nav-right { display: flex; gap: 12px; align-items: center; }
+  .nav .btn { font-size: 13px; padding: 8px 16px; }
+
+  /* Hero */
+  .hero {
+    position: relative; padding: 70px 28px 48px; text-align: center;
+    background: linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%);
+    overflow: hidden;
+  }
+  .hero .eyebrow {
+    display: inline-block; font-size: 12px; font-weight: 700; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--primary); margin-bottom: 14px;
+  }
+  .hero h1 {
+    font-family: var(--font-display); font-size: clamp(2.4rem, 5.5vw, 3.8rem);
+    margin-bottom: 16px; font-weight: 700; line-height: 1.05; letter-spacing: -0.015em;
+    color: var(--ink); max-width: 880px; margin-left: auto; margin-right: auto;
+  }
+  .hero .lead {
+    font-size: clamp(1rem, 1.5vw, 1.2rem); color: var(--ink-2);
+    max-width: 640px; margin: 0 auto 28px; line-height: 1.55;
+  }
+  .hero .hero-cta { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .hero-showcase {
+    max-width: 980px; margin: 32px auto 0; padding: 0 12px;
+  }
+
+  /* Stats strip */
+  .stats {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 0;
+    background: var(--surface); border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+  .stat-cell { padding: 28px 16px; text-align: center; border-right: 1px solid var(--border); }
+  .stat-cell:last-child { border-right: none; }
+  .stat-num {
+    font-family: var(--font-display); font-size: clamp(1.8rem, 3.2vw, 2.4rem);
+    font-weight: 700; color: var(--primary); line-height: 1;
+  }
+  .stat-lbl { font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em; color: var(--ink-2); margin-top: 6px; }
+
+  /* Why JORD strip — 3 punchy cards */
+  .why {
+    padding: 64px 28px; background: var(--bg);
+  }
+  .why-inner { max-width: 1100px; margin: 0 auto; }
+  .why h2 {
+    font-family: var(--font-display); font-size: 2.2rem; font-weight: 700;
+    text-align: center; margin-bottom: 8px; letter-spacing: -0.01em;
+  }
+  .why-sub { text-align: center; color: var(--ink-2); font-size: 15px; margin-bottom: 36px; }
+  .why-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px;
+  }
+  .why-card {
+    background: var(--surface); border: 1px solid var(--border-2);
+    border-radius: 14px; padding: 24px 22px; text-align: left;
+  }
+  .why-card .why-num {
+    font-family: var(--font-display); font-size: 32px; font-weight: 700;
+    color: var(--primary); line-height: 1; margin-bottom: 12px;
+  }
+  .why-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 8px; color: var(--ink); }
+  .why-card p { color: var(--ink-2); font-size: 14px; line-height: 1.55; }
+
+  /* Big showcase rows — image on one side, copy on the other */
+  .showcase {
+    padding: 64px 28px; max-width: 1180px; margin: 0 auto;
+  }
+  .row {
+    display: grid; grid-template-columns: 1.15fr 1fr; gap: 56px; align-items: center;
+  }
+  .row.reverse .row-text { order: 2; }
+  .row.reverse .row-media { order: 1; }
+  .row + .row { margin-top: 80px; }
+
+  .row-text .step-tag {
+    display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: 0.16em;
+    text-transform: uppercase; color: var(--primary); margin-bottom: 12px;
+  }
+  .row-text h2 {
+    font-family: var(--font-display); font-size: clamp(1.7rem, 3vw, 2.1rem);
+    font-weight: 700; margin-bottom: 14px; line-height: 1.15; letter-spacing: -0.01em;
+  }
+  .row-text p {
+    color: var(--ink-2); font-size: 15px; line-height: 1.65; margin-bottom: 14px;
+  }
+  .row-text ul { padding-left: 0; list-style: none; margin: 0; }
+  .row-text li {
+    padding: 6px 0 6px 26px; position: relative;
+    color: var(--ink); font-size: 14.5px;
+  }
+  .row-text li::before {
+    content: '✓'; position: absolute; left: 0; top: 6px;
+    color: var(--primary); font-weight: 700; font-size: 16px;
+  }
+
+  /* Media frames */
+  .media-frame {
+    position: relative; background: var(--surface);
+    border: 1px solid var(--border-2); border-radius: 14px;
+    overflow: hidden; box-shadow: var(--shadow-lg);
+  }
+  .media-frame.browser .browser-bar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 10px 14px; background: rgba(0,0,0,0.3);
+    border-bottom: 1px solid var(--border);
+  }
+  .browser-dot { width: 10px; height: 10px; border-radius: 50%; background: rgba(255,255,255,0.18); }
+  .browser-dot.r { background: #ff5f56; }
+  .browser-dot.y { background: #ffbd2e; }
+  .browser-dot.g { background: #27c93f; }
+  .browser-url {
+    flex: 1; text-align: center; font-size: 11px; color: var(--ink-2);
+    font-family: var(--font-mono); padding: 0 12px;
+  }
+  .media-frame img,
+  .media-frame video {
+    display: block; width: 100%; height: auto; background: var(--bg);
+  }
+  .media-frame video { aspect-ratio: 16/10; object-fit: cover; }
+
+  /* Phone frame */
+  .phone-frame {
+    width: 100%; max-width: 280px; margin: 0 auto;
+    aspect-ratio: 9/19;
+    background: #000; border-radius: 36px; padding: 8px;
+    box-shadow: var(--shadow-lg);
+    position: relative;
+  }
+  .phone-frame::before {
+    content: ''; position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    width: 90px; height: 22px; background: #000; border-radius: 0 0 14px 14px; z-index: 2;
+  }
+  .phone-screen-wrap {
+    width: 100%; height: 100%; border-radius: 28px;
+    overflow: hidden; background: var(--bg);
+  }
+  .phone-screen-wrap img,
+  .phone-screen-wrap video {
+    display: block; width: 100%; height: 100%; object-fit: cover;
+  }
+
+  /* Asset placeholder — shown when an image/video file is missing */
+  .asset-missing {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    text-align: center; padding: 32px 20px; min-height: 240px;
+    background: linear-gradient(135deg, #1a3d1f 0%, #0f2a14 100%);
+    color: var(--ink-2); border-radius: inherit;
+    background-image:
+      linear-gradient(rgba(234,217,176,0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(234,217,176,0.04) 1px, transparent 1px);
+    background-size: 30px 30px;
+  }
+  .asset-missing .icon { font-size: 28px; margin-bottom: 10px; opacity: 0.4; }
+  .asset-missing .label {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.14em;
+    font-weight: 700; color: var(--primary); margin-bottom: 6px;
+  }
+  .asset-missing .filename {
+    font-family: var(--font-mono); font-size: 12px; color: var(--ink); margin-bottom: 6px;
+    background: rgba(0,0,0,0.4); padding: 4px 10px; border-radius: 4px;
+  }
+  .asset-missing .what { font-size: 12px; line-height: 1.5; max-width: 280px; }
+  .phone-screen-wrap .asset-missing { min-height: 100%; padding: 18px 14px; }
+  .phone-screen-wrap .asset-missing .icon { font-size: 22px; }
+  .phone-screen-wrap .asset-missing .filename { font-size: 10px; }
+  .phone-screen-wrap .asset-missing .what { font-size: 11px; }
+
+  /* Pull-quote / highlight band */
+  .quote-band {
+    padding: 56px 28px; background: var(--surface); text-align: center;
+    border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  }
+  .quote-band blockquote {
+    font-family: var(--font-display); font-size: clamp(1.4rem, 3vw, 2rem);
+    font-weight: 600; max-width: 800px; margin: 0 auto;
+    line-height: 1.3; color: var(--ink); font-style: italic;
+  }
+  .quote-band cite {
+    display: block; margin-top: 16px; font-style: normal;
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.16em;
+    color: var(--ink-2); font-family: var(--font-body);
+  }
+
+  /* Final CTA */
+  .final-cta { padding: 64px 28px; text-align: center; background: var(--bg); }
+  .final-cta h2 {
+    font-family: var(--font-display); font-size: clamp(1.8rem, 3.4vw, 2.4rem);
+    font-weight: 700; margin-bottom: 14px; letter-spacing: -0.01em;
+  }
+  .final-cta p { color: var(--ink-2); font-size: 16px; margin-bottom: 26px; max-width: 540px; margin-left: auto; margin-right: auto; line-height: 1.55; }
+
+  footer {
+    padding: 32px 28px; background: var(--surface); border-top: 1px solid var(--border);
+    text-align: center; color: var(--ink-2); font-size: 13px;
+  }
+  footer a { color: var(--primary); text-decoration: none; }
+
+  /* Mobile */
+  @media (max-width: 900px) {
+    .row { grid-template-columns: 1fr; gap: 28px; }
+    .row.reverse .row-text { order: 1; }
+    .row.reverse .row-media { order: 2; }
+    .row + .row { margin-top: 56px; }
+    .why-grid { grid-template-columns: 1fr; gap: 14px; }
+  }
+  @media (max-width: 760px) {
+    .nav { padding: 12px 16px; }
+    .nav .logo img { height: 30px; }
+    .nav .logo-text { font-size: 18px; }
+    .nav .btn { font-size: 12px; padding: 8px 14px; }
+    .hero { padding: 44px 18px 36px; }
+    .hero p.lead { font-size: 14px; line-height: 1.55; }
+    .hero-cta { flex-direction: column; align-items: stretch; max-width: 320px; margin: 0 auto; }
+    .hero-cta .btn { width: 100%; }
+    .stat-cell { padding: 20px 12px; }
+    .stat-num { font-size: 1.6rem !important; }
+    .stat-lbl { font-size: 10px; letter-spacing: 0.10em; }
+    .why { padding: 44px 16px; }
+    .why h2 { font-size: 1.7rem; }
+    .why-card { padding: 20px 18px; }
+    .showcase { padding: 44px 16px; }
+    .row-text h2 { font-size: 1.55rem; }
+    .row-text p { font-size: 14px; }
+    .row-text li { font-size: 13.5px; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .stat-cell:nth-child(2) { border-right: none; }
+    .stat-cell:nth-child(1), .stat-cell:nth-child(2) { border-bottom: 1px solid var(--border); }
+    .phone-frame { max-width: 220px; }
+    .quote-band { padding: 40px 18px; }
+    .final-cta { padding: 44px 18px; }
+    footer { padding: 24px 16px; font-size: 12px; }
+  }
+  @media (max-width: 420px) {
+    .nav .logo-text { display: none; }
+    .hero h1 { font-size: 1.85rem; }
+    .stat-num { font-size: 1.4rem !important; }
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <a href="/" class="logo">
+    <img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077" alt="JORD Golf">
+    <div class="logo-text">JORD GOLF</div>
+  </a>
+  <div class="nav-right">
+    <a href="/signup" class="btn btn-primary">Sign My Tournament Up</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="eyebrow">A New Way to Play</div>
+  <h1>The first true live-scored side game for golf events.</h1>
+  <p class="lead">JORD turns Longest Drive and Closest to the Pin into a stadium experience. Real GPS. Real-time leaderboards. Cinematic shot replays. Players watch their drive land on a satellite map seconds after they hit it — and the whole clubhouse sees the lead change in real time.</p>
+  <div class="hero-cta">
+    <a href="/signup" class="btn btn-primary">Sign My Tournament Up</a>
+    <a href="#showcase" class="btn btn-ghost">See It in Action</a>
+  </div>
+
+  <!-- Hero showcase: Live leaderboard screenshot -->
+  <div class="hero-showcase">
+    <div class="media-frame browser">
+      <div class="browser-bar">
+        <div class="browser-dot r"></div><div class="browser-dot y"></div><div class="browser-dot g"></div>
+        <div class="browser-url">jordgolf.com/leaderboard</div>
+      </div>
+      <img src="/img/screenshots/leaderboard-hero.png"
+           alt="Live JORD Golf leaderboard"
+           onerror="this.outerHTML='<div class=\'asset-missing\'><div class=\'icon\'>🏆</div><div class=\'label\'>Hero Screenshot</div><div class=\'filename\'>img/screenshots/leaderboard-hero.png</div><div class=\'what\'>Full live leaderboard view — desktop. Capture from /leaderboard/:id with a few teams in.</div></div>'">
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stat-cell">
+    <div class="stat-num">±3m</div>
+    <div class="stat-lbl">GPS Accuracy</div>
+  </div>
+  <div class="stat-cell">
+    <div class="stat-num">&lt;2s</div>
+    <div class="stat-lbl">Live Updates</div>
+  </div>
+  <div class="stat-cell">
+    <div class="stat-num">0</div>
+    <div class="stat-lbl">Apps to Download</div>
+  </div>
+  <div class="stat-cell">
+    <div class="stat-num">12s</div>
+    <div class="stat-lbl">Per Player Per Shot</div>
+  </div>
+</div>
+
+<!-- WHY JORD - The big idea -->
+<section class="why">
+  <div class="why-inner">
+    <h2>Three things every other tournament platform misses.</h2>
+    <p class="why-sub">JORD wasn't built for stroke play. It was built for the moments players actually post about.</p>
+    <div class="why-grid">
+      <div class="why-card">
+        <div class="why-num">01</div>
+        <h3>It's a spectator sport.</h3>
+        <p>The leaderboard runs on a TV in the clubhouse. Players, families, sponsors — everyone watches the lead change in real time. Side games used to be private. Now they're the show.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-num">02</div>
+        <h3>The replay is the moment.</h3>
+        <p>Every shot triggers a cinematic flyover — tee to landing zone on a satellite map. Players don't just see their yardage. They watch their ball travel.</p>
+      </div>
+      <div class="why-card">
+        <div class="why-num">03</div>
+        <h3>No app. No volunteer with a measuring wheel.</h3>
+        <p>Players scan a QR code on their ball, GPS locks the position, the system scores it. Fairway, rough, OOB — automatic. Run a tournament with one operator.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SHOWCASE - Real screenshots -->
+<section class="showcase" id="showcase">
+
+  <!-- ROW 1: Live Leaderboard -->
+  <div class="row">
+    <div class="row-text">
+      <div class="step-tag">The Live Leaderboard</div>
+      <h2>The whole event watches the lead change.</h2>
+      <p>Cast it to a TV. Project it on the back wall of the patio. As soon as a player submits a drive, the leaderboard re-ranks and a new dot lands on the satellite map. No refresh. No "hold on, let me check the spreadsheet."</p>
+      <ul>
+        <li>Auto-ranking by team, with per-player drives shown</li>
+        <li>Satellite map with every ball drop visible</li>
+        <li>Hole Tour cinematic — 29-second flyover of the contest hole</li>
+        <li>End-of-tournament Champion Showcase + Hall of Fame</li>
+      </ul>
+    </div>
+    <div class="row-media">
+      <div class="media-frame browser">
+        <div class="browser-bar">
+          <div class="browser-dot r"></div><div class="browser-dot y"></div><div class="browser-dot g"></div>
+          <div class="browser-url">jordgolf.com/leaderboard/spring2026</div>
+        </div>
+        <img src="/img/screenshots/leaderboard.png"
+             alt="JORD Golf live leaderboard"
+             onerror="this.outerHTML='<div class=\'asset-missing\'><div class=\'icon\'>📊</div><div class=\'label\'>Screenshot Needed</div><div class=\'filename\'>img/screenshots/leaderboard.png</div><div class=\'what\'>Standings + map view. Scroll showing 5–8 teams ranked.</div></div>'">
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 2: Live Map with Ball Drops -->
+  <div class="row reverse">
+    <div class="row-text">
+      <div class="step-tag">The Live Map</div>
+      <h2>Every shot lands on a satellite view of the hole.</h2>
+      <p>Tap "Map" on the leaderboard and it expands full-screen with every ball drop visible. Painted fairway, rough, and OOB zones underneath. Tap any team in the strip below to filter to just their dots. The whole event watches drives stack up on the same hole, in real time.</p>
+      <ul>
+        <li>Color-coded zones — Fairway, Rough, OOB, Green</li>
+        <li>One ball drop per drive — tap to see player + yards</li>
+        <li>"Hole Tour" cinematic button: 30-second satellite flyover of the hole</li>
+        <li>Sharp ESRI imagery — every blade of grass visible</li>
+      </ul>
+    </div>
+    <div class="row-media">
+      <div class="media-frame browser">
+        <div class="browser-bar">
+          <div class="browser-dot r"></div><div class="browser-dot y"></div><div class="browser-dot g"></div>
+          <div class="browser-url">jordgolf.com/leaderboard · Map View</div>
+        </div>
+        <img src="/img/screenshots/leaderboard-map.png" alt="JORD live leaderboard with map open">
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 3: Player Experience (mobile) -->
+  <div class="row">
+    <div class="row-text">
+      <div class="step-tag">The Player Experience</div>
+      <h2>Hit your shot. Scan the ball. Watch it land.</h2>
+      <p>Each ball has a unique 6-character code on a tiny QR sticker. Players scan, GPS locks (3-meter accuracy), the system auto-detects fairway/rough/OOB, and a flyover replay plays full-screen. The whole thing is faster than walking off your shot.</p>
+      <ul>
+        <li>Pure web — no app downloads, works on iPhone &amp; Android</li>
+        <li>OTP-style 6-digit ball code, paste-friendly, auto-advance</li>
+        <li>Auto zone detection from the course you mapped</li>
+        <li>Optional rangefinder override for Closest to Pin</li>
+      </ul>
+    </div>
+    <div class="row-media">
+      <div class="phone-frame">
+        <div class="phone-screen-wrap">
+          <img src="/img/screenshots/scan-otp.png" alt="JORD ball scan page on iPhone">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 4: Operator Monitor Dashboard -->
+  <div class="row reverse">
+    <div class="row-text">
+      <div class="step-tag">The Operator's View</div>
+      <h2>Run a 100-player tournament with one operator.</h2>
+      <p>The Monitor dashboard shows every shot as it lands. Filter to a single team. Spot-correct a bad GPS lock with two clicks. See every team's status at a glance — who's submitted, who hasn't, who's leading. No spreadsheets, no walkie-talkies.</p>
+      <ul>
+        <li>Live ball positions on satellite map, color-coded by team</li>
+        <li>One-click admin correction with penalty math built in</li>
+        <li>Standings sidebar with completion progress per team</li>
+        <li>Alert system flags scoring anomalies in real time</li>
+      </ul>
+    </div>
+    <div class="row-media">
+      <div class="media-frame browser">
+        <div class="browser-bar">
+          <div class="browser-dot r"></div><div class="browser-dot y"></div><div class="browser-dot g"></div>
+          <div class="browser-url">jordgolf.com/monitor · Operator</div>
+        </div>
+        <img src="/img/screenshots/monitor.png" alt="JORD operator monitor dashboard">
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 5: Course Mapping -->
+  <div class="row">
+    <div class="row-text">
+      <div class="step-tag">Setup in Five Minutes</div>
+      <h2>Paint your hole. We score it.</h2>
+      <p>Open a satellite map, drag to draw the fairway, mark rough and OOB, drop the pin. The system handles every shot from there — automatic zone detection, penalty rules, all of it.</p>
+      <ul>
+        <li>Freehand drawing on satellite imagery</li>
+        <li>Multiple tee boxes with per-tee distances</li>
+        <li>Custom penalty rules (rough = perpendicular, OOB = half-hole, etc.)</li>
+        <li>Saves automatically — no "publish" button to forget</li>
+      </ul>
+    </div>
+    <div class="row-media">
+      <div class="media-frame browser">
+        <div class="browser-bar">
+          <div class="browser-dot r"></div><div class="browser-dot y"></div><div class="browser-dot g"></div>
+          <div class="browser-url">jordgolf.com/admin · Course Map</div>
+        </div>
+        <img src="/img/screenshots/course-map.png"
+             alt="JORD admin course map"
+             onerror="this.outerHTML='<div class=\'asset-missing\'><div class=\'icon\'>🗺️</div><div class=\'label\'>Screenshot Needed</div><div class=\'filename\'>img/screenshots/course-map.png</div><div class=\'what\'>Admin Course Map view with painted fairway/rough/OOB zones, tee, and pin visible.</div></div>'">
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 6: End-of-tournament moment -->
+  <div class="row reverse">
+    <div class="row-text">
+      <div class="step-tag">The Closing Moment</div>
+      <h2>The end of the tournament is its best part.</h2>
+      <p>When you hit "End Tournament," the leaderboard transforms. Total Yards hero. Zone breakdown. Champion Showcase with the winning team and their drives. Hall of Fame card with the all-time course record. It's a closing ceremony built right into the screen.</p>
+      <ul>
+        <li>Champion Showcase with sorted player drives</li>
+        <li>Total Yards hero with fun comparison phrase</li>
+        <li>Zone stats: Fairway / Rough / OOB / Lost</li>
+        <li>Hall of Fame card — the all-time record for that course</li>
+      </ul>
+    </div>
+    <div class="row-media">
+      <div class="media-frame browser">
+        <div class="browser-bar">
+          <div class="browser-dot r"></div><div class="browser-dot y"></div><div class="browser-dot g"></div>
+          <div class="browser-url">jordgolf.com/leaderboard · Final</div>
+        </div>
+        <img src="/img/screenshots/end-of-tournament.png"
+             alt="JORD end-of-tournament screen"
+             onerror="this.outerHTML='<div class=\'asset-missing\'><div class=\'icon\'>🏁</div><div class=\'label\'>Screenshot Needed</div><div class=\'filename\'>img/screenshots/end-of-tournament.png</div><div class=\'what\'>End-of-tournament leaderboard with Champion Showcase + Hall of Fame visible.</div></div>'">
+      </div>
+    </div>
+  </div>
+
+</section>
+
+<!-- QUOTE BAND -->
+<section class="quote-band">
+  <blockquote>"It used to be a side game on a clipboard. With JORD, it became the thing the whole event was talking about."</blockquote>
+  <cite>— What every tournament organizer says after their first JORD event</cite>
+</section>
+
+<!-- FINAL CTA -->
+<section class="final-cta">
+  <h2>Ready to run a tournament players remember?</h2>
+  <p>Setup in minutes. Live scoring on day one. Tell us about your event and we'll have you set up before the first tee time.</p>
+  <a href="/signup" class="btn btn-primary" style="font-size:16px;padding:14px 36px">Sign My Tournament Up</a>
+</section>
+
+<footer>
+  <p>© 2026 JORD Golf, Inc. · <a href="https://www.jordgolf.com" target="_blank">jordgolf.com</a> · <a href="mailto:support@jordgolf.com">support@jordgolf.com</a></p>
+</footer>
+
+</body>
+</html>

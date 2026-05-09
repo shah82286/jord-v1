@@ -27,7 +27,7 @@
     transition: background 0.4s, color 0.4s;
   }
   .live-badge.is-ended {
-    background: rgba(190,255,58,0.15); color: #BEFF3A;
+    background: rgba(234,217,176,0.15); color: #EAD9B0;
   }
   .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #5CB85C; animation: pulse 1.6s ease-in-out infinite; }
 
@@ -58,7 +58,7 @@
   .leg-rough::before   { background: rgba(234,179,8,0.7); }
   .leg-oob::before     { background: rgba(220,38,38,0.7); }
   .leg-green::before   { background: rgba(34,197,94,0.7); }
-  .leg-ld::before      { background: #BEFF3A; border-radius: 50% !important; }
+  .leg-ld::before      { background: #EAD9B0; border-radius: 50% !important; }
   .leg-cp::before      { background: #4A90E4; border-radius: 50% !important; }
 
   .lb-inner { max-width: 960px; margin: 0 auto; }
@@ -154,7 +154,7 @@
   /* Hole Tour overlay badge */
   .tour-overlay {
     position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-    background: rgba(0,0,0,0.72); color: #BEFF3A;
+    background: rgba(0,0,0,0.72); color: #EAD9B0;
     font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
     padding: 5px 14px; border-radius: 999px;
     z-index: 10; pointer-events: none; display: none;
@@ -335,9 +335,10 @@
   }
 
   function updateZoneLayers(ev) {
-    addZone('lb-fairway',   ev.fairway_polygon,   '#3B82F6', 0.35);
-    addZone('lb-rough',     ev.rough_polygon,     '#EAB308', 0.30);
+    /* Layer order: OOB (bottom) → Rough → Fairway → Green (top) so higher-priority zones aren't covered */
     addZone('lb-oob',       ev.oob_polygon,       '#DC2626', 0.25);
+    addZone('lb-rough',     ev.rough_polygon,     '#EAB308', 0.30);
+    addZone('lb-fairway',   ev.fairway_polygon,   '#3B82F6', 0.35);
     addZone('lb-green',     ev.green_polygon,     '#22C55E', 0.35);
     addZone('lb-ctp-green', ev.ctp_green_polygon, '#22C55E', 0.35);
   }
@@ -468,7 +469,7 @@
       var winner = ldRows[0];
       var winCard = document.createElement('div');
       winCard.className = 'card';
-      winCard.style.cssText = 'margin-top:var(--s-5);margin-bottom:var(--s-4);border:1px solid var(--primary);background:linear-gradient(135deg,rgba(190,255,58,0.07) 0%,transparent 60%)';
+      winCard.style.cssText = 'margin-top:var(--s-5);margin-bottom:var(--s-4);border:1px solid var(--primary);background:linear-gradient(135deg,rgba(234,217,176,0.07) 0%,transparent 60%)';
 
       var drivesHtml = (winner.balls || [])
         .filter(function (b) { return b.scanned; })
@@ -800,7 +801,7 @@
       (ev.tee_boxes || []).forEach(function (t) {
         var label = (t.name || 'Tee').substring(0, 8);
         var tEl = document.createElement('div');
-        tEl.style.cssText = 'background:#BEFF3A;color:#0C2010;border:2px solid #fff;border-radius:20px;padding:0 8px;height:24px;display:inline-flex;align-items:center;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer';
+        tEl.style.cssText = 'background:#EAD9B0;color:#0C2010;border:2px solid #fff;border-radius:20px;padding:0 8px;height:24px;display:inline-flex;align-items:center;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer';
         tEl.textContent = label;
         var popupHtml = '<div style="color:#1a1a1a;font-size:13px;line-height:1.6;min-width:120px">'
           + '<strong style="color:#0a0a0a;display:block">' + (t.name || 'Tee Box') + '</strong>'
@@ -841,12 +842,12 @@
       });
     });
 
-    var locColor = { fairway: '#4CAF50', rough: '#BEFF3A', oob: '#C0392B', lost: '#C0392B' };
+    var locColor = { fairway: '#4CAF50', rough: '#EAD9B0', oob: '#C0392B', lost: '#C0392B' };
 
     allBalls.forEach(function (b) {
       var el = document.createElement('div');
       var isLD = b.type === 'ld';
-      var bg = isLD ? (locColor[b.loc] || '#BEFF3A') : '#4A90E4';
+      var bg = isLD ? (locColor[b.loc] || '#EAD9B0') : '#4A90E4';
       var border = b.rank === 1 ? '#FFD700' : '#fff';
       el.style.cssText = 'width:20px;height:20px;border-radius:50%;border:2px solid ' + border + ';background:' + bg + ';box-shadow:0 2px 4px rgba(0,0,0,0.4);cursor:pointer;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;';
       el.title = b.player + ' · ' + b.team;

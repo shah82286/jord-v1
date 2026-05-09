@@ -12,8 +12,8 @@
   --jord-cream-2:      #142B17;   /* replaced: surface shade */
   --jord-charcoal:     #F0F7E8;   /* replaced: primary text is now light */
   --jord-charcoal-2:   #7FA882;   /* replaced: secondary text — muted green */
-  --jord-gold:         #BEFF3A;   /* replaced: neon lime-green accent */
-  --jord-gold-2:       #A8E62E;   /* replaced: darker lime for hover */
+  --jord-gold:         #EAD9B0;   /* sand/tan cream accent */
+  --jord-gold-2:       #D4BB8A;   /* darker cream for hover */
   --jord-flag-red:     #FF4C4C;   /* danger / alerts — brighter on dark bg */
   --jord-sand:         #1C3A20;   /* replaced: surface variant */
   --jord-sky:          #5EC46A;   /* secondary accent — medium green */
@@ -24,12 +24,12 @@
   --surface-2:    #1C3A20;
   --ink:          #F0F7E8;
   --ink-2:        #7FA882;
-  --primary:      #BEFF3A;
+  --primary:      #EAD9B0;
   --primary-ink:  #0C2010;
-  --accent:       #BEFF3A;
+  --accent:       #EAD9B0;
   --danger:       #FF4C4C;
-  --border:       rgba(190, 255, 58, 0.12);
-  --border-2:     rgba(190, 255, 58, 0.24);
+  --border:       rgba(234, 217, 176, 0.18);
+  --border-2:     rgba(234, 217, 176, 0.32);
   --shadow-sm:    0 1px 2px rgba(0,0,0,0.20), 0 1px 3px rgba(0,0,0,0.30);
   --shadow-md:    0 4px 12px rgba(0,0,0,0.30), 0 2px 4px rgba(0,0,0,0.20);
   --shadow-lg:    0 16px 40px rgba(0,0,0,0.40), 0 6px 12px rgba(0,0,0,0.25);
@@ -59,11 +59,11 @@
   --surface-2: #142B17;
   --ink:       #F0F7E8;
   --ink-2:     #7FA882;
-  --primary:   #BEFF3A;
+  --primary:   #EAD9B0;
   --primary-ink: #070F08;
-  --accent:    #BEFF3A;
-  --border:    rgba(190, 255, 58, 0.12);
-  --border-2:  rgba(190, 255, 58, 0.24);
+  --accent:    #EAD9B0;
+  --border:    rgba(234, 217, 176, 0.18);
+  --border-2:  rgba(234, 217, 176, 0.32);
 }
 
 /* ─── Reset ───────────────────────────────────────────────────────────── */
@@ -166,9 +166,9 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
 .btn:active { transform: translateY(0); }
 .btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 .btn-primary    { background: var(--primary); color: var(--primary-ink); }
-.btn-primary:hover  { background: var(--jord-fairway-2); }
+.btn-primary:hover  { background: var(--jord-gold-2); color: var(--primary-ink); }
 .btn-accent     { background: var(--accent); color: var(--primary-ink); }
-.btn-accent:hover   { background: var(--jord-gold-2); }
+.btn-accent:hover   { background: var(--jord-gold-2); color: var(--primary-ink); }
 .btn-ghost      { background: transparent; color: var(--ink); border-color: var(--border-2); }
 .btn-ghost:hover{ background: var(--surface-2); }
 .btn-danger     { background: var(--danger); color: white; }
@@ -274,7 +274,7 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
   background: var(--surface-2); color: var(--ink-2);
 }
 .badge-primary { background: var(--primary); color: var(--primary-ink); }
-.badge-accent  { background: var(--accent); color: var(--jord-charcoal); }
+.badge-accent  { background: var(--accent); color: var(--primary-ink); }
 .badge-danger  { background: var(--danger); color: white; }
 .badge-success { background: #2E7D5B; color: white; }
 .badge-dot::before {

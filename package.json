@@ -9,6 +9,7 @@
     "test": "node tests/run-tests.js",
     "test:live": "node tests/live-tests.js",
     "test:watch": "node tests/watch.js",
+    "test:mobile": "node tests/mobile-visual.js",
     "test:all": "node tests/run-tests.js && node tests/live-tests.js"
   },
   "dependencies": {
@@ -17,6 +18,7 @@
     "express": "^4.18.2",
     "node-fetch": "^2.7.0",
     "nodemailer": "^8.0.7",
+    "puppeteer": "^24.43.0",
     "qrcode": "^1.5.3",
     "sharp": "^0.33.2"
   },

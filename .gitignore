@@ -5,3 +5,7 @@ data/*.db-shm
 data/*.db-wal
 .DS_Store
 Thumbs.db
+tests/visual-report/
+server.log
+server-err.log
+.claude/
