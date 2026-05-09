@@ -6,7 +6,7 @@
 <title>Player Registration · JORD Golf</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/css/jord.css">
 <style>
   body { background: var(--bg); }
@@ -786,8 +786,9 @@
     card.className = 'card success-card';
 
     var submitButtons = players.map(function (p) {
+      var firstName = (p.first || p.name || '').trim();
       var label = players.length > 1
-        ? '📍 ' + (p.name || 'Player') + ' — Submit Shot'
+        ? '📍 ' + (firstName || 'Player ' + (players.indexOf(p) + 1)) + ' — Submit Shot'
         : '📍 Get My Ball Location Now';
       return '<a href="/scan/' + p.code + '" class="btn btn-primary btn-block btn-lg mt-3" style="font-size:16px;padding:16px">' + label + '</a>';
     }).join('');
