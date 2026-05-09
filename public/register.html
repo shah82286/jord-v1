@@ -95,7 +95,7 @@
   var players           = [];   /* {code, first, last, email, phone, tee_box_id} */
   var MAX               = 4;
   var submittingWithFewer = false;
-  var teamCode          = null;  /* Generated after player 1 registers */
+  var teamCode          = JORD.qs('team');  /* Check URL for team code from QR scan */
   var bulkRegistering   = false; /* Flag for alternate bulk registration mode */
 
   /* ── Bootstrap ── */
@@ -171,6 +171,7 @@
     evHead.style.cssText = 'margin-bottom:var(--s-5)';
     evHead.innerHTML = '<div class="hero-eyebrow">' + (eventInfo.venue || 'JORD Golf Tournament') + '</div>'
       + '<h2 class="mt-1">' + eventInfo.name + '</h2>'
+      + (teamCode && players.length === 0 ? '<div style="background:rgba(234,217,176,0.15);border:1px solid rgba(234,217,176,0.45);border-radius:var(--r-md);padding:10px 14px;font-size:13px;margin-bottom:var(--s-3)">✅ Joining team code: <strong>' + teamCode + '</strong></div>' : '')
       + '<p class="text-muted" style="margin-top:4px;font-size:14px">Register your team below. Total of 4 drop codes needed.</p>';
     root.appendChild(evHead);
 
@@ -783,14 +784,26 @@
     root.innerHTML = '';
     var card = document.createElement('div');
     card.className = 'card success-card';
+
+    var submitButtons = players.map(function (p) {
+      var label = players.length > 1
+        ? '📍 ' + (p.name || 'Player') + ' — Submit Shot'
+        : '📍 Get My Ball Location Now';
+      return '<a href="/scan/' + p.code + '" class="btn btn-primary btn-block btn-lg mt-3" style="font-size:16px;padding:16px">' + label + '</a>';
+    }).join('');
+
     card.innerHTML = '<div class="success-icon">🏆</div>'
       + '<h2>' + teamName + '</h2>'
       + '<p class="text-muted mt-2">You\'re registered for <strong>' + (eventInfo.name || 'the tournament') + '</strong>!</p>'
       + '<div class="divider mt-4 mb-4"></div>'
-      + '<p style="font-size:14px;font-weight:600;margin-bottom:8px">Your drop codes:</p>'
+      + '<div style="background:var(--surface-2);border-radius:var(--r-md);padding:14px 16px;margin-bottom:var(--s-3);border:1px solid var(--primary)">'
+      + '<p style="font-size:14px;font-weight:600;margin:0 0 6px;color:var(--primary)">📱 Keep this tab open</p>'
+      + '<p style="font-size:13px;margin:0;color:var(--ink-2);line-height:1.5">When you reach your ball on course, tap the button below to capture your GPS location.</p>'
+      + '</div>'
+      + submitButtons
+      + '<p style="font-size:12px;color:var(--ink-2);text-align:center;margin-top:var(--s-3)">Your drop codes:</p>'
       + '<div class="code-list">' + players.map(function (p) { return '<div class="code-pill">' + p.code + '</div>'; }).join('') + '</div>'
-      + '<p class="text-muted mt-4" style="font-size:13px">Keep your drop codes safe — you\'ll need them on course to submit your shot.</p>'
-      + '<a href="/leaderboard/' + eid + '" class="btn btn-primary btn-block mt-5" target="_blank">📺 View Live Leaderboard</a>';
+      + '<a href="/leaderboard/' + eid + '" class="btn btn-ghost btn-block mt-4" target="_blank" style="font-size:13px">📺 View Live Leaderboard</a>';
     root.appendChild(card);
   }
 })();
