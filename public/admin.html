@@ -426,6 +426,7 @@
               <button class="btn btn-ghost draw-kind-btn dk-green"            id="tool-green"   title="Click and drag to draw the green boundary.">🟢 Green</button>
               <button class="btn btn-ghost" id="tool-pin" title="Click to activate, then click the map to place the pin for this hole.">📍 Set Pin</button>
               <button class="btn btn-ghost" id="tool-grab-pin" title="Place your phone at the hole flag, then press this to capture the exact pin location via GPS.">📡 Grab GPS Pin</button>
+              <span id="pin-accuracy-badge" style="display:none;font-size:11px;font-family:var(--font-mono);padding:4px 8px;border-radius:var(--r-sm);background:var(--surface-2);border:2px solid #EAB308;color:#EAB308;white-space:nowrap"></span>
               <button class="btn btn-ghost" id="tool-clear" title="Click a zone to select it, then press Clear to remove just that zone. With nothing selected, clears all zones for this hole.">✖ Clear</button>
               <button class="btn btn-ghost" id="tool-edit-nodes" title="Select a zone polygon first, then click to edit its nodes. Drag midpoints (orange dots) to add new nodes.">✏️ Edit nodes</button>
               <span style="border-left:1px solid var(--border);margin:0 4px;height:28px;align-self:center"></span>
@@ -1793,11 +1794,32 @@
       let watchId = null;
       const SAMPLE_MS = 10000;   // collect for 10 seconds
       const GOOD_ENOUGH_M = 3;   // stop early if we hit this accuracy
+      const pinBadge = $('#pin-accuracy-badge');
 
-      JORD.toast('Sampling GPS — hold still…', 'warn');
+      function updatePinBadge(accuracyM) {
+        pinBadge.style.display = '';
+        const isLocked = accuracyM <= GOOD_ENOUGH_M;
+        const isGood = accuracyM <= 8;
+        if (isLocked) {
+          pinBadge.style.borderColor = '#22C55E';
+          pinBadge.style.color = '#22C55E';
+          pinBadge.textContent = `✓ Locked ±${Math.round(accuracyM)}m`;
+        } else if (isGood) {
+          pinBadge.style.borderColor = '#BEFF3A';
+          pinBadge.style.color = '#BEFF3A';
+          pinBadge.textContent = `✓ Good ±${Math.round(accuracyM)}m`;
+        } else {
+          pinBadge.style.borderColor = '#EAB308';
+          pinBadge.style.color = '#EAB308';
+          pinBadge.textContent = `⊙ Waiting… ±${Math.round(accuracyM)}m`;
+        }
+      }
+
+      JORD.toast('Acquiring GPS lock — hold still…', 'warn');
 
       const finish = () => {
         if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+        pinBadge.style.display = 'none';
         if (!bestPos) { JORD.error('Could not get a GPS fix — try again in an open area'); return; }
         const lat = bestPos.coords.latitude, lon = bestPos.coords.longitude;
         const acc = Math.round(bestPos.coords.accuracy);
@@ -1820,14 +1842,13 @@
           if (!bestPos || pos.coords.accuracy < bestPos.coords.accuracy) {
             bestPos = pos;
           }
-          const acc = Math.round(pos.coords.accuracy);
-          JORD.toast(`Sampling GPS — best so far ±${acc}m, hold still…`, 'warn');
+          updatePinBadge(pos.coords.accuracy);
           if (pos.coords.accuracy <= GOOD_ENOUGH_M) {
             clearTimeout(timer);
             finish();
           }
         },
-        (err) => { clearTimeout(timer); JORD.error('GPS error: ' + err.message); },
+        (err) => { clearTimeout(timer); pinBadge.style.display = 'none'; JORD.error('GPS error: ' + err.message); },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
       );
     };
@@ -1910,13 +1931,18 @@
     let traceWatchId = null, tracePoints = [], traceReady = false;
 
     const accuracyBadge = $('#gps-accuracy-badge');
-    function setAccuracyBadge(accuracyM, active) {
-      if (!active) { accuracyBadge.style.display = 'none'; return; }
-      const good = accuracyM <= GPS_WARMUP_THRESHOLD;
+    function setAccuracyBadge(accuracyM, traceReady) {
       accuracyBadge.style.display = '';
-      accuracyBadge.style.borderColor = good ? '#22C55E' : '#EAB308';
-      accuracyBadge.style.color       = good ? '#22C55E' : '#EAB308';
-      accuracyBadge.textContent = `GPS ±${Math.round(accuracyM)}m`;
+      if (traceReady) {
+        const isExcellent = accuracyM <= GPS_ACCURACY_THRESHOLD;
+        accuracyBadge.style.borderColor = isExcellent ? '#22C55E' : '#BEFF3A';
+        accuracyBadge.style.color       = isExcellent ? '#22C55E' : '#BEFF3A';
+        accuracyBadge.textContent = isExcellent ? `✓ Trace ±${Math.round(accuracyM)}m` : `✓ Walk ±${Math.round(accuracyM)}m`;
+      } else {
+        accuracyBadge.style.borderColor = '#EAB308';
+        accuracyBadge.style.color       = '#EAB308';
+        accuracyBadge.textContent = `⊙ Warming… ±${Math.round(accuracyM)}m`;
+      }
     }
 
     $('#tool-trace-start').onclick = () => {
@@ -1931,14 +1957,14 @@
       traceWatchId = navigator.geolocation.watchPosition(
         (pos) => {
           const acc = pos.coords.accuracy;
-          setAccuracyBadge(acc, true);
+          setAccuracyBadge(acc, traceReady);
 
           if (!traceReady) {
             // Warm-up phase: pan map to current position but don't record yet
             map.setCenter([pos.coords.longitude, pos.coords.latitude]);
             if (acc <= GPS_WARMUP_THRESHOLD) {
               traceReady = true;
-              JORD.toast(`GPS locked (±${Math.round(acc)}m) — walk the ${kind} boundary now`, 'warn');
+              JORD.toast(`GPS locked (±${Math.round(acc)}m) — start walking the ${kind} boundary`, 'warn');
             }
             return;
           }
@@ -1960,7 +1986,7 @@
       navigator.geolocation.clearWatch(traceWatchId);
       traceWatchId = null; traceReady = false;
       $('#tool-trace-stop').style.display = 'none'; $('#tool-trace-start').style.display = '';
-      setAccuracyBadge(0, false);
+      accuracyBadge.style.display = 'none';
       if (tracePoints.length < 3) {
         JORD.warn('Not enough GPS points — walk more of the boundary before stopping');
         map.getSource('gps-trace').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
