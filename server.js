@@ -288,7 +288,7 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'SAMEORIGIN');
   res.setHeader('X-XSS-Protection', '1; mode=block');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  res.setHeader('Permissions-Policy', 'geolocation=(self), microphone=(), camera=(self)');
 
   // Enforce HTTPS in production
   if (process.env.NODE_ENV === 'production' && req.header('x-forwarded-proto') !== 'https') {
