@@ -420,6 +420,7 @@
 
             <div class="map-tools">
               <button class="btn btn-ghost" id="tool-tee" title="Add a tee box for this hole at the map center. Drag it to position.">＋ Tee box</button>
+              <button class="btn btn-ghost" id="tool-grab-tee" title="Stand on the tee marker and press this — GPS will capture the exact tee position.">📡 Grab GPS Tee</button>
               <button class="btn btn-ghost draw-kind-btn dk-fairway ld-only" id="tool-fairway" title="Click and drag to draw the fairway boundary.">🔵 Fairway</button>
               <button class="btn btn-ghost draw-kind-btn dk-rough   ld-only" id="tool-rough"   title="Click and drag to draw the rough boundary.">🟡 Rough</button>
               <button class="btn btn-ghost draw-kind-btn dk-oob     ld-only" id="tool-oob"     title="Click and drag to draw out-of-bounds boundary.">🔴 OOB</button>
@@ -1733,7 +1734,13 @@
     });
 
     // ── Tool buttons ──
+    function teeCountForHole() {
+      const hole_type = currentHoleTab === 'ctp' ? 'closest_pin' : 'longest_drive';
+      return (currentEvent.tee_boxes || []).filter(t => (t.hole_type || 'longest_drive') === hole_type).length;
+    }
+
     $('#tool-tee').onclick = async () => {
+      if (teeCountForHole() >= 4) { JORD.warn('Max 4 tee boxes per hole — delete one to add another'); return; }
       const c = map.getCenter();
       const name = await JORD.prompt("Tee box name?", { placeholder: "e.g. Men's, Women's, Senior", defaultValue: 'Main', okText: 'Add Tee' });
       if (!name) return;
@@ -1743,6 +1750,70 @@
       currentEvent.tee_boxes.push(teeBox);
       drawTeeMarkers(); renderTees(); updateHoleDistanceDisplay();
       JORD.success('Tee box added — drag it to position');
+    };
+
+    // GPS Tee Grab — stand on the tee marker, sample for up to 10s, save with name
+    $('#tool-grab-tee').onclick = async () => {
+      if (teeCountForHole() >= 4) { JORD.warn('Max 4 tee boxes per hole — delete one to add another'); return; }
+      if (!navigator.geolocation) { JORD.error('GPS not available on this device'); return; }
+      const name = await JORD.prompt("Tee box name?", { placeholder: "e.g. Men's, Women's, Senior", defaultValue: 'Main', okText: 'Continue to GPS' });
+      if (!name) return;
+      if (!await JORD.confirm(`Stand directly on the "${name}" tee marker and hold your device still, then click OK. GPS will sample for up to 10 seconds.`, { okText: 'Start GPS Capture' })) return;
+
+      let bestPos = null;
+      let watchId = null;
+      const SAMPLE_MS = 10000;
+      const GOOD_ENOUGH_M = 3;
+      const pinBadge = $('#pin-accuracy-badge');
+
+      function updateTeeBadge(accuracyM) {
+        pinBadge.style.display = '';
+        const isLocked = accuracyM <= GOOD_ENOUGH_M;
+        const isGood = accuracyM <= 8;
+        if (isLocked) {
+          pinBadge.style.borderColor = '#22C55E';
+          pinBadge.style.color = '#22C55E';
+          pinBadge.textContent = `✓ Locked ±${Math.round(accuracyM)}m`;
+        } else if (isGood) {
+          pinBadge.style.borderColor = '#BEFF3A';
+          pinBadge.style.color = '#BEFF3A';
+          pinBadge.textContent = `✓ Good ±${Math.round(accuracyM)}m`;
+        } else {
+          pinBadge.style.borderColor = '#EAB308';
+          pinBadge.style.color = '#EAB308';
+          pinBadge.textContent = `⊙ Waiting… ±${Math.round(accuracyM)}m`;
+        }
+      }
+
+      JORD.toast('Acquiring GPS lock — hold still on the tee…', 'warn');
+
+      const finish = async () => {
+        if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+        pinBadge.style.display = 'none';
+        if (!bestPos) { JORD.error('Could not get a GPS fix — try again in an open area'); return; }
+        const lat = bestPos.coords.latitude, lon = bestPos.coords.longitude;
+        const acc = Math.round(bestPos.coords.accuracy);
+        const hole_type = currentHoleTab === 'ctp' ? 'closest_pin' : 'longest_drive';
+        try {
+          const teeBox = await JORD.api(`/api/events/${currentEvent.id}/tee-boxes`, { method: 'POST', body: { name, color: 'white', lat, lon, hole_type } });
+          currentEvent.tee_boxes = currentEvent.tee_boxes || [];
+          currentEvent.tee_boxes.push(teeBox);
+          drawTeeMarkers(); renderTees(); updateHoleDistanceDisplay();
+          map.flyTo({ center: [lon, lat], zoom: 18 });
+          JORD.success(`"${name}" tee placed ±${acc}m accuracy`);
+        } catch (e) { JORD.error('Failed to save tee: ' + e.message); }
+      };
+
+      const timer = setTimeout(finish, SAMPLE_MS);
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          if (!bestPos || pos.coords.accuracy < bestPos.coords.accuracy) bestPos = pos;
+          updateTeeBadge(pos.coords.accuracy);
+          if (pos.coords.accuracy <= GOOD_ENOUGH_M) { clearTimeout(timer); finish(); }
+        },
+        (err) => { clearTimeout(timer); pinBadge.style.display = 'none'; JORD.error('GPS error: ' + err.message); },
+        { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
+      );
     };
 
     $('#tool-fairway').onclick = () => startFreehand('fairway');
