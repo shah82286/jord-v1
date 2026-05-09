@@ -585,6 +585,16 @@ function broadcast(eventId) {
 // Send a Klaviyo event for one recipient. The event properties carry both the
 // raw data AND pre-built SmsText / EmailSubject / EmailBodyHtml so that a
 // simple Klaviyo Flow can deliver the message without any template logic.
+async function sendEmailDirect(to, subject, html) {
+  if (!transporter) {
+    console.log(`[Email MOCK] to=${to} subject="${subject}" (set SMTP_HOST/SMTP_USER/SMTP_PASS to enable)`);
+    return;
+  }
+  try {
+    await transporter.sendMail({ from: SMTP_USER, to, subject, html });
+  } catch (e) { console.error('[Email] send error:', e.message); }
+}
+
 async function sendKlaviyo(type, recipient, data) {
   if (!KLAVIYO_KEY) {
     console.log(`[Klaviyo MOCK] ${type} → ${recipient.email || recipient.phone}:`, data.SmsText || data.EmailSubject || '(no message)');
@@ -622,10 +632,10 @@ async function sendKlaviyo(type, recipient, data) {
 
 // ── Message builders ────────────────────────────────────────────────────────
 
-function msgRegistration({ firstName, teamName, eventName, venue, dropCode, leaderboardUrl, adminPhone }) {
+function msgRegistration({ firstName, teamName, eventName, venue, dropCode, leaderboardUrl, scanUrl, adminPhone }) {
   const sms =
     `⛳ You're in, ${firstName}! "${teamName}" is registered for ${eventName} at ${venue}. ` +
-    `Your ball code is ${dropCode}. Watch the live leaderboard: ${leaderboardUrl}` +
+    `Submit your shot when at the ball: ${scanUrl} | Live leaderboard: ${leaderboardUrl}` +
     (adminPhone ? ` | Questions? Call: ${adminPhone}` : '');
 
   const subject = `You're registered for ${eventName}!`;
@@ -641,9 +651,10 @@ function msgRegistration({ firstName, teamName, eventName, venue, dropCode, lead
   <div style="background:#142B17;border-radius:8px;padding:20px;margin-bottom:24px">
     <p style="margin:0 0 8px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Your Ball Code</p>
     <p style="margin:0;font-size:32px;font-weight:700;color:#fff;letter-spacing:4px">${dropCode}</p>
-    <p style="margin:8px 0 0;font-size:13px;color:#7FA882">Scan the QR code on your ball when you're ready to submit your shot.</p>
+    <p style="margin:8px 0 0;font-size:13px;color:#7FA882">When you reach your ball on course, tap the button below to capture your GPS location.</p>
   </div>
-  <a href="${leaderboardUrl}" style="display:block;background:#BEFF3A;color:#0C2010;text-align:center;padding:16px;border-radius:8px;font-weight:700;font-size:16px;text-decoration:none;margin-bottom:24px">📊 Watch the Live Leaderboard</a>
+  <a href="${scanUrl}" style="display:block;background:#BEFF3A;color:#0C2010;text-align:center;padding:18px;border-radius:8px;font-weight:700;font-size:17px;text-decoration:none;margin-bottom:14px">📍 Get My Ball Location</a>
+  <a href="${leaderboardUrl}" style="display:block;background:#142B17;color:#BEFF3A;text-align:center;padding:14px;border-radius:8px;font-weight:600;font-size:15px;text-decoration:none;border:1px solid #BEFF3A;margin-bottom:24px">📊 Watch the Live Leaderboard</a>
   ${adminPhone ? `<p style="text-align:center;color:#7FA882;font-size:13px">Need help on course? Call your JORD rep: <strong style="color:#F0F7E8">${adminPhone}</strong></p>` : ''}
   <p style="text-align:center;color:#4A5B52;font-size:12px;margin-top:24px">Powered by JORD Golf</p>
 </div>`.trim();
@@ -996,18 +1007,26 @@ app.get('/api/events', requireAuth, (req, res) => {
   const events = isSuper
     ? db.prepare(`
         SELECT e.*,
+          a.name  AS creator_name,
+          a.email AS creator_email,
+          a.role  AS creator_role,
           COUNT(DISTINCT t.id)        AS team_count,
           COUNT(DISTINCT b.drop_code) AS ball_count
         FROM events e
+        LEFT JOIN admins a ON a.id=e.admin_id
         LEFT JOIN teams t ON t.event_id=e.id
         LEFT JOIN balls b ON b.event_id=e.id
         GROUP BY e.id ORDER BY e.starts_at DESC
       `).all()
     : db.prepare(`
         SELECT e.*,
+          a.name  AS creator_name,
+          a.email AS creator_email,
+          a.role  AS creator_role,
           COUNT(DISTINCT t.id)        AS team_count,
           COUNT(DISTINCT b.drop_code) AS ball_count
         FROM events e
+        LEFT JOIN admins a ON a.id=e.admin_id
         LEFT JOIN teams t ON t.event_id=e.id
         LEFT JOIN balls b ON b.event_id=e.id
         WHERE e.admin_id=?
@@ -1017,7 +1036,12 @@ app.get('/api/events', requireAuth, (req, res) => {
 });
 
 app.get('/api/events/:id', requireAuth, (req, res) => {
-  const ev = db.prepare('SELECT * FROM events WHERE id=?').get(req.params.id);
+  const ev = db.prepare(`
+    SELECT e.*, a.name AS creator_name, a.email AS creator_email, a.role AS creator_role
+    FROM events e
+    LEFT JOIN admins a ON a.id=e.admin_id
+    WHERE e.id=?
+  `).get(req.params.id);
   if (!ev) return res.status(404).json({ error: 'Not found' });
   const tee_boxes = db.prepare('SELECT * FROM tee_boxes WHERE event_id=?').all(req.params.id);
   res.json({ ...ev, tee_boxes });
@@ -1361,11 +1385,13 @@ app.post('/api/events/:eventId/finalize-team', (req, res) => {
           venue:         ev.venue || '',
           dropCode:      p.drop_code,
           leaderboardUrl: lbUrl,
+          scanUrl:       `${APP_URL}/scan/${p.drop_code}`,
           adminPhone:    ev.admin_phone || null,
         });
         await sendKlaviyo('registered',
           { email: p.email, phone: p.phone, first_name: p.first_name, last_name: p.last_name },
           { ...msg, event_id: eventId, team_name: team_name.trim() });
+        if (p.email) await sendEmailDirect(p.email, msg.EmailSubject, msg.EmailBodyHtml);
       }
     } catch (e) { console.error('[Klaviyo] registration notification error:', e.message); }
   });
