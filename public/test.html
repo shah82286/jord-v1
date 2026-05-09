@@ -63,7 +63,7 @@
           <div class="qr-url" id="qr-monitor-url">Requires an active event</div>
         </div>
       </div>
-      <div class="mt-4" style="background:rgba(190,255,58,0.1);border:1px solid var(--accent);border-radius:var(--r-md);padding:12px 16px;font-size:13px">
+      <div class="mt-4" style="background:rgba(234,217,176,0.1);border:1px solid var(--accent);border-radius:var(--r-md);padding:12px 16px;font-size:13px">
         <strong>📍 iPhone GPS note:</strong> Safari requires <strong>HTTPS</strong> for location access.
         GPS works automatically via ngrok (<code>https://…ngrok-free.app</code>).
         On local Wi-Fi (<code>http://192.168.x.x</code>) GPS will be blocked by iOS — use ngrok for full phone testing.
@@ -144,6 +144,58 @@
     <p class="card-sub">QR codes for your leaderboard and registration pages — scan with your phone to open directly.</p>
     <div id="events-loading" class="text-center" style="padding:24px 0"><div class="spinner" style="margin:0 auto"></div></div>
     <div id="events-links"></div>
+  </div>
+
+  <!-- ── Full Player Journey Test ── -->
+  <div class="card mt-4" style="border:1px solid var(--primary)">
+    <h3 class="card-title">🧪 Full Player Journey — End-to-End Test</h3>
+    <p class="card-sub">Walk through what a real player will see, from registration to ball submission to leaderboard. Use this to preview the experience before your tournament.</p>
+
+    <div id="journey-noauth" style="display:none;color:var(--ink-2);font-size:13px;padding:16px 0">
+      Log in to admin first, then refresh this page to use this feature.
+    </div>
+    <div id="journey-noevent" style="display:none;color:var(--ink-2);font-size:13px;padding:16px 0">
+      Create and activate an event in admin first, then refresh.
+    </div>
+
+    <div id="journey-form" style="display:none">
+      <div class="field mt-3">
+        <label>Test against event</label>
+        <select id="journey-event" class="select"></select>
+      </div>
+
+      <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);padding:16px;margin-top:var(--s-3)">
+        <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:10px">📧 Step 1 — Preview the registration email</div>
+        <p style="font-size:13px;color:var(--ink-2);margin-bottom:10px">Send a sample registration email to your inbox so you can see exactly what registered players will receive. Includes the "Get My Ball Location" and "Watch Leaderboard" buttons.</p>
+        <div class="field mt-2">
+          <label>Send test email to</label>
+          <input id="journey-email" class="input" type="email" placeholder="you@example.com">
+        </div>
+        <button class="btn btn-primary mt-2" id="journey-send-email">Send Test Email →</button>
+        <div id="journey-email-status" style="font-size:12px;color:var(--ink-2);margin-top:8px;min-height:18px"></div>
+      </div>
+
+      <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);padding:16px;margin-top:var(--s-3)">
+        <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:10px">📝 Step 2 — Register a real player</div>
+        <p style="font-size:13px;color:var(--ink-2);margin-bottom:10px">Open the registration page on your phone (or this browser) and complete the registration form. After submitting, you'll see the success screen with the "📍 Get My Ball Location Now" button.</p>
+        <a href="#" id="journey-register-link" target="_blank" class="btn btn-primary" style="font-size:13px">Open Registration Page →</a>
+      </div>
+
+      <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);padding:16px;margin-top:var(--s-3)">
+        <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:10px">📍 Step 3 — Submit your ball location</div>
+        <p style="font-size:13px;color:var(--ink-2);margin-bottom:10px">From the success screen, tap the green button. Or simulate a fake GPS location using the Step 2 simulator above to test without walking outside.</p>
+      </div>
+
+      <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);padding:16px;margin-top:var(--s-3)">
+        <div style="font-size:13px;font-weight:700;color:var(--primary);margin-bottom:10px">📊 Step 4 — Verify on the leaderboard</div>
+        <p style="font-size:13px;color:var(--ink-2);margin-bottom:10px">Open the leaderboard for this event in another tab and confirm your shot appears with the correct distance, location type, and team name.</p>
+        <a href="#" id="journey-lb-link" target="_blank" class="btn btn-ghost" style="font-size:13px">Open Leaderboard →</a>
+      </div>
+
+      <div class="mt-3" style="background:rgba(190,255,58,0.06);border:1px solid var(--primary);border-radius:var(--r-md);padding:12px 16px;font-size:12px;color:var(--ink-2)">
+        <strong style="color:var(--primary)">💡 Tip:</strong> Real emails only send when SMTP_HOST/SMTP_USER/SMTP_PASS are set in <code>.env</code>. Without those, the email is logged to the server console — check your terminal to verify the content.
+      </div>
+    </div>
   </div>
 
   <!-- ── Demo Scan QR ── -->
@@ -406,7 +458,7 @@
         ' &nbsp;·&nbsp; <span style="color:' + zoneColor + ';font-weight:700">' + zoneLabel + '</span>';
       if (simMarker) simMarker.remove();
       var el = document.createElement('div');
-      el.style.cssText = 'width:22px;height:22px;border-radius:50%;background:' + (zone ? zone.color : '#BEFF3A') + ';border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.5)';
+      el.style.cssText = 'width:22px;height:22px;border-radius:50%;background:' + (zone ? zone.color : '#EAD9B0') + ';border:3px solid #fff;box-shadow:0 2px 6px rgba(0,0,0,0.5)';
       simMarker = new mapboxgl.Marker({ element: el }).setLngLat([simLon, simLat]).addTo(simMap);
       updateGenerateBtn();
       updateDemoBtn();
@@ -483,6 +535,7 @@
       if (!events.length) {
         wrap.innerHTML = '<p style="color:var(--ink-2);font-size:13px">No events yet — create one in admin first.</p>';
         document.getElementById('demo-noevent').style.display = '';
+        document.getElementById('journey-noevent').style.display = '';
       } else {
         events.forEach(function (ev) {
           var lbUrl  = localBase + '/leaderboard/' + ev.id;
@@ -519,6 +572,48 @@
         });
         document.getElementById('demo-form').style.display = '';
 
+        /* Populate Journey event picker */
+        var journeySel = document.getElementById('journey-event');
+        events.forEach(function (ev) {
+          var opt = document.createElement('option');
+          opt.value = ev.id;
+          opt.textContent = ev.name + (ev.status !== 'active' ? ' (' + ev.status + ')' : '');
+          journeySel.appendChild(opt);
+        });
+        document.getElementById('journey-form').style.display = '';
+
+        function updateJourneyLinks() {
+          var evId = journeySel.value;
+          document.getElementById('journey-register-link').href = localBase + '/register/' + evId;
+          document.getElementById('journey-lb-link').href = localBase + '/leaderboard/' + evId;
+        }
+        updateJourneyLinks();
+        journeySel.addEventListener('change', updateJourneyLinks);
+
+        document.getElementById('journey-send-email').addEventListener('click', async function () {
+          var to = document.getElementById('journey-email').value.trim();
+          var status = document.getElementById('journey-email-status');
+          if (!to) { status.textContent = 'Enter an email address first.'; status.style.color = 'var(--danger)'; return; }
+          var btn = this;
+          btn.disabled = true; btn.textContent = 'Sending…';
+          status.textContent = ''; status.style.color = 'var(--ink-2)';
+          try {
+            var r = await JORD.api('/api/test/registration-email', { method: 'POST', body: { to: to, event_id: journeySel.value } });
+            btn.disabled = false; btn.textContent = 'Send Test Email →';
+            if (r.mock) {
+              status.textContent = '⚠ SMTP not configured. Email content was logged to server console — check your terminal.';
+              status.style.color = 'var(--accent)';
+            } else {
+              status.textContent = '✓ Test email sent to ' + r.to + '. Check your inbox (may take a moment).';
+              status.style.color = 'var(--primary)';
+            }
+          } catch (e) {
+            btn.disabled = false; btn.textContent = 'Send Test Email →';
+            status.textContent = 'Error: ' + e.message;
+            status.style.color = 'var(--danger)';
+          }
+        });
+
         /* Demo generate button */
         document.getElementById('demo-generate').addEventListener('click', function () {
           if (simLat === null || simLon === null) return;
@@ -542,6 +637,7 @@
     } catch (e) {
       document.getElementById('events-loading').innerHTML = '<p style="color:var(--ink-2);font-size:13px;text-align:center">Could not load events.</p>';
       document.getElementById('demo-noauth').style.display = '';
+      document.getElementById('journey-noauth').style.display = '';
     }
   }
 })();

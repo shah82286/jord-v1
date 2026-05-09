@@ -2114,8 +2114,35 @@ ${notes || 'None'}
   }
 });
 
+// ─── TEST EMAIL (super admin only) ───────────────────────────────────────────
+// Sends a sample registration email so admins can preview what players receive.
+app.post('/api/test/registration-email', requireAuth, requireSuper, async (req, res) => {
+  const { to, event_id } = req.body;
+  if (!to) return res.status(400).json({ error: 'to (email) required' });
+
+  const ev = event_id
+    ? db.prepare('SELECT name, venue, admin_phone FROM events WHERE id=?').get(event_id)
+    : { name: 'Sample Tournament', venue: 'Test Course', admin_phone: null };
+  if (!ev) return res.status(404).json({ error: 'Event not found' });
+
+  const sampleCode = 'TEST01';
+  const msg = msgRegistration({
+    firstName:      'Test',
+    teamName:       'Test Team',
+    eventName:      ev.name,
+    venue:          ev.venue || 'Test Course',
+    dropCode:       sampleCode,
+    leaderboardUrl: `${APP_URL}/leaderboard/${event_id || 'demo'}`,
+    scanUrl:        `${APP_URL}/scan/${sampleCode}`,
+    adminPhone:     ev.admin_phone || null,
+  });
+
+  await sendEmailDirect(to, '[TEST] ' + msg.EmailSubject, msg.EmailBodyHtml);
+  res.json({ sent: !!transporter, to, mock: !transporter });
+});
+
 // ─── PAGES ───────────────────────────────────────────────────────────────────
-const pages = { '/': 'landing.html', '/landing': 'landing.html', '/signup': 'signup.html', '/admin': 'admin.html', '/register/:id': 'register.html',
+const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'about.html', '/signup': 'signup.html', '/admin': 'admin.html', '/register/:id': 'register.html',
   '/scan': 'scan.html', '/scan/:code': 'scan.html', '/leaderboard/:id': 'leaderboard.html',
   '/dashboard/:eid/:code': 'dashboard.html', '/monitor/:id': 'monitor.html',
   '/global': 'global.html', '/test': 'test.html', '/system-summary': 'system-summary.html' };
