@@ -137,24 +137,101 @@
     } catch (e) { return false; }
   }
 
-  function detectZone(lat, lon) {
-    if (!ballData) return null;
-    var hasZones = ballData.fairway_polygon || ballData.rough_polygon || ballData.oob_polygon;
-    if (!hasZones) return null; // no zones mapped — leave picker manual
-    if (pointInPolygon(lat, lon, ballData.fairway_polygon)) return 'fairway';
-    if (pointInPolygon(lat, lon, ballData.rough_polygon))   return 'rough';
-    if (pointInPolygon(lat, lon, ballData.oob_polygon))     return 'oob';
-    return 'oob_outside'; // outside all mapped zones
+  /* Distance helpers for accuracy-aware zone detection */
+  function haversineMeters(lat1, lon1, lat2, lon2) {
+    var R = 6371000;
+    var f1 = lat1 * Math.PI / 180, f2 = lat2 * Math.PI / 180;
+    var df = (lat2 - lat1) * Math.PI / 180, dl = (lon2 - lon1) * Math.PI / 180;
+    var a = Math.sin(df / 2) * Math.sin(df / 2) + Math.cos(f1) * Math.cos(f2) * Math.sin(dl / 2) * Math.sin(dl / 2);
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   }
 
-  function autoSelectZone(lat, lon) {
-    var zone = detectZone(lat, lon);
-    if (!zone) return; // no zones mapped — leave manual picker open
+  function ringDistMeters(lat, lon, geom) {
+    if (!geom || geom.type !== 'Polygon') return Infinity;
+    var ring = geom.coordinates[0];
+    var min = Infinity;
+    for (var i = 0; i < ring.length - 1; i++) {
+      var lon1 = ring[i][0], lat1 = ring[i][1];
+      var lon2 = ring[i + 1][0], lat2 = ring[i + 1][1];
+      var dx = lon2 - lon1, dy = lat2 - lat1, lenSq = dx * dx + dy * dy;
+      var t = lenSq > 0 ? ((lon - lon1) * dx + (lat - lat1) * dy) / lenSq : 0;
+      t = Math.max(0, Math.min(1, t));
+      var d = haversineMeters(lat, lon, lat1 + t * dy, lon1 + t * dx);
+      if (d < min) min = d;
+    }
+    return min;
+  }
+
+  function distToEdgeMeters(lat, lon, polygonData) {
+    if (!polygonData) return Infinity;
+    try {
+      var geom = typeof polygonData === 'string' ? JSON.parse(polygonData) : polygonData;
+      if (geom.type === 'FeatureCollection') {
+        return (geom.features || []).reduce(function (m, f) {
+          var d = ringDistMeters(lat, lon, f.geometry);
+          return d < m ? d : m;
+        }, Infinity);
+      }
+      if (geom.type === 'Feature') geom = geom.geometry;
+      return ringDistMeters(lat, lon, geom);
+    } catch (e) { return Infinity; }
+  }
+
+  function detectZoneWithConfidence(lat, lon, accuracyM) {
+    if (!ballData) return { zone: null, nearBoundary: false };
+    var hasZones = ballData.fairway_polygon || ballData.rough_polygon || ballData.oob_polygon;
+    if (!hasZones) return { zone: null, nearBoundary: false };
+    var checks = [
+      { key: 'fairway', poly: ballData.fairway_polygon },
+      { key: 'rough',   poly: ballData.rough_polygon },
+      { key: 'oob',     poly: ballData.oob_polygon },
+    ];
+    for (var i = 0; i < checks.length; i++) {
+      if (checks[i].poly && pointInPolygon(lat, lon, checks[i].poly)) {
+        var d = distToEdgeMeters(lat, lon, checks[i].poly);
+        return { zone: checks[i].key, nearBoundary: d < accuracyM, distToEdgeM: d };
+      }
+    }
+    var nearest = Infinity;
+    for (var j = 0; j < checks.length; j++) {
+      if (!checks[j].poly) continue;
+      var d2 = distToEdgeMeters(lat, lon, checks[j].poly);
+      if (d2 < nearest) nearest = d2;
+    }
+    return { zone: 'oob_outside', nearBoundary: nearest < accuracyM, distToEdgeM: nearest };
+  }
+
+  /* Backwards-compat wrapper — used elsewhere if any */
+  function detectZone(lat, lon) {
+    var r = detectZoneWithConfidence(lat, lon, 0);
+    return r.zone;
+  }
+
+  function autoSelectZone(lat, lon, accuracyM) {
+    var acc = (typeof accuracyM === 'number' && accuracyM > 0) ? accuracyM : 999;
+    var result = detectZoneWithConfidence(lat, lon, acc);
+    var zone = result.zone;
+    if (!zone) return;
     var locKey = zone === 'oob_outside' ? 'oob' : zone;
+    var note = document.getElementById('zone-auto-note');
+    var dangerStyle = 'font-size:13px;color:#b91c1c;background:rgba(185,28,28,0.12);border:1px solid rgba(185,28,28,0.35);border-radius:6px;padding:9px 12px;text-align:center;margin-top:8px;line-height:1.4';
+    var okStyle     = 'font-size:13px;color:#166534;background:rgba(22,101,52,0.1);border:1px solid rgba(22,101,52,0.3);border-radius:6px;padding:9px 12px;text-align:center;margin-top:8px;line-height:1.4';
+    var warnStyle   = 'font-size:13px;color:#92400e;background:rgba(146,64,14,0.1);border:1px solid rgba(146,64,14,0.3);border-radius:6px;padding:9px 12px;text-align:center;margin-top:8px;line-height:1.4';
+
+    /* Near-boundary: suggest only, do NOT pre-click or lock — player picks. */
+    if (result.nearBoundary) {
+      if (note) {
+        note.style.display = '';
+        note.style.cssText = warnStyle;
+        var zoneLabel = { fairway: 'Fairway', rough: 'Rough', oob: 'Out of Bounds', oob_outside: 'outside course zones' }[zone] || zone;
+        note.textContent = '⚠️ Likely ' + zoneLabel + ' (GPS ±' + Math.round(acc) + 'm) — confirm by tapping the right one below.';
+      }
+      return;
+    }
+
+    /* Confident: pre-click + hard-lock (original behavior) */
     var btn = document.querySelector('[data-loc="' + locKey + '"]');
     if (btn) btn.click();
-
-    /* Lock buttons: for OOB zones keep Lost Ball enabled; for fairway/rough lock all */
     var isOobZone = locKey === 'oob';
     document.querySelectorAll('.loc-btn').forEach(function (b) {
       var keep = b.dataset.loc === locKey || (isOobZone && b.dataset.loc === 'lost');
@@ -162,20 +239,18 @@
       b.style.opacity = keep ? '1' : '0.3';
       b.style.cursor = keep ? 'pointer' : 'default';
     });
-
-    var note = document.getElementById('zone-auto-note');
     if (!note) return;
     note.style.display = '';
     if (zone === 'oob_outside') {
-      note.style.cssText = 'font-size:13px;color:#b91c1c;background:rgba(185,28,28,0.12);border:1px solid rgba(185,28,28,0.35);border-radius:6px;padding:9px 12px;text-align:center;margin-top:8px;line-height:1.4';
+      note.style.cssText = dangerStyle;
       note.textContent = '🚫 Outside all course zones — marked Out of Bounds. Choose Lost Ball if you can\'t find it. Contact a rep to change zone.';
     } else if (zone === 'oob') {
-      note.style.cssText = 'font-size:13px;color:#b91c1c;background:rgba(185,28,28,0.12);border:1px solid rgba(185,28,28,0.35);border-radius:6px;padding:9px 12px;text-align:center;margin-top:8px;line-height:1.4';
+      note.style.cssText = dangerStyle;
       note.textContent = '🚫 Out of Bounds zone detected. Choose Lost Ball if you can\'t find it. Contact a rep to change zone.';
     } else {
-      var zoneLabel = { fairway: 'Fairway', rough: 'Rough' }[zone] || zone;
-      note.style.cssText = 'font-size:13px;color:#166534;background:rgba(22,101,52,0.1);border:1px solid rgba(22,101,52,0.3);border-radius:6px;padding:9px 12px;text-align:center;margin-top:8px;line-height:1.4';
-      note.textContent = '✅ ' + zoneLabel + ' detected from course map — zone locked in. Contact a rep if incorrect.';
+      var label = { fairway: 'Fairway', rough: 'Rough' }[zone] || zone;
+      note.style.cssText = okStyle;
+      note.textContent = '✅ ' + label + ' detected from course map — zone locked in. Contact a rep if incorrect.';
     }
   }
 
@@ -207,15 +282,17 @@
 
   /* ─── GPS ─── */
   function startGPS() {
-    // Test mode: accept ?testLat=X&testLon=Y&testLoc=TYPE in URL to simulate GPS
+    // Test mode: accept ?testLat=X&testLon=Y&testAcc=N&testLoc=TYPE in URL to simulate GPS
     var params = new URLSearchParams(window.location.search);
     var testLat = parseFloat(params.get('testLat'));
     var testLon = parseFloat(params.get('testLon'));
+    var testAccParam = parseFloat(params.get('testAcc'));
+    var testAcc = (!isNaN(testAccParam) && testAccParam > 0) ? testAccParam : 1;
     var testLoc = params.get('testLoc');
     if (!isNaN(testLat) && !isNaN(testLon)) {
-      gpsPos = { lat: testLat, lon: testLon, acc: 1 };
-      setGPS('locked', '🧪', 'Test mode — location simulated');
-      autoSelectZone(testLat, testLon);
+      gpsPos = { lat: testLat, lon: testLon, acc: testAcc };
+      setGPS('locked', '🧪', 'Test mode — location simulated (±' + testAcc + 'm)');
+      autoSelectZone(testLat, testLon, gpsPos.acc);
       if (ballData && ballData.has_closest_pin) checkCTPZone(testLat, testLon);
       enableSubmit();
       return;
@@ -225,7 +302,7 @@
       function (pos) {
         gpsPos = { lat: pos.coords.latitude, lon: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) };
         setGPS('locked', '📍', 'Location locked — you\'re good to go!');
-        autoSelectZone(gpsPos.lat, gpsPos.lon);
+        autoSelectZone(gpsPos.lat, gpsPos.lon, gpsPos.acc);
         if (ballData && ballData.has_closest_pin) checkCTPZone(gpsPos.lat, gpsPos.lon);
         enableSubmit();
       },

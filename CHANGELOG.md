@@ -2,6 +2,35 @@
 
 ---
 
+## v3.6.0 — 2026-05-10
+### Session 18 — Accuracy-aware zone detection, regression suite, mobile visual tests
+
+#### What Changed
+
+##### Accuracy-aware zone detection (`public/scan.html`)
+- `autoSelectZone(lat, lon, accuracyM)` now consults GPS accuracy before locking the player's zone selection.
+- Confident reading (zone edge farther from player than GPS accuracy) → same as before: pre-click + hard-lock all other location buttons.
+- **Uncertain reading (edge within GPS accuracy)** → new path: yellow warning note `⚠️ Likely <Zone> (GPS ±Xm) — confirm by tapping the right one below.` All 4 location buttons stay tappable. Nothing pre-selected.
+- New helpers: `haversineMeters`, `ringDistMeters`, `distToEdgeMeters`, `detectZoneWithConfidence`. Old `detectZone` kept as backwards-compat wrapper.
+- Test mode now accepts `?testAcc=N` URL param to simulate any GPS accuracy from desktop.
+
+##### Regression test suite (`tests/regression-tests.js`)
+- New file. Pure-logic tests, no DOM/server. Run via `node tests/regression-tests.js`.
+- 22 tests covering: QR team-code parameter parsing, tee-box filter shape-tolerance, accuracy-aware zone detection across confident/uncertain/oob paths.
+
+##### Mobile visual test script (`tests/mobile-visual.js`)
+- Puppeteer-based screenshot suite. Boots iPhone 14 + Pixel 7 viewports, walks public pages (landing/scan/global/qr/about/signup/admin-login), screenshots full-page to `tests/visual-report/`, runs deterministic overflow + clipping checks, writes `findings.json`.
+- Optional `EVENT_ID=<id>` env var also tests `/register/:id`, `/leaderboard/:id`, `/monitor/:id`.
+- npm script: `npm run test:mobile`. Server must be running (`npm start`) in another terminal.
+
+##### CLAUDE.md
+- New project-level instructions for Claude Code sessions: deployment & testing rules (no live URL access, doc-update gate before push, no HTTPS/ngrok detours), project stack reminders (Mapbox layer order, Klaviyo `|safe`, fonts, Node/sqlite gotcha), secrets & git hygiene.
+
+#### Why
+GPS accuracy varies heavily on player phones (±3m clear sky to ±15m near buildings). Old `detectZone` treated every reading as ground truth, hard-locking the location picker even when the GPS reading was unreliable. Two failure modes that bit before: (1) ball genuinely in rough but GPS drifted past admin's polygon → forced into OOB, (2) ball just inside fairway with poor GPS → hard-locked to fairway when actually in rough penalty zone. New path leaves the picker open whenever the reading isn't confident.
+
+---
+
 ## v3.5.0 — 2026-05-07
 ### Session 17 — Dual Registration Flows, Leaderboard Search, Mobile Polish
 

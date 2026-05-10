@@ -10,7 +10,8 @@
     "test:live": "node tests/live-tests.js",
     "test:watch": "node tests/watch.js",
     "test:mobile": "node tests/mobile-visual.js",
-    "test:all": "node tests/run-tests.js && node tests/live-tests.js"
+    "test:regression": "node tests/regression-tests.js",
+    "test:all": "node tests/run-tests.js && node tests/regression-tests.js && node tests/live-tests.js"
   },
   "dependencies": {
     "better-sqlite3": "^12.9.0",
