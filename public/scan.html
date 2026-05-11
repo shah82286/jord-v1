@@ -35,11 +35,11 @@
     transition: border-color 0.15s, background 0.15s;
     position: relative;
   }
-  .code-box.has-value { border-color: var(--primary); background: rgba(234,217,176,0.07); }
-  .code-box.is-cursor { border-color: var(--primary); background: var(--surface); }
+  .code-box.has-value { border-color: var(--accent); background: rgba(184,136,77,0.07); }
+  .code-box.is-cursor { border-color: var(--accent); background: var(--surface); }
   .code-box.is-cursor::after {
     content: ''; position: absolute;
-    width: 2px; height: 36px; background: var(--primary);
+    width: 2px; height: 36px; background: var(--accent);
     animation: blink-cursor 1s step-end infinite;
   }
   @keyframes blink-cursor { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
@@ -71,9 +71,9 @@
     transition: border-color var(--t-fast), background var(--t-fast);
   }
   .loc-btn .loc-icon { font-size: 28px; }
-  .loc-btn:hover { border-color: var(--primary); }
-  .loc-btn.selected { border-color: var(--primary); background: rgba(15,61,46,0.06); }
-  .loc-btn.oob.selected { border-color: var(--danger); background: rgba(192,57,43,0.06); }
+  .loc-btn:hover { border-color: var(--accent); }
+  .loc-btn.selected { border-color: var(--accent); background: rgba(184,136,77,0.08); }
+  .loc-btn.oob.selected { border-color: var(--danger); background: rgba(179,58,58,0.07); }
 
   /* Ball info card */
   .ball-info { margin-bottom: var(--s-4); }
@@ -659,7 +659,7 @@
     ydsPanel.style.cssText = 'text-align:center;padding:16px 16px 48px;background:linear-gradient(to top,rgba(0,0,0,0.92) 0%,rgba(0,0,0,0) 100%);flex-shrink:0;position:relative';
     var ydsEl = document.createElement('div');
     ydsEl.id = 'flyover-yards';
-    ydsEl.style.cssText = 'font-family:var(--font-display);font-size:min(24vw,120px);font-weight:700;line-height:1;color:#EAD9B0;text-shadow:0 4px 24px rgba(0,0,0,0.7)';
+    ydsEl.style.cssText = 'font-family:var(--font-display);font-size:min(24vw,120px);font-weight:700;line-height:1;color:#B8884D;text-shadow:0 4px 24px rgba(0,0,0,0.7)';
     ydsEl.textContent = '—';
     var ydsLbl = document.createElement('div');
     ydsLbl.style.cssText = 'font-size:22px;color:rgba(255,255,255,0.6);margin-top:8px;font-weight:600;letter-spacing:0.04em';
@@ -752,17 +752,17 @@
 
         /* Animated shot line */
         map.addSource('shot', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [[data.tee_lon, data.tee_lat]] } } });
-        map.addLayer({ id: 'shot', type: 'line', source: 'shot', paint: { 'line-color': '#EAD9B0', 'line-width': 4 } });
+        map.addLayer({ id: 'shot', type: 'line', source: 'shot', paint: { 'line-color': '#B8884D', 'line-width': 4 } });
 
         /* Tee marker */
         var tEl = document.createElement('div');
-        tEl.style.cssText = 'width:30px;height:30px;border-radius:50%;background:#EAD9B0;border:3px solid #fff;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;box-shadow:0 3px 10px rgba(0,0,0,0.7)';
+        tEl.style.cssText = 'width:30px;height:30px;border-radius:50%;background:#B8884D;border:3px solid #fff;display:grid;place-items:center;font-size:12px;font-weight:700;color:#fff;box-shadow:0 3px 10px rgba(0,0,0,0.7)';
         tEl.textContent = 'T';
         new mapboxgl.Marker({ element: tEl }).setLngLat([data.tee_lon, data.tee_lat]).addTo(map);
 
         /* Ball landing marker — hidden until animation ends */
         var bEl = document.createElement('div');
-        bEl.style.cssText = 'width:26px;height:26px;border-radius:50%;background:#fff;border:4px solid #EAD9B0;box-shadow:0 3px 12px rgba(0,0,0,0.7);opacity:0;transform:scale(0.1);transition:opacity 0.4s,transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275)';
+        bEl.style.cssText = 'width:26px;height:26px;border-radius:50%;background:#fff;border:4px solid #B8884D;box-shadow:0 3px 12px rgba(0,0,0,0.7);opacity:0;transform:scale(0.1);transition:opacity 0.4s,transform 0.4s cubic-bezier(0.175,0.885,0.32,1.275)';
         new mapboxgl.Marker({ element: bEl }).setLngLat([data.ball_lon, data.ball_lat]).addTo(map);
 
         /* Draw line tee → ball over 2000 ms */
@@ -834,15 +834,15 @@
 
         /* Complete shot line (static) */
         map2.addSource('shot', { type: 'geojson', data: { type: 'Feature', geometry: { type: 'LineString', coordinates: [[data.tee_lon, data.tee_lat], [data.ball_lon, data.ball_lat]] } } });
-        map2.addLayer({ id: 'shot', type: 'line', source: 'shot', paint: { 'line-color': '#EAD9B0', 'line-width': 3 } });
+        map2.addLayer({ id: 'shot', type: 'line', source: 'shot', paint: { 'line-color': '#B8884D', 'line-width': 3 } });
 
         var tEl = document.createElement('div');
-        tEl.style.cssText = 'width:22px;height:22px;border-radius:50%;background:#EAD9B0;border:2px solid #fff;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;box-shadow:0 2px 5px rgba(0,0,0,0.6)';
+        tEl.style.cssText = 'width:22px;height:22px;border-radius:50%;background:#B8884D;border:2px solid #fff;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;box-shadow:0 2px 5px rgba(0,0,0,0.6)';
         tEl.textContent = 'T';
         new mapboxgl.Marker({ element: tEl }).setLngLat([data.tee_lon, data.tee_lat]).addTo(map2);
 
         var bEl = document.createElement('div');
-        bEl.style.cssText = 'width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid #EAD9B0;box-shadow:0 2px 6px rgba(0,0,0,0.6)';
+        bEl.style.cssText = 'width:18px;height:18px;border-radius:50%;background:#fff;border:3px solid #B8884D;box-shadow:0 2px 6px rgba(0,0,0,0.6)';
         new mapboxgl.Marker({ element: bEl }).setLngLat([data.ball_lon, data.ball_lat]).addTo(map2);
       });
     });
@@ -1012,9 +1012,8 @@
     /* Header */
     var header = document.createElement('div');
     header.className = 'text-center mb-5';
-    header.innerHTML = '<img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077" alt="JORD Golf" style="height:56px;width:auto;margin:0 auto var(--s-3);display:block">'
-      + '<div class="brand-name">JORD GOLF</div>'
-      + '<div class="brand-sub" style="margin-top:4px">Enter Your Ball Code</div>';
+    header.innerHTML = '<img src="/img/logos/logo-script-black.png" alt="JORD Golf" style="height:42px;width:auto;margin:0 auto var(--s-3);display:block">'
+      + '<div class="eyebrow" style="color:var(--ink-3);font-size:11px;letter-spacing:0.20em;text-transform:uppercase;font-weight:600;">Enter Your Ball Code</div>';
     card.appendChild(header);
 
     /* Label + hint */

@@ -16,8 +16,17 @@ Deployed to Railway. Live at https://tournament.jordgolf.com. SSL auto-managed b
 **#PRE-2 — Wire up or formally defer SMS/email (Klaviyo)** ✓
 Completed May 2026. Full Klaviyo integration live. 4 event metrics fire from the server: `jord_registered`, `jord_ball_scanned`, `jord_tournament_ended`, `jord_dethroned`. 4 Klaviyo Flows built and set to Live — each delivers a branded dark-theme HTML email + SMS. Players opted in at registration receive messages automatically. Real Klaviyo API key set in Railway environment variables.
 
-**#PRE-3 — Upgrade monitor page to session auth**
-The rep monitor (`/monitor`) still uses an old shared-password system stored in `localStorage`. The admin panel uses proper session tokens. Monitor should be upgraded to the same login system so reps get their own accounts and the shared password is retired.
+**#PHASE-2 — Tournament admin experience: limited UI + per-event branding**
+Restrict tournament-admin panel UI (hide super-only buttons, scope event list). Add per-event branding: logo upload + accent color picker on Settings tab. Apply branding on register/leaderboard/scan pages with "Powered by JORD Golf" footer. Sales-value feature — every tournament looks branded.
+
+**#PHASE-3 — AI Help Agent**
+Claude-powered floating chat widget on admin panel. Aware of current event context (status, ball count, recent alerts). Escalation alerts to super admin dashboard when admin gets stuck. Note: usage-priced — watch costs.
+
+**#PHASE-5 — Klaviyo welcome email for new admins**
+When super admin creates a new admin account, send a welcome email with temp password (currently displayed in console). Also wire forgot-password reset link to email instead of manual copy.
+
+**#TEST-COLOR — Fix swapped fairway/green colors on test page**
+`/test` GPS simulator has fairway shown as green (`#22C55E`) and green shown as blue (`#3B82F6`) — opposite of the standard. `test.html:235-245`. Minor visual fix to match main maps.
 
 ---
 
@@ -28,6 +37,26 @@ The rep monitor (`/monitor`) still uses an old shared-password system stored in 
 ---
 
 ## Done
+
+**#THEME-V3.8 — Platform-wide cream editorial re-skin** ✓
+Completed 2026-05-11 (v3.8.0). Swapped `public/css/jord.css` `:root` variables from Rumble dark-green to the Vessel/Malbon cream editorial palette. Re-skinned all 11 functional pages (admin, leaderboard, scan, register, monitor, dashboard, global, qr, test, system-summary, mapdiag) plus polished marketing pages already on cream. `JORD.renderTopbar` now references local `/img/logos/*` — no external CDN dependencies anywhere. 55/55 regression tests pass, 14/14 mobile visual tests pass with 0 layout issues. See CHANGELOG v3.8.0 for full per-file breakdown.
+
+**#HANDOFF-UPDATE — Refresh HANDOFF.md to v3.8.0** ✓
+Completed 2026-05-11. HANDOFF.md now reflects current state: v3.8.0 cream editorial theme as the source of truth, palette documented, legacy v1.5.0 lime palette retired.
+
+**#PRE-3 — Upgrade monitor page to session auth** ✓
+Completed 2026-05-10. Monitor `/monitor/:eventId` login replaced with email+password form (was: shared admin password). POSTs to `/api/auth/login` for a real session token. All monitor API calls (`/api/events/:id`, `/api/admin/correct`, `/api/alerts/:id/resolve`, ball reset) now use the session token. Audit trail upgrade: `admin_corrections.corrected_by` column now records `Name <email>` of the logged-in admin instead of generic `'admin'` — full per-rep attribution. Old localStorage password tokens are rejected by `requireAuth`, so the shared-password system is fully retired.
+
+**#TEAM-QR-URL — Team QR code reads `?team=` URL parameter** ✓
+Fixed 2026-05-10. `register.html` now reads team code from URL via `JORD.qs('team')` so Players 2-4 scanning the team QR see "✅ Joining team code: XXXXXX" confirmation. Was silently ignored before.
+
+**#LB-ROUGH-ORDER — Rough zone not showing on leaderboard/monitor maps** ✓
+Fixed 2026-05-10. Layer order in `updateZoneLayers()` was Fairway → Rough → OOB → Green, meaning OOB at 25% opacity was rendered ON TOP of Rough and obscuring it. Reordered to OOB → Rough → Fairway → Green (matches admin map and HANDOFF's "Fairway > Rough > OOB priority"). Fixed in both `leaderboard.html` and `monitor.html`.
+
+**#EVENT-CREATOR — Show creator admin on event cards + header** ✓
+Added 2026-05-10. `/api/events` and `/api/events/:id` now JOIN admins table, returning `creator_name`, `creator_email`, `creator_role`. Admin panel events list shows "👤 [name]" badge on each card; event editor header shows "👤 Created by [Name]". Super admin can see who owns each event at a glance.
+
+
 
 **#ZONE-MERGE — Overlapping same-kind zone polygons auto-merge** ✓
 Built in v3.1.0. Drawing multiple fairway (or rough/OOB/green) polygons that overlap automatically merges them into one shape. `mergeKind()` runs inside `clipZones()` before priority clipping — uses `turf.union` to combine, deletes originals, adds merged result back to the draw canvas.

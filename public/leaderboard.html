@@ -22,14 +22,15 @@
   .live-badge {
     display: inline-flex; align-items: center; gap: 6px;
     padding: 5px 14px; border-radius: 999px;
-    background: rgba(76,175,80,0.18); color: #5CB85C;
-    font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase;
+    background: rgba(74,122,83,0.14); color: #4A7A53;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase;
     transition: background 0.4s, color 0.4s;
+    border: 1px solid rgba(74,122,83,0.3);
   }
   .live-badge.is-ended {
-    background: rgba(234,217,176,0.15); color: #EAD9B0;
+    background: rgba(201,154,94,0.15); color: #C99A5E;
   }
-  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #5CB85C; animation: pulse 1.6s ease-in-out infinite; }
+  .live-dot { width: 7px; height: 7px; border-radius: 50%; background: #4A7A53; animation: pulse 1.6s ease-in-out infinite; }
 
   /* ── Two-panel content area ── */
   .lb-content { flex: 1; display: flex; overflow: hidden; }
@@ -58,7 +59,7 @@
   .leg-rough::before   { background: rgba(234,179,8,0.7); }
   .leg-oob::before     { background: rgba(220,38,38,0.7); }
   .leg-green::before   { background: rgba(34,197,94,0.7); }
-  .leg-ld::before      { background: #EAD9B0; border-radius: 50% !important; }
+  .leg-ld::before      { background: #C99A5E; border-radius: 50% !important; }
   .leg-cp::before      { background: #4A90E4; border-radius: 50% !important; }
 
   .lb-inner { max-width: 960px; margin: 0 auto; }
@@ -154,11 +155,12 @@
   /* Hole Tour overlay badge */
   .tour-overlay {
     position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
-    background: rgba(0,0,0,0.72); color: #EAD9B0;
-    font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
-    padding: 5px 14px; border-radius: 999px;
+    background: rgba(20,19,18,0.85); color: #C99A5E;
+    font-size: 11px; font-weight: 600; letter-spacing: .18em; text-transform: uppercase;
+    padding: 6px 16px; border-radius: 999px;
     z-index: 10; pointer-events: none; display: none;
     white-space: nowrap;
+    border: 1px solid rgba(201,154,94,0.4);
   }
   .tour-overlay.is-active { display: flex; align-items: center; gap: 6px; }
 
@@ -216,25 +218,25 @@
     transition: background 0.12s;
   }
   .lb-map-team-row:hover { background: var(--surface-2); }
-  .lb-map-team-row.is-active { background: var(--primary); }
-  .lb-map-team-row.is-active .mtr-name { color: #0C2010; font-weight: 700; }
+  .lb-map-team-row.is-active { background: var(--accent); }
+  .lb-map-team-row.is-active .mtr-name { color: #FBF9F4; font-weight: 700; }
   .lb-map-team-row.is-active .mtr-rank,
-  .lb-map-team-row.is-active .mtr-score { color: rgba(12,32,16,0.7); }
+  .lb-map-team-row.is-active .mtr-score { color: rgba(251,249,244,0.75); }
   .mtr-rank  { font-size: 12px; color: var(--ink-2); width: 28px; text-align: center; flex-shrink: 0; }
   .mtr-name  { flex: 1; font-size: 13px; font-weight: 600; color: var(--ink); }
   .mtr-score { font-size: 12px; color: var(--ink-2); font-family: var(--font-mono); flex-shrink: 0; }
 </style>
 </head>
-<body class="theme-dark" id="pg">
+<body id="pg">
 
 <!-- ── Topbar ── -->
 <div class="lb-topbar">
   <div class="brand">
-    <img src="https://jordgolf.com/cdn/shop/files/logo-inverted_70x.svg?v=1738687297"
-         alt="JORD Golf" style="height:42px;width:auto">
+    <img src="/img/logos/logo-script-black.png"
+         alt="JORD Golf" style="height:36px;width:auto">
     <div>
-      <div class="brand-name" id="ev-name">JORD GOLF</div>
-      <div class="brand-sub" id="ev-venue">LIVE TOURNAMENT</div>
+      <div class="brand-name" id="ev-name" style="font-family:var(--font-display);font-weight:600;font-size:18px;letter-spacing:-0.01em;line-height:1.1;color:var(--ink)">JORD Golf</div>
+      <div class="brand-sub" id="ev-venue" style="font-size:10px;letter-spacing:0.20em;text-transform:uppercase;color:var(--ink-3);margin-top:2px;font-weight:600">Live Tournament</div>
     </div>
   </div>
   <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -469,7 +471,7 @@
       var winner = ldRows[0];
       var winCard = document.createElement('div');
       winCard.className = 'card';
-      winCard.style.cssText = 'margin-top:var(--s-5);margin-bottom:var(--s-4);border:1px solid var(--primary);background:linear-gradient(135deg,rgba(234,217,176,0.07) 0%,transparent 60%)';
+      winCard.style.cssText = 'margin-top:var(--s-5);margin-bottom:var(--s-4);border:1px solid var(--accent);background:linear-gradient(135deg,rgba(201,154,94,0.12) 0%,transparent 60%)';
 
       var drivesHtml = (winner.balls || [])
         .filter(function (b) { return b.scanned; })
@@ -801,7 +803,7 @@
       (ev.tee_boxes || []).forEach(function (t) {
         var label = (t.name || 'Tee').substring(0, 8);
         var tEl = document.createElement('div');
-        tEl.style.cssText = 'background:#EAD9B0;color:#0C2010;border:2px solid #fff;border-radius:20px;padding:0 8px;height:24px;display:inline-flex;align-items:center;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer';
+        tEl.style.cssText = 'background:#B8884D;color:#FBF9F4;border:2px solid #fff;border-radius:20px;padding:0 8px;height:24px;display:inline-flex;align-items:center;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer';
         tEl.textContent = label;
         var popupHtml = '<div style="color:#1a1a1a;font-size:13px;line-height:1.6;min-width:120px">'
           + '<strong style="color:#0a0a0a;display:block">' + (t.name || 'Tee Box') + '</strong>'
@@ -842,12 +844,12 @@
       });
     });
 
-    var locColor = { fairway: '#4CAF50', rough: '#EAD9B0', oob: '#C0392B', lost: '#C0392B' };
+    var locColor = { fairway: '#4CAF50', rough: '#B8884D', oob: '#C0392B', lost: '#C0392B' };
 
     allBalls.forEach(function (b) {
       var el = document.createElement('div');
       var isLD = b.type === 'ld';
-      var bg = isLD ? (locColor[b.loc] || '#EAD9B0') : '#4A90E4';
+      var bg = isLD ? (locColor[b.loc] || '#B8884D') : '#4A90E4';
       var border = b.rank === 1 ? '#FFD700' : '#fff';
       el.style.cssText = 'width:20px;height:20px;border-radius:50%;border:2px solid ' + border + ';background:' + bg + ';box-shadow:0 2px 4px rgba(0,0,0,0.4);cursor:pointer;display:grid;place-items:center;font-size:9px;font-weight:700;color:#fff;';
       el.title = b.player + ' · ' + b.team;

@@ -44,7 +44,7 @@
   .map-legend { display: flex; flex-wrap: wrap; gap: var(--s-3); font-size: 12px; color: var(--ink-2); margin-top: var(--s-2); }
   .map-legend span { display: inline-flex; align-items: center; gap: 6px; }
   .map-legend span::before { content: ''; display: inline-block; width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
-  .legend-tee::before { background: #EAD9B0; }
+  .legend-tee::before { background: #B8884D; }
   /* Force all map popups to be legible regardless of page theme */
   .mapboxgl-popup-content {
     background: #fff !important;
@@ -150,7 +150,7 @@
 
   /* ── Ended lock ── */
   .ended-banner {
-    background: rgba(234,217,176,0.1); border: 1px solid var(--accent);
+    background: rgba(184,136,77,0.08); border: 1px solid var(--accent);
     border-radius: var(--r-md); padding: 14px 18px;
     display: flex; justify-content: space-between; align-items: center; gap: var(--s-3);
     margin-bottom: var(--s-3);
@@ -195,10 +195,9 @@
 <section id="gate" class="gate-wrap">
   <div class="card">
     <div class="text-center mb-4">
-      <img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077"
-           alt="JORD Golf" style="height:62px;width:auto;margin:0 auto var(--s-3);display:block">
-      <div class="brand-name">JORD GOLF</div>
-      <div class="brand-sub">Tournament Admin Console</div>
+      <img src="/img/logos/logo-script-black.png"
+           alt="JORD Golf" style="height:48px;width:auto;margin:0 auto var(--s-3);display:block">
+      <div class="eyebrow" style="color:var(--ink-3);font-size:11px;letter-spacing:0.20em;">Tournament Admin Console</div>
     </div>
 
     <!-- Login form -->
@@ -213,7 +212,7 @@
       </div>
       <button class="btn btn-primary btn-lg btn-block" type="submit" id="btn-login">Sign in</button>
       <div class="row row-between mt-1" style="font-size:13px;">
-        <a href="#" id="link-forgot-pwd" style="color:var(--primary)">Forgot password?</a>
+        <a href="#" id="link-forgot-pwd" style="color:var(--accent);border-bottom-color:rgba(184,136,77,0.3)">Forgot password?</a>
         <a href="#" id="link-forgot-user" style="color:var(--ink-2)">Forgot email?</a>
       </div>
     </form>
@@ -2056,8 +2055,8 @@
           pinBadge.style.color = '#22C55E';
           pinBadge.textContent = `✓ Locked ±${Math.round(accuracyM)}m`;
         } else if (isGood) {
-          pinBadge.style.borderColor = '#EAD9B0';
-          pinBadge.style.color = '#EAD9B0';
+          pinBadge.style.borderColor = '#B8884D';
+          pinBadge.style.color = '#B8884D';
           pinBadge.textContent = `✓ Good ±${Math.round(accuracyM)}m`;
         } else {
           pinBadge.style.borderColor = '#EAB308';
@@ -2157,8 +2156,8 @@
           pinBadge.style.color = '#22C55E';
           pinBadge.textContent = `✓ Locked ±${Math.round(accuracyM)}m`;
         } else if (isGood) {
-          pinBadge.style.borderColor = '#EAD9B0';
-          pinBadge.style.color = '#EAD9B0';
+          pinBadge.style.borderColor = '#B8884D';
+          pinBadge.style.color = '#B8884D';
           pinBadge.textContent = `✓ Good ±${Math.round(accuracyM)}m`;
         } else {
           pinBadge.style.borderColor = '#EAB308';
@@ -2287,8 +2286,8 @@
       accuracyBadge.style.display = '';
       if (traceReady) {
         const isExcellent = accuracyM <= GPS_ACCURACY_THRESHOLD;
-        accuracyBadge.style.borderColor = isExcellent ? '#22C55E' : '#EAD9B0';
-        accuracyBadge.style.color       = isExcellent ? '#22C55E' : '#EAD9B0';
+        accuracyBadge.style.borderColor = isExcellent ? '#22C55E' : '#B8884D';
+        accuracyBadge.style.color       = isExcellent ? '#22C55E' : '#B8884D';
         accuracyBadge.textContent = isExcellent ? `✓ Trace ±${Math.round(accuracyM)}m` : `✓ Walk ±${Math.round(accuracyM)}m`;
       } else {
         accuracyBadge.style.borderColor = '#EAB308';
@@ -2393,7 +2392,7 @@
       const group = isLd ? ldTees : ctpTees;
       const num = group.indexOf(t) + 1;
       const elDiv = document.createElement('div');
-      elDiv.style.cssText = `background:${isLd ? '#EAD9B0' : '#3B82F6'};color:${isLd ? '#1a1a1a' : '#fff'};border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:grid;place-items:center;font-size:11px;font-weight:700;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,0.3);`;
+      elDiv.style.cssText = `background:${isLd ? '#B8884D' : '#3B82F6'};color:#FBF9F4;border:2px solid #fff;border-radius:50%;width:30px;height:30px;display:grid;place-items:center;font-size:11px;font-weight:700;cursor:grab;box-shadow:0 2px 6px rgba(0,0,0,0.3);`;
       elDiv.textContent = `T${num}`;
       elDiv.title = `T${num} ${t.name} (${isLd ? 'LD' : 'CTP'}) — drag to reposition`;
       const m = new mapboxgl.Marker({ element: elDiv, draggable: true })
@@ -2641,7 +2640,7 @@
   .qr-card.assigned { background: #f0f8f0; border-color: #a0d4a0; }
   .qr-label { font-size: 13px; font-weight: 700; word-break: break-all; margin-top: 2px; }
   .qr-sub { font-size: 10px; color: #666; margin-top: 3px; }
-  .print-btn { padding: 8px 20px; background: #EAD9B0; color: #0C2010; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-bottom: 20px; }
+  .print-btn { padding: 8px 20px; background: #1A1A1A; color: #FBF9F4; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-bottom: 20px; letter-spacing: 0.04em; }
   @media print { .print-btn { display: none; } }
 </style></head><body>
 <h1>${currentEvent.name}</h1>

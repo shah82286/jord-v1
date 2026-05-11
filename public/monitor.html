@@ -96,19 +96,25 @@
   <div class="gate-wrap">
     <div class="card">
       <div class="text-center mb-4">
-        <img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077"
-             alt="JORD Golf" style="height:56px;width:auto;margin:0 auto var(--s-3);display:block">
-        <div class="brand-name">JORD GOLF</div>
-        <div class="brand-sub">Tournament Monitor</div>
+        <img src="/img/logos/logo-script-black.png"
+             alt="JORD Golf" style="height:46px;width:auto;margin:0 auto var(--s-3);display:block">
+        <div class="eyebrow" style="color:var(--ink-3);font-size:11px;letter-spacing:0.20em;">Tournament Monitor</div>
       </div>
       <form id="gate-form" class="col gap-3">
         <div class="field">
-          <label for="pwd">Admin password</label>
-          <input id="pwd" type="password" class="input input-lg" autocomplete="current-password" required>
+          <label for="login-email">Email</label>
+          <input id="login-email" type="email" class="input input-lg" autocomplete="username email" placeholder="you@example.com" required>
         </div>
-        <button class="btn btn-primary btn-lg btn-block" type="submit">Enter Monitor</button>
+        <div class="field">
+          <label for="login-pwd">Password</label>
+          <input id="login-pwd" type="password" class="input input-lg" autocomplete="current-password" required>
+        </div>
+        <button class="btn btn-primary btn-lg btn-block" type="submit" id="btn-login">Sign in</button>
       </form>
       <div id="gate-err" class="text-danger mt-2 small text-center"></div>
+      <p style="font-size:12px;color:var(--ink-2);text-align:center;margin-top:var(--s-3);line-height:1.4">
+        Use your admin login. Don't have an account? Ask your super admin to invite you.
+      </p>
     </div>
   </div>
 </div>
@@ -149,7 +155,7 @@
     document.querySelectorAll('.map-focus-btn').forEach(function (btn) {
       var active = btn.dataset.team === mapTeamFilter;
       btn.style.background = active ? 'var(--primary)' : 'transparent';
-      btn.style.color = active ? '#0C2010' : 'var(--ink-2)';
+      btn.style.color = active ? '#FBF9F4' : 'var(--ink-2)';
       btn.style.borderColor = active ? 'var(--primary)' : 'var(--border)';
     });
     if (snap) updateMapDots(snap);
@@ -158,16 +164,28 @@
   /* ── Gate ── */
   document.getElementById('gate-form').addEventListener('submit', function (e) {
     e.preventDefault();
-    var pwd = document.getElementById('pwd').value;
-    JORD.setToken(pwd);
-    JORD.api('/api/events/' + eid)
+    var btn = document.getElementById('btn-login');
+    var errEl = document.getElementById('gate-err');
+    errEl.textContent = '';
+    btn.disabled = true; btn.textContent = 'Signing in…';
+    var email = document.getElementById('login-email').value.trim();
+    var pwd   = document.getElementById('login-pwd').value;
+    JORD.api('/api/auth/login', { method: 'POST', body: { email: email, password: pwd } })
+      .then(function (res) {
+        JORD.setToken(res.token);
+        return JORD.api('/api/events/' + eid);
+      })
       .then(function () { enterMonitor(); })
-      .catch(function () {
+      .catch(function (err) {
         JORD.clearToken();
-        document.getElementById('gate-err').textContent = 'Wrong password.';
+        errEl.textContent = (err && err.message) || 'Invalid email or password.';
+      })
+      .finally(function () {
+        btn.disabled = false; btn.textContent = 'Sign in';
       });
   });
 
+  /* If a session token is already stored, try silent sign-in */
   if (JORD.getToken()) {
     JORD.api('/api/events/' + eid).then(function () { enterMonitor(); }).catch(function () { JORD.clearToken(); });
   }
@@ -253,7 +271,7 @@
       function refresh() {
         if (mapViewMode === mode) {
           btn.style.background = 'var(--primary)';
-          btn.style.color = '#0C2010';
+          btn.style.color = '#FBF9F4';
         } else {
           btn.style.background = 'transparent';
           btn.style.color = 'var(--ink)';
@@ -264,7 +282,7 @@
         mapViewMode = mode;
         toggleWrap.querySelectorAll('button').forEach(function (b) {
           if (b.dataset.mode === mapViewMode) {
-            b.style.background = 'var(--primary)'; b.style.color = '#0C2010';
+            b.style.background = 'var(--primary)'; b.style.color = '#FBF9F4';
           } else {
             b.style.background = 'transparent'; b.style.color = 'var(--ink)';
           }
@@ -427,7 +445,7 @@
     (ev.tee_boxes || []).forEach(function (t) {
       var label = (t.name || 'Tee').substring(0, 8);
       var tEl = document.createElement('div');
-      tEl.style.cssText = 'background:#EAD9B0;color:#0C2010;border:2px solid #fff;border-radius:20px;padding:0 8px;height:24px;display:inline-flex;align-items:center;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer';
+      tEl.style.cssText = 'background:#B8884D;color:#FBF9F4;border:2px solid #fff;border-radius:20px;padding:0 8px;height:24px;display:inline-flex;align-items:center;font-size:11px;font-weight:700;white-space:nowrap;box-shadow:0 2px 6px rgba(0,0,0,0.4);cursor:pointer';
       tEl.textContent = label;
       var popupHtml = '<div style="color:#1a1a1a;font-size:13px;line-height:1.6;min-width:120px">'
         + '<strong style="color:#0a0a0a;display:block">' + (t.name || 'Tee Box') + '</strong>'
@@ -598,7 +616,7 @@
         + '<span style="font-family:var(--font-mono);font-weight:700;margin-right:var(--s-2)">' + score + '</span>'
         + '<span style="font-size:12px;color:var(--ink-2);margin-right:var(--s-2)">' + scannedCnt + '</span>'
         + '<button class="map-focus-btn" data-team="' + JORD.escapeHtml(t.team_name) + '" title="Focus map on this team"'
-        + ' style="font-size:11px;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:' + (mapTeamFilter === t.team_name ? 'var(--primary)' : 'transparent') + ';color:' + (mapTeamFilter === t.team_name ? '#0C2010' : 'var(--ink-2)') + ';cursor:pointer;flex-shrink:0">📍</button>';
+        + ' style="font-size:11px;padding:2px 6px;border-radius:4px;border:1px solid var(--border);background:' + (mapTeamFilter === t.team_name ? 'var(--primary)' : 'transparent') + ';color:' + (mapTeamFilter === t.team_name ? '#FBF9F4' : 'var(--ink-2)') + ';cursor:pointer;flex-shrink:0">📍</button>';
       teamRow.addEventListener('click', function () { teamRow.classList.toggle('is-open'); bodyDiv.classList.toggle('is-open'); });
       teamRow.querySelector('.map-focus-btn').addEventListener('click', function (e) {
         e.stopPropagation();

@@ -30,7 +30,7 @@
   .code-row { display: flex; gap: var(--s-2); align-items: flex-end; }
   .code-row .field { flex: 1; margin-bottom: 0; }
 
-  .qr-toggle { font-size: 13px; color: var(--primary); cursor: pointer; margin-top: 6px; display: inline-block; }
+  .qr-toggle { font-size: 13px; color: var(--accent); cursor: pointer; margin-top: 6px; display: inline-block; border-bottom: 1px solid rgba(184,136,77,0.3); }
   .qr-area { margin-top: var(--s-3); display: none; }
   .qr-area.is-open { display: block; }
 
@@ -51,7 +51,7 @@
     background: none; width: 100%; text-align: left;
     transition: border-color var(--t-fast), color var(--t-fast);
   }
-  .add-more:hover { border-color: var(--primary); color: var(--primary); }
+  .add-more:hover { border-color: var(--accent); color: var(--accent); }
   .add-more:disabled { opacity: 0.4; cursor: not-allowed; }
 
   .success-card { text-align: center; padding: var(--s-6); }
@@ -171,7 +171,7 @@
     evHead.style.cssText = 'margin-bottom:var(--s-5)';
     evHead.innerHTML = '<div class="hero-eyebrow">' + (eventInfo.venue || 'JORD Golf Tournament') + '</div>'
       + '<h2 class="mt-1">' + eventInfo.name + '</h2>'
-      + (teamCode && players.length === 0 ? '<div style="background:rgba(234,217,176,0.15);border:1px solid rgba(234,217,176,0.45);border-radius:var(--r-md);padding:10px 14px;font-size:13px;margin-bottom:var(--s-3)">✅ Joining team code: <strong>' + teamCode + '</strong></div>' : '')
+      + (teamCode && players.length === 0 ? '<div style="background:rgba(184,136,77,0.12);border:1px solid rgba(184,136,77,0.4);border-radius:var(--r-md);padding:10px 14px;font-size:13px;margin-bottom:var(--s-3);color:var(--ink)">✅ Joining team code: <strong>' + teamCode + '</strong></div>' : '')
       + '<p class="text-muted" style="margin-top:4px;font-size:14px">Register your team below. Total of 4 drop codes needed.</p>';
     root.appendChild(evHead);
 

@@ -27,7 +27,28 @@ On first run, super admin is auto-seeded from `.env`.
 
 ---
 
-### Current State (as of v3.5.0 — 2026-05-07)
+### Current State (as of v3.8.0 — 2026-05-11)
+
+#### Recent additions (since v3.5.0)
+- **Platform-wide cream editorial re-skin (v3.8.0, 2026-05-11)** — admin, leaderboard, scan, register, monitor, dashboard, global, qr, test, system-summary, mapdiag now all match the landing/about/signup cream theme. `public/css/jord.css` is the single source of truth; swapping the `:root` variables re-skinned the platform in one shot. Saffron `#B8884D` replaces lime green as the accent. `JORD.renderTopbar` now uses local `/img/logos/*` (no external Shopify CDN). 55/55 regression tests pass, 14/14 mobile visual tests pass (0 layout issues).
+- **Cream theme + /about page**: marketing page with real screenshots, mobile polish (commit 72ff084)
+- **/test player journey section**: full end-to-end test flow on dev test page (commit 3bfb9a5)
+- **Email registration confirmation via SMTP**: confirmation email with scan link sent to player on register (commit cafc3bc)
+- **One-tap submit screen on registration tab** (commit 4c34774)
+- **GPS tee box capture** — up to 4 tees per hole, captured via GPS walk (commit fd4f0ae)
+- **GPS confidence indicators** on pin grab and fairway trace (commit c9d8ac0)
+- **Monitor/leaderboard map alignment** — both show same elements (commit aa725aa)
+- **Permissions-Policy header** allows geolocation + camera on same origin (commit 604ab76)
+- **Team QR code now reads `?team=` URL param** (2026-05-10) — `register.html` line 98 uses `JORD.qs('team')` so Players 2-4 scanning the QR see "✅ Joining team code: XXXXXX". Was silently ignored before.
+- **Rough zone visibility fix on leaderboard/monitor** (2026-05-10) — layer order was Fairway → Rough → OOB → Green (OOB obscuring Rough). Reordered to OOB → Rough → Fairway → Green so all zones display correctly. Files: `leaderboard.html`, `monitor.html`.
+- **Event creator name shown in admin panel** (2026-05-10) — `/api/events` and `/api/events/:id` JOIN admins table to return `creator_name`, `creator_email`, `creator_role`. Events list cards show "👤 [name]" badge; event editor header shows "👤 Created by [Name]". Super admin sees who created what at a glance.
+
+#### Known minor issues
+- **Test page color swap**: `/test` GPS simulator (`test.html:235-245`) has fairway as green `#22C55E` and green as blue `#3B82F6` — swapped vs the rest of the app. Visual only, not blocking.
+
+---
+
+### Original v3.5.0 baseline (2026-05-07)
 
 #### What's fully working
 - Tournament event creation with Longest Drive and/or Closest to Pin contests
@@ -125,11 +146,15 @@ Key `events` columns (recent additions auto-migrate on startup):
 - Mapbox GL JS engine unchanged; only the satellite tile source swapped
 - Sharper resolution than Mapbox satellite for many US golf courses
 
-#### Color theme (v1.5.0)
-- Platform uses a **Rumble Golf Co. inspired dark palette**: deep forest green backgrounds, neon lime-green accent
-- CSS variables in `public/css/jord.css` `:root`: `--bg: #0C2010`, `--surface: #142B17`, `--primary / --accent: #BEFF3A`, `--ink: #F0F7E8`
-- All hardcoded gold `#C9A24A` has been replaced with `#BEFF3A` across all HTML files
-- `.is-leader` leaderboard row gradient uses lime; text uses `var(--primary-ink)` = `#0C2010` (dark on bright)
+#### Color theme (v3.8.0 — current)
+- Platform uses a **Vessel/Malbon-inspired cream editorial palette**: warm cream backgrounds, near-black ink, saffron `#B8884D` accent. Matches the landing page.
+- CSS variables in `public/css/jord.css` `:root`: `--bg: #F5F2EB`, `--surface: #FBF9F4`, `--surface-2: #ECE7DB`, `--ink: #1A1A1A`, `--primary: #1A1A1A` (dark CTA, cream text), `--accent: #B8884D` (saffron), `--danger: #B33A3A`
+- Fonts: Playfair Display (display) + Inter (body). Italic-saffron `<em>` is the signature editorial flourish.
+- `.theme-dark` (used by `/leaderboard` TV mode and `/test`) is now editorial near-black `#141312` with brighter saffron `#C99A5E` — not the old forest green.
+- `.lb-row.is-leader` is a saffron gradient with cream text. Buttons are dark-on-cream primary, saffron secondary, dark-bordered ghost.
+- Eyebrow utility: `.eyebrow` class — 11px / 0.20em letter-spacing / `var(--ink-3)` color / uppercase.
+- All logos served locally from `/img/logos/*`. No external image CDN dependencies anywhere.
+- Legacy palette (v1.5.0 dark green + lime, v1.0 cream + gold) fully retired.
 
 #### Key architectural decisions
 - **Polygon colors**: MapboxDraw polygon fill styles now use the `kindColor` Mapbox expression directly (reads `user_kind` / `kind` property). `syncZoneLayers()` also maintains 5 dedicated GeoJSON sources (`zone-fairway`, `zone-rough`, etc.) as a secondary colored-fill mechanism.
@@ -160,8 +185,7 @@ Key `events` columns (recent additions auto-migrate on startup):
 1. **GPS trace on desktop** — trace tool designed for walking on-course; desktop users need to use freehand drawing instead
 2. **Demo mode CTP** — demo scan only supports Longest Drive, not Closest to Pin
 3. **Zone overlap visual during draw** — clipping runs 200ms after releasing the mouse, not in real-time; a new polygon can visually overlap an existing one while being drawn, clips correctly on release
-4. **Monitor session auth** — rep monitor (`/monitor`) still uses a shared-password system in `localStorage`; admin panel uses proper session tokens. Needs upgrade (see `#PRE-3` in TODO.md)
-5. **Klaviyo email/SMS mocked** — opt-in checkboxes on registration page work end-to-end but no actual sends until real Klaviyo API key + list IDs are added to `.env` (see `#PRE-2` in TODO.md)
+4. **Klaviyo email/SMS** — fully wired up as of v3.5.0 (see Done section of TODO.md)
 
 #### Remaining phases (not yet built)
 - **Phase 2** — Tournament admin experience: limited panel UI, per-event branding (logo + color picker), "Powered by JORD Golf" footer on all event pages

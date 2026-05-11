@@ -2,6 +2,77 @@
 
 ---
 
+## v3.8.0 — 2026-05-11
+### Session 20 — Platform-wide cream editorial theme
+
+#### What Changed
+
+##### Design system — full cream/editorial re-skin (`public/css/jord.css`)
+- `:root` CSS variable palette swapped from Rumble dark-green to the Vessel/Malbon-inspired warm-cream editorial palette that already shipped on `/landing`, `/about`, `/signup`:
+  - `--bg #F5F2EB` (cream) · `--surface #FBF9F4` (paper) · `--surface-2 #ECE7DB`
+  - `--ink #1A1A1A` near-black · `--ink-2 #5C5852` muted · `--ink-3 #8A8479` tertiary
+  - `--primary #1A1A1A` (dark CTA, Vessel/Malbon style) · `--primary-ink #FBF9F4` (cream text on dark)
+  - `--accent #B8884D` saffron · `--accent-2 #9A6E3A` (used for leader gradients, italicized highlights, focus rings)
+  - `--danger #B33A3A` (deeper red, readable on cream)
+- Borders: `rgba(26,26,26,0.10)` / `(0.18)` instead of lime-tinted dark borders. Shadows softened (lighter, smaller blur) for editorial feel.
+- `.theme-dark` (leaderboard TV mode) repurposed as editorial near-black `#141312` with brighter saffron `#C99A5E` — still used by `/leaderboard` and `/test`.
+- `.btn-primary` is now dark-on-cream (hover `#2A2A2A`); `.btn-accent` is saffron with cream text; `.btn-ghost` darker border on hover.
+- `.lb-row.is-leader` gradient swapped to saffron→darker-saffron with cream text. Same applied for `.theme-dark .lb-row.is-leader`.
+- Anchor links default to dark with a subtle underline; hover flips to saffron. `.brand`, `.topbar a`, `.nav a`, `.btn` opt out via existing class hooks.
+- New global `.eyebrow` utility (matches the marketing pages): 11px / 0.20em letter-spacing / muted color / uppercase.
+- `.hero-title em`, `.global-hero h1 em`, `.my-score-num em` etc. now render italic-saffron — matches the landing-page accent treatment.
+- Modal backdrop now uses near-black tint at 0.45 with a 2px backdrop blur.
+- Input focus ring switched to a 3px saffron tint.
+
+##### Topbar component (`public/js/jord.js`)
+- `JORD.renderTopbar` no longer hits the external Shopify CDN for logos. Now references local `/img/logos/logo-script-black.png` (light theme) and `logo-script-white.png` (dark theme).
+- Brand markup simplified — just logo + optional subtitle eyebrow on a 1-px vertical rule. No more `JORD GOLF` wordmark next to the script logo.
+
+##### Page-by-page polish
+- `admin.html` — login gate uses local logo + eyebrow subtitle; "Forgot password?" link now saffron; `.ended-banner` saffron tint; tee-marker inline styles now `#B8884D` saffron with cream `#FBF9F4` text on both LD and CTP. Print page button is dark-on-cream.
+- `monitor.html` — login gate uses local logo; tee markers, map-view toggle, team-filter buttons all switched to saffron with cream text on the active state.
+- `leaderboard.html` — topbar uses local white logo with editorial JORD Golf wordmark + uppercase "Live Tournament" eyebrow; tour overlay redesigned (dark with saffron text + saffron border); `.lb-map-team-row.is-active` uses saffron bg with cream text; ball/tee markers in saffron; "live ended" badge in saffron tones; winner card border swapped from primary to accent.
+- `scan.html` — local logo + eyebrow header; OTP code-box active/filled states in saffron; location-button selected state has saffron tint; flyover yardage hero, tee marker, ball marker, and shot line all in saffron — pops on satellite imagery.
+- `register.html` — QR toggle and add-more hover use saffron; team-code join banner uses saffron tint.
+- `dashboard.html` — "My score" hero card is now dark editorial gradient (`#1A1A1A → #2A2724`) with cream text + saffron italic `<em>`; rank-big italicized; rounded corners tightened.
+- `global.html` — hero gained a cream gradient, italic "the *longest drives*" headline, local logo, saffron-accented #1 rank badge; #2 / #3 use neutral greys for an editorial podium.
+- `test.html` — IP display in saffron; info boxes use saffron-tinted backgrounds. Body keeps `theme-dark` (dev tooling stays editorial dark).
+- `qr.html` — full rebuild: cream background, Playfair `Scan to open` heading, eyebrow label, near-black QR border. No more standalone forest-green page.
+- `system-summary.html` — print/PDF document: forest greens replaced with dark ink + saffron accents on a `#F5F2EB` cream base; tables use cream paper rows with subtle dark rules; code blocks use cream-2 background; print preserves the editorial look.
+- `mapdiag.html` — dev page kept dark; heading recolored to saffron `#C99A5E`.
+- `about.html`, `signup.html`, `landing.html` — already on the cream theme; minor consistency tweak: phone-frame placeholder bg `#0C2010` → `#1A1A1A`.
+
+##### Imagery
+- Every page now references local images only (`/img/logos/*`, `/img/lifestyle/*`). No external image dependencies anywhere in the platform.
+- Landing/about already use lifestyle hero photos. Functional pages stay typographic (logo-only) — clean and on-brand.
+
+#### Why
+The marketing pages already shipped in the cream editorial style. The rest of the platform — admin, leaderboard, scan, monitor, register, etc. — was still on the old Rumble-inspired dark forest-green palette, so the experience felt fractured: a player would scan a QR, see a polished cream/saffron landing page, then jump to a dark-green dashboard mid-tournament. Unifying around the cream theme means every screen a player or admin lands on feels like the same brand.
+
+#### Verification
+- 55/55 regression tests pass (`node tests/regression-tests.js`)
+- 14/14 mobile visual tests pass with 0 layout issues across iPhone 14 + Pixel 7 (`npm run test:mobile`) covering `/`, `/scan`, `/global`, `/qr.html`, `/about.html`, `/signup`, `/admin`
+
+#### Files Changed
+| File | What changed |
+|------|-------------|
+| `public/css/jord.css` | `:root` palette swap; `.theme-dark` reworked; buttons, badges, inputs, modals, leader rows, hero, table-hover, topbar, eyebrow |
+| `public/js/jord.js` | `renderTopbar` uses local logos; simplified brand markup |
+| `public/admin.html` | Login gate; tee marker colors; ended-banner; print button |
+| `public/monitor.html` | Login gate; tee markers; toggle/filter button active colors |
+| `public/leaderboard.html` | Topbar with local logo + editorial wordmark; tour overlay; map-team active row; ball/tee marker colors; winner card border |
+| `public/scan.html` | Header logo+eyebrow; OTP box active/filled; loc-button selected; flyover yardage, tee, ball, shot-line in saffron |
+| `public/register.html` | QR toggle saffron; add-more hover; team-code banner |
+| `public/dashboard.html` | Dark editorial score hero with saffron `<em>`; rank-big italic |
+| `public/global.html` | Hero gradient + italic headline; rank-1 saffron; local logo |
+| `public/test.html` | IP display saffron; info-box tints |
+| `public/qr.html` | Full cream rebuild |
+| `public/system-summary.html` | Forest greens → ink + saffron + cream paper |
+| `public/mapdiag.html` | Heading saffron |
+| `public/about.html` | Phone-frame placeholder bg → near-black |
+
+---
+
 ## v3.7.0 — 2026-05-10
 ### Session 19 — Inbound tournament requests management (super admin)
 

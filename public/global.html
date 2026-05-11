@@ -14,14 +14,16 @@
     padding: var(--s-8) var(--s-4) var(--s-6);
     border-bottom: 1px solid var(--border);
     margin-bottom: var(--s-5);
+    background: linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%);
   }
-  .global-hero .eyebrow { font-size: 13px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--primary); font-weight: 700; margin-bottom: var(--s-2); }
-  .global-hero h1 { font-family: var(--font-display); font-size: clamp(2rem, 6vw, 3.5rem); margin-bottom: var(--s-2); }
+  .global-hero .eyebrow { font-size: 11px; letter-spacing: 0.20em; text-transform: uppercase; color: var(--ink-3); font-weight: 600; margin-bottom: var(--s-3); }
+  .global-hero h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(2rem, 6vw, 3.5rem); margin-bottom: var(--s-2); letter-spacing: -0.022em; }
+  .global-hero h1 em { font-style: italic; color: var(--accent); font-weight: 500; }
   .global-hero .sub { color: var(--ink-2); font-size: 15px; max-width: 440px; margin: 0 auto; }
 
   .tab-bar { display: flex; gap: var(--s-2); border-bottom: 2px solid var(--border); margin-bottom: var(--s-5); }
   .tab-btn { padding: 10px 20px; font-weight: 600; font-size: 14px; cursor: pointer; color: var(--ink-2); border-bottom: 2px solid transparent; margin-bottom: -2px; background: none; border-top: none; border-left: none; border-right: none; transition: all var(--t-fast); }
-  .tab-btn.is-active { color: var(--primary); border-bottom-color: var(--primary); }
+  .tab-btn.is-active { color: var(--ink); border-bottom-color: var(--accent); }
   .tab-panel { display: none; }
   .tab-panel.is-active { display: block; }
 
@@ -39,12 +41,12 @@
     transition: background var(--t-fast);
   }
   .lb-row:hover { background: var(--surface-2); }
-  .lb-row.is-leader { background: linear-gradient(90deg, rgba(234,217,176,0.18) 0%, transparent 100%); border-left: 3px solid var(--primary); }
+  .lb-row.is-leader { background: linear-gradient(90deg, rgba(184,136,77,0.10) 0%, transparent 100%); border-left: 3px solid var(--accent); }
   .rank-badge { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; background: var(--surface-2); color: var(--ink-2); flex-shrink: 0; }
-  .rank-badge.rank-1 { background: #FFD700; color: #1a1a1a; }
-  .rank-badge.rank-2 { background: #C0C0C0; color: #1a1a1a; }
-  .rank-badge.rank-3 { background: #CD7F32; color: #fff; }
-  .yards-badge { font-family: var(--font-mono); font-size: 18px; font-weight: 700; color: var(--primary); text-align: right; }
+  .rank-badge.rank-1 { background: var(--accent); color: #FBF9F4; }
+  .rank-badge.rank-2 { background: #5C5852; color: #FBF9F4; }
+  .rank-badge.rank-3 { background: #8A8479; color: #FBF9F4; }
+  .yards-badge { font-family: var(--font-mono); font-size: 18px; font-weight: 700; color: var(--ink); text-align: right; }
   .player-name { font-weight: 600; font-size: 15px; }
   .player-meta { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
 
@@ -59,7 +61,7 @@
   .record-row:hover { background: var(--surface-2); }
   .venue-name { font-weight: 600; font-size: 14px; }
   .venue-meta { font-size: 12px; color: var(--ink-2); margin-top: 2px; }
-  .record-yards { font-family: var(--font-mono); font-size: 18px; font-weight: 700; color: var(--primary); text-align: right; }
+  .record-yards { font-family: var(--font-mono); font-size: 18px; font-weight: 700; color: var(--ink); text-align: right; }
   .record-holder { font-size: 12px; color: var(--ink-2); text-align: right; margin-top: 2px; }
 
   .empty-state { text-align: center; padding: var(--s-8) var(--s-4); color: var(--ink-2); }
@@ -75,13 +77,13 @@
 <body>
 
 <div class="global-hero">
-  <a href="/" style="display:inline-block;margin-bottom:var(--s-3);">
-    <img src="https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077"
-         alt="JORD Golf" style="height:48px;width:auto;">
+  <a class="plain" href="/" style="display:inline-block;margin-bottom:var(--s-3);border-bottom:0;">
+    <img src="/img/logos/logo-script-black.png"
+         alt="JORD Golf" style="height:38px;width:auto;">
   </a>
-  <div class="eyebrow">JORD Golf</div>
-  <h1>Global Leaderboard</h1>
-  <p class="sub">The longest fairway drives across all JORD Golf tournaments.</p>
+  <div class="eyebrow">JORD Golf · Hall of Fame</div>
+  <h1>The <em>longest drives</em></h1>
+  <p class="sub">Fairway drives across every JORD Golf tournament, ranked.</p>
 </div>
 
 <div class="container" style="max-width:700px;">

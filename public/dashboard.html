@@ -14,14 +14,17 @@
 
   .my-score-card {
     text-align: center; padding: var(--s-6) var(--s-5);
-    background: linear-gradient(135deg, var(--jord-fairway) 0%, var(--jord-fairway-2) 100%);
-    color: white; border-radius: var(--r-xl); margin-bottom: var(--s-4);
+    background: linear-gradient(135deg, #1A1A1A 0%, #2A2724 100%);
+    color: #FBF9F4; border-radius: var(--r-lg); margin-bottom: var(--s-4);
+    border: 1px solid var(--border-2);
   }
-  .my-score-num { font-family: var(--font-display); font-size: 72px; font-weight: 700; line-height: 1; }
-  .my-score-unit { font-size: 22px; opacity: 0.8; margin-top: 4px; }
-  .my-score-label { font-size: 13px; text-transform: uppercase; letter-spacing: 0.16em; opacity: 0.7; margin-bottom: var(--s-2); }
+  .my-score-num { font-family: var(--font-display); font-weight: 600; font-size: 72px; line-height: 1; letter-spacing: -0.02em; }
+  .my-score-num em { font-style: italic; color: #C99A5E; font-weight: 500; }
+  .my-score-unit { font-size: 22px; opacity: 0.7; margin-top: 4px; font-family: var(--font-body); }
+  .my-score-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.20em; opacity: 0.75; margin-bottom: var(--s-2); font-weight: 600; }
 
-  .rank-big { font-family: var(--font-display); font-size: 48px; font-weight: 700; color: var(--accent); }
+  .rank-big { font-family: var(--font-display); font-size: 48px; font-weight: 600; color: var(--accent); letter-spacing: -0.02em; }
+  .rank-big em { font-style: italic; }
   .rank-of  { font-size: 16px; color: var(--ink-2); }
 
   .teammate-row {

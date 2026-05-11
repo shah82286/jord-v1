@@ -242,19 +242,20 @@
   };
 
   /* ─── Topbar render ───────────────────────────────────────────────── */
-  const JORD_LOGO     = 'https://jordgolf.com/cdn/shop/files/logo_4b5652a8-0699-40c3-978e-6a2dd03ba41d_small.svg?v=1738678077';
-  const JORD_LOGO_INV = 'https://jordgolf.com/cdn/shop/files/logo-inverted_70x.svg?v=1738687297';
+  const JORD_LOGO     = '/img/logos/logo-script-black.png';
+  const JORD_LOGO_INV = '/img/logos/logo-script-white.png';
 
   APP.renderTopbar = function (subtitle = '', right = null, { dark = false } = {}) {
     const logoSrc = dark ? JORD_LOGO_INV : JORD_LOGO;
+    const homeHref = '/';
     const bar = APP.el('header', { class: 'topbar' },
       APP.el('div', { class: 'topbar-inner' },
-        APP.el('a', { class: 'brand', href: '/admin' },
-          APP.el('img', { src: logoSrc, alt: 'JORD Golf', style: { height: '36px', width: 'auto' } }),
-          APP.el('div', null,
-            APP.el('div', { class: 'brand-name' }, 'JORD GOLF'),
-            subtitle ? APP.el('div', { class: 'brand-sub' }, subtitle) : null
-          )
+        APP.el('a', { class: 'brand', href: homeHref },
+          APP.el('img', { src: logoSrc, alt: 'JORD Golf', style: { height: '34px', width: 'auto' } }),
+          subtitle ? APP.el('span', { class: 'brand-sub', style: {
+            borderLeft: '1px solid rgba(26,26,26,0.18)',
+            paddingLeft: '12px', marginLeft: '4px'
+          } }, subtitle) : null
         ),
         APP.el('div', { class: 'topbar-right' }, right || '')
       )

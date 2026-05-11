@@ -3,17 +3,37 @@
 <head>
 <meta charset="utf-8">
 <title>Scan to Open JORD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600&family=Inter:wght@500;600&display=swap" rel="stylesheet">
 <style>
-  body { background:#0C2010; display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:100vh; margin:0; font-family:sans-serif; color:#F0F7E8; gap:20px; }
-  img { border-radius:12px; border:6px solid #EAD9B0; }
-  p { font-size:13px; color:#7FA882; word-break:break-all; max-width:320px; text-align:center; }
+  body {
+    background:#F5F2EB;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    min-height:100vh; margin:0; gap:24px;
+    font-family:'Inter', -apple-system, sans-serif; color:#1A1A1A;
+    padding: 24px;
+  }
+  .eyebrow {
+    font-size: 11px; letter-spacing: 0.20em; text-transform: uppercase;
+    color: #8A8479; font-weight: 600;
+  }
+  h1 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 28px; font-weight: 600; letter-spacing: -0.018em;
+    margin: 0; text-align: center;
+  }
+  img { border-radius: 8px; border: 4px solid #1A1A1A; }
+  p { font-size:13px; color:#5C5852; word-break:break-all; max-width:320px; text-align:center; margin:0; }
 </style>
 </head>
 <body>
+<div class="eyebrow">JORD Golf</div>
+<h1>Scan to open</h1>
 <script>
   var base = location.origin;
   var url = base + '/scan';
-  document.write('<img src="https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=' + encodeURIComponent(url) + '" />');
+  document.write('<img src="https://api.qrserver.com/v1/create-qr-code/?size=280x280&bgcolor=251-249-244&data=' + encodeURIComponent(url) + '" />');
   document.write('<p>' + url + '</p>');
 </script>
 </body>
