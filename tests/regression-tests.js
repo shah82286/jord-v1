@@ -309,6 +309,255 @@ test('point in rough ring (between fairway and outer rough edge): rough', () => 
   assertEqual(r.zone, 'rough');
 });
 
+/* ─────────────────────────────────────────────────────────────────────
+ * Feature: Inbound tournament request management (super admin)
+ * Where: server.js (helpers below mirror server-side implementations)
+ * ─────────────────────────────────────────────────────────────────── */
+
+console.log('\nInbound tournament requests');
+
+// Status state machine — must match server.js
+function canTransitionStatus(from, to) {
+  const valid = {
+    pending:  new Set(['accepted', 'rejected', 'replied']),
+    replied:  new Set(['accepted', 'rejected', 'pending']),
+    accepted: new Set(['rejected']),
+    rejected: new Set(['pending']),
+  };
+  return valid[from]?.has(to) === true;
+}
+
+// Request → event-draft mapper
+function requestToEventDraft(r) {
+  if (!r || !r.tournament_name || !r.event_date) return null;
+  const ct = (r.contest_type || '').toLowerCase();
+  return {
+    name: r.tournament_name,
+    venue: r.venue || null,
+    starts_at: r.event_date + 'T08:00:00',
+    ends_at: r.event_date + 'T18:00:00',
+    has_longest_drive: ct === 'ld' || ct === 'both' ? 1 : 0,
+    has_closest_pin:   ct === 'ctp' || ct === 'both' ? 1 : 0,
+    admin_phone: r.admin_phone || null,
+    venue_lat: Number.isFinite(r.venue_lat) ? r.venue_lat : null,
+    venue_lon: Number.isFinite(r.venue_lon) ? r.venue_lon : null,
+  };
+}
+
+// Email template renderer
+const REQUEST_EMAIL_TEMPLATES = {
+  welcome: (r) => ({
+    subject: `Re: ${r.tournament_name} — Welcome to JORD Golf`,
+    body: `Hi ${r.admin_name},\n\nThanks for signing up ${r.tournament_name} at ${r.venue}. We are excited to set up live scoring for your event on ${r.event_date}.\n\nNext steps will follow shortly.\n\n— JORD Golf Team`,
+  }),
+  more_info: (r) => ({
+    subject: `Re: ${r.tournament_name} — A few more details`,
+    body: `Hi ${r.admin_name},\n\nThanks for the request. Could you share a bit more about ${r.tournament_name}?\n\n- Confirmed start time on ${r.event_date}?\n- Format details (4-player teams, scramble, etc.)?\n- Any sponsors who need branding on the leaderboard?\n\n— JORD Golf Team`,
+  }),
+  pricing: (r) => ({
+    subject: `Re: ${r.tournament_name} — Pricing`,
+    body: `Hi ${r.admin_name},\n\nFor ${r.expected_players} players at ${r.venue} on ${r.event_date}, here is our pricing:\n\n[pricing details here]\n\nLet us know if you would like to move forward.\n\n— JORD Golf Team`,
+  }),
+  reject: (r) => ({
+    subject: `Re: ${r.tournament_name}`,
+    body: `Hi ${r.admin_name},\n\nThank you for your interest in JORD Golf for ${r.tournament_name}. Unfortunately we are unable to support this event at this time.\n\n— JORD Golf Team`,
+  }),
+};
+
+function renderEmailTemplate(key, request) {
+  const fn = REQUEST_EMAIL_TEMPLATES[key];
+  if (!fn) return null;
+  return fn(request);
+}
+
+// Edit validator — only allow listed fields, sanitize types
+function validateRequestPatch(input) {
+  const allowed = ['tournament_name', 'event_date', 'venue', 'location', 'contest_type', 'expected_players', 'admin_name', 'admin_email', 'admin_phone', 'notes', 'status', 'event_url', 'venue_lat', 'venue_lon'];
+  const out = {};
+  for (const k of allowed) {
+    if (input[k] === undefined) continue;
+    if (k === 'expected_players') {
+      const n = parseInt(input[k], 10);
+      if (Number.isNaN(n) || n < 1) throw new Error('expected_players must be a positive integer');
+      out[k] = n;
+    } else if (k === 'admin_email') {
+      const v = String(input[k]).trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) throw new Error('admin_email must be a valid email');
+      out[k] = v;
+    } else if (k === 'contest_type') {
+      const v = String(input[k]).toLowerCase();
+      if (!['ld', 'ctp', 'both'].includes(v)) throw new Error('contest_type must be ld | ctp | both');
+      out[k] = v;
+    } else if (k === 'status') {
+      const v = String(input[k]).toLowerCase();
+      if (!['pending', 'accepted', 'rejected', 'replied'].includes(v)) throw new Error('invalid status');
+      out[k] = v;
+    } else if (k === 'event_url') {
+      const v = String(input[k]).trim();
+      if (v && !/^https?:\/\//i.test(v)) throw new Error('event_url must start with http:// or https://');
+      out[k] = v || null;
+    } else if (k === 'venue_lat' || k === 'venue_lon') {
+      if (input[k] === null || input[k] === '') { out[k] = null; continue; }
+      const n = parseFloat(input[k]);
+      if (!Number.isFinite(n)) throw new Error(`${k} must be a number`);
+      out[k] = n;
+    } else {
+      out[k] = String(input[k]).trim();
+    }
+  }
+  return out;
+}
+
+/* Status transitions */
+test('pending → accepted is allowed', () => assert(canTransitionStatus('pending', 'accepted')));
+test('pending → rejected is allowed', () => assert(canTransitionStatus('pending', 'rejected')));
+test('pending → replied is allowed', () => assert(canTransitionStatus('pending', 'replied')));
+test('accepted → rejected is allowed (revoke)', () => assert(canTransitionStatus('accepted', 'rejected')));
+test('accepted → pending is NOT allowed', () => assert(!canTransitionStatus('accepted', 'pending')));
+test('rejected → accepted is NOT allowed (must reset to pending first)', () => assert(!canTransitionStatus('rejected', 'accepted')));
+test('rejected → pending is allowed (re-open)', () => assert(canTransitionStatus('rejected', 'pending')));
+test('unknown status returns false', () => assert(!canTransitionStatus('weird', 'pending')));
+
+/* Request → event mapper */
+const SAMPLE_REQ = {
+  tournament_name: 'Spring Open 2026',
+  event_date: '2026-06-15',
+  venue: 'Pebble Hills GC',
+  location: 'Austin, TX',
+  contest_type: 'both',
+  expected_players: 48,
+  admin_name: 'Jane Smith',
+  admin_email: 'jane@example.com',
+  admin_phone: '512-555-0100',
+  notes: 'Sponsor banners requested',
+};
+
+test('mapper: contest_type=both sets both flags', () => {
+  const e = requestToEventDraft(SAMPLE_REQ);
+  assertEqual(e.has_longest_drive, 1);
+  assertEqual(e.has_closest_pin, 1);
+});
+test('mapper: contest_type=ld sets only LD', () => {
+  const e = requestToEventDraft({ ...SAMPLE_REQ, contest_type: 'ld' });
+  assertEqual(e.has_longest_drive, 1);
+  assertEqual(e.has_closest_pin, 0);
+});
+test('mapper: contest_type=ctp sets only CTP', () => {
+  const e = requestToEventDraft({ ...SAMPLE_REQ, contest_type: 'ctp' });
+  assertEqual(e.has_longest_drive, 0);
+  assertEqual(e.has_closest_pin, 1);
+});
+test('mapper: derives starts_at + ends_at from event_date', () => {
+  const e = requestToEventDraft(SAMPLE_REQ);
+  assertEqual(e.starts_at, '2026-06-15T08:00:00');
+  assertEqual(e.ends_at,   '2026-06-15T18:00:00');
+});
+test('mapper: passes through name + venue + admin_phone', () => {
+  const e = requestToEventDraft(SAMPLE_REQ);
+  assertEqual(e.name, 'Spring Open 2026');
+  assertEqual(e.venue, 'Pebble Hills GC');
+  assertEqual(e.admin_phone, '512-555-0100');
+});
+test('mapper: returns null when required fields missing', () => {
+  assertEqual(requestToEventDraft({}), null);
+  assertEqual(requestToEventDraft(null), null);
+});
+
+/* Email templates */
+test('welcome template merges name + venue + date', () => {
+  const t = renderEmailTemplate('welcome', SAMPLE_REQ);
+  assert(t.subject.includes('Spring Open 2026'));
+  assert(t.body.includes('Jane Smith'));
+  assert(t.body.includes('Pebble Hills GC'));
+  assert(t.body.includes('2026-06-15'));
+});
+test('pricing template includes player count', () => {
+  const t = renderEmailTemplate('pricing', SAMPLE_REQ);
+  assert(t.body.includes('48 players'));
+});
+test('reject template uses tournament name in subject', () => {
+  const t = renderEmailTemplate('reject', SAMPLE_REQ);
+  assert(t.subject.includes('Spring Open 2026'));
+});
+test('unknown template returns null', () => {
+  assertEqual(renderEmailTemplate('does_not_exist', SAMPLE_REQ), null);
+});
+
+/* Edit validator */
+test('validator strips disallowed fields', () => {
+  const out = validateRequestPatch({ tournament_name: 'X', id: 99, hacker_field: 'y' });
+  assertEqual(out.id, undefined);
+  assertEqual(out.hacker_field, undefined);
+  assertEqual(out.tournament_name, 'X');
+});
+test('validator rejects bad email', () => {
+  let threw = false;
+  try { validateRequestPatch({ admin_email: 'not-an-email' }); } catch { threw = true; }
+  assert(threw, 'should have thrown on bad email');
+});
+test('validator coerces expected_players to int', () => {
+  const out = validateRequestPatch({ expected_players: '42' });
+  assertEqual(out.expected_players, 42);
+});
+test('validator rejects expected_players < 1', () => {
+  let threw = false;
+  try { validateRequestPatch({ expected_players: 0 }); } catch { threw = true; }
+  assert(threw);
+});
+test('validator rejects unknown contest_type', () => {
+  let threw = false;
+  try { validateRequestPatch({ contest_type: 'soccer' }); } catch { threw = true; }
+  assert(threw);
+});
+test('validator accepts contest_type ld/ctp/both case-insensitive', () => {
+  assertEqual(validateRequestPatch({ contest_type: 'BOTH' }).contest_type, 'both');
+  assertEqual(validateRequestPatch({ contest_type: 'Ld' }).contest_type, 'ld');
+});
+test('validator rejects unknown status', () => {
+  let threw = false;
+  try { validateRequestPatch({ status: 'maybe' }); } catch { threw = true; }
+  assert(threw);
+});
+
+/* event_url + venue coords */
+test('validator accepts https event_url', () => {
+  const out = validateRequestPatch({ event_url: 'https://example.com/tournament' });
+  assertEqual(out.event_url, 'https://example.com/tournament');
+});
+test('validator accepts http event_url', () => {
+  const out = validateRequestPatch({ event_url: 'http://example.com' });
+  assertEqual(out.event_url, 'http://example.com');
+});
+test('validator rejects event_url without protocol', () => {
+  let threw = false;
+  try { validateRequestPatch({ event_url: 'example.com' }); } catch { threw = true; }
+  assert(threw, 'should reject bare domain');
+});
+test('validator nulls empty event_url', () => {
+  const out = validateRequestPatch({ event_url: '' });
+  assertEqual(out.event_url, null);
+});
+test('validator coerces venue_lat/lon to number', () => {
+  const out = validateRequestPatch({ venue_lat: '33.5044', venue_lon: '-84.3953' });
+  assertEqual(out.venue_lat, 33.5044);
+  assertEqual(out.venue_lon, -84.3953);
+});
+test('validator rejects non-numeric venue_lat', () => {
+  let threw = false;
+  try { validateRequestPatch({ venue_lat: 'abc' }); } catch { threw = true; }
+  assert(threw);
+});
+test('mapper passes venue coords through when present', () => {
+  const e = requestToEventDraft({ ...SAMPLE_REQ, venue_lat: 33.5, venue_lon: -84.4 });
+  assertEqual(e.venue_lat, 33.5);
+  assertEqual(e.venue_lon, -84.4);
+});
+test('mapper sets venue coords to null when absent', () => {
+  const e = requestToEventDraft(SAMPLE_REQ);
+  assertEqual(e.venue_lat, null);
+  assertEqual(e.venue_lon, null);
+});
+
 /* ─── Summary ─────────────────────────────────────────────────────── */
 
 console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

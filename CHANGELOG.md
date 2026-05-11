@@ -2,6 +2,49 @@
 
 ---
 
+## v3.7.0 — 2026-05-10
+### Session 19 — Inbound tournament requests management (super admin)
+
+#### What Changed
+
+##### Public `/signup` form upgrades
+- **Course autocomplete on venue field** — same `/api/courses/search` (CSV of US golf courses) used in the admin event editor. As you type, dropdown shows up to 10 matches with city/state, hole count, course type. Selecting one fills venue + auto-fills the location field if blank + captures `venue_lat` / `venue_lon` for the future event.
+- **New optional `Event URL` field** — admin can paste a link to their event page, registration site, or anything else for review. Validated to start with `http://` or `https://`.
+
+##### Public `/signup` form now persists to DB
+- `POST /api/tournament-signup` previously only emailed `SUPPORT_EMAIL` and dropped the data on the floor. Now also `INSERT INTO tournament_requests` so super admins can review later.
+- Email send still happens (no behavior change for the support inbox).
+
+##### New `tournament_requests` table
+- Auto-migrated on startup. Columns: `id`, all submission fields (`tournament_name`, `event_date`, `venue`, `location`, `contest_type`, `expected_players`, `admin_name`, `admin_email`, `admin_phone`, `notes`), plus `status` (`pending` | `accepted` | `rejected` | `replied`), `created_event_id` (FK back to `events.id` once accepted), `reply_log` (JSON array of email replies sent), `created_at`, `updated_at`.
+
+##### New super-admin section: `📥 Inbound Requests`
+- Topbar button visible only when `currentAdmin.role === 'super'`. Shows a pending-count badge.
+- List view: filter by status. Each card shows tournament name, status pill, venue, date, contest type, expected players, contact name + email, submission timestamp.
+- Detail modal:
+  - Editable fields (every column on the request).
+  - Status pill + link to created event when accepted.
+  - **Accept** → creates a new row in `events` mapped from the request (`contest_type` → `has_longest_drive`/`has_closest_pin`, `event_date` → `starts_at`/`ends_at`), opens the editor on the new event. Status → `accepted`, `created_event_id` linked.
+  - **Reject** → status → `rejected`. Re-openable later via PATCH back to `pending`.
+  - **Delete** → permanent removal.
+  - **Email reply** with template starter (Welcome / More info / Pricing / Polite decline) + free-text editor, merged with request fields server-side. Sends via existing nodemailer transporter, appends to `reply_log`. If status was `pending`, flips to `replied`; preserves `accepted`/`rejected`.
+
+##### New API routes (super admin only)
+- `GET    /api/admin/tournament-requests` — list, optional `?status=` filter
+- `GET    /api/admin/tournament-requests/:id` — detail with rendered email templates
+- `PATCH  /api/admin/tournament-requests/:id` — edit fields, status (state-machine validated)
+- `POST   /api/admin/tournament-requests/:id/accept` — creates event, links back
+- `POST   /api/admin/tournament-requests/:id/email` — sends reply, logs it
+- `DELETE /api/admin/tournament-requests/:id`
+
+##### Regression tests
+- `tests/regression-tests.js` +25 tests covering: status-transition state machine, request → event-draft mapper (contest_type → flag mapping, date → starts_at/ends_at, missing fields), email template rendering (welcome/more_info/pricing/reject merge correctness), edit validator (whitelisted fields, email format, integer coercion, contest_type/status enum). Now 47/47 passing.
+
+#### Why
+Public signup form already existed but submissions only went to email and were never stored. No way for the super admin to review, edit, accept, or reply from inside the platform — meant a real risk of dropped requests if the support inbox got noisy. Persistence + admin UI closes that gap and turns the form into the start of a sales pipeline.
+
+---
+
 ## v3.6.0 — 2026-05-10
 ### Session 18 — Accuracy-aware zone detection, regression suite, mobile visual tests
 

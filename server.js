@@ -85,6 +85,25 @@ db.exec(`
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
+  CREATE TABLE IF NOT EXISTS tournament_requests (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    tournament_name   TEXT NOT NULL,
+    event_date        TEXT NOT NULL,
+    venue             TEXT NOT NULL,
+    location          TEXT NOT NULL,
+    contest_type      TEXT NOT NULL,    -- ld | ctp | both
+    expected_players  INTEGER NOT NULL,
+    admin_name        TEXT NOT NULL,
+    admin_email       TEXT NOT NULL,
+    admin_phone       TEXT NOT NULL,
+    notes             TEXT,
+    status            TEXT NOT NULL DEFAULT 'pending',  -- pending | accepted | rejected | replied
+    created_event_id  TEXT,                              -- FK events.id when accepted
+    reply_log         TEXT,                              -- JSON array of {at, by, subject, body}
+    created_at        DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at        DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
   CREATE TABLE IF NOT EXISTS tee_boxes (
     id          TEXT PRIMARY KEY,
     event_id    TEXT NOT NULL,
@@ -235,6 +254,11 @@ try { db.exec("ALTER TABLE events ADD COLUMN global_published INTEGER DEFAULT 0"
 // Marketing opt-ins collected at registration
 try { db.exec("ALTER TABLE balls ADD COLUMN email_opt_in INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE balls ADD COLUMN sms_opt_in INTEGER DEFAULT 0"); } catch {}
+
+// Inbound tournament requests — additional fields
+try { db.exec("ALTER TABLE tournament_requests ADD COLUMN event_url TEXT"); } catch {}
+try { db.exec("ALTER TABLE tournament_requests ADD COLUMN venue_lat REAL"); } catch {}
+try { db.exec("ALTER TABLE tournament_requests ADD COLUMN venue_lon REAL"); } catch {}
 
 // ─── AUTH HELPERS ────────────────────────────────────────────────────────────
 
@@ -1653,8 +1677,9 @@ app.post('/api/admin/correct', requireAuth, (req, res) => {
       .run(lat||oldBall.cp_lat, lon||oldBall.cp_lon, parseFloat(final_yards||0), 1, code, event_id);
   }
 
-  db.prepare('INSERT INTO admin_corrections (id,drop_code,event_id,old_value,new_value,reason) VALUES (?,?,?,?,?,?)')
-    .run(uid(), code, event_id, JSON.stringify(oldBall), JSON.stringify(req.body), reason||'');
+  const correctedBy = req.admin ? `${req.admin.name} <${req.admin.email}>` : 'admin';
+  db.prepare('INSERT INTO admin_corrections (id,drop_code,event_id,corrected_by,old_value,new_value,reason) VALUES (?,?,?,?,?,?,?)')
+    .run(uid(), code, event_id, correctedBy, JSON.stringify(oldBall), JSON.stringify(req.body), reason||'');
 
   broadcast(event_id);
   res.json({ success: true });
@@ -2065,12 +2090,25 @@ app.get('/api/global/events', requireAuth, requireSuper, (req, res) => {
 // ─── TOURNAMENT SIGNUP ─────────────────────────────────────────────────────────
 app.post('/api/tournament-signup', async (req, res) => {
   try {
-    const { tournament_name, event_date, venue, location, contest_type, expected_players, admin_name, admin_email, admin_phone, notes } = req.body;
+    const { tournament_name, event_date, venue, location, contest_type, expected_players, admin_name, admin_email, admin_phone, notes, event_url, venue_lat, venue_lon } = req.body;
 
     // Validate required fields
     if (!tournament_name || !event_date || !venue || !location || !contest_type || !expected_players || !admin_name || !admin_email || !admin_phone) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
+
+    const vLat = venue_lat ? parseFloat(venue_lat) : null;
+    const vLon = venue_lon ? parseFloat(venue_lon) : null;
+
+    // Persist to tournament_requests so super admin can review later
+    db.prepare(`INSERT INTO tournament_requests
+      (tournament_name, event_date, venue, location, contest_type, expected_players,
+       admin_name, admin_email, admin_phone, notes, event_url, venue_lat, venue_lon, status)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending')`)
+      .run(tournament_name, event_date, venue, location, contest_type, parseInt(expected_players, 10),
+           admin_name, admin_email, admin_phone, notes || null,
+           event_url || null,
+           Number.isFinite(vLat) ? vLat : null, Number.isFinite(vLon) ? vLon : null);
 
     // Format the email content
     const emailBody = `
@@ -2079,10 +2117,11 @@ Tournament Signup Request
 Tournament Details:
 - Name: ${tournament_name}
 - Date: ${event_date}
-- Venue: ${venue}
+- Venue: ${venue}${vLat && vLon ? ` (${vLat.toFixed(5)}, ${vLon.toFixed(5)})` : ''}
 - Location: ${location}
 - Contest Type: ${contest_type === 'ld' ? 'Longest Drive' : contest_type === 'ctp' ? 'Closest to Pin' : 'Both'}
 - Expected Players: ${expected_players}
+- Event URL: ${event_url || 'None'}
 
 Admin Contact:
 - Name: ${admin_name}
@@ -2112,6 +2151,204 @@ ${notes || 'None'}
     console.error('[Signup Error]', err);
     res.status(500).json({ error: 'Failed to submit signup request' });
   }
+});
+
+// ─── INBOUND TOURNAMENT REQUESTS — super admin ──────────────────────────────
+// Helpers (mirrored in tests/regression-tests.js — keep in sync)
+const REQUEST_STATUSES = ['pending', 'accepted', 'rejected', 'replied'];
+
+function canTransitionRequestStatus(from, to) {
+  const valid = {
+    pending:  new Set(['accepted', 'rejected', 'replied']),
+    replied:  new Set(['accepted', 'rejected', 'pending']),
+    accepted: new Set(['rejected']),
+    rejected: new Set(['pending']),
+  };
+  return valid[from]?.has(to) === true;
+}
+
+function requestToEventDraft(r) {
+  if (!r || !r.tournament_name || !r.event_date) return null;
+  const ct = (r.contest_type || '').toLowerCase();
+  return {
+    name: r.tournament_name,
+    venue: r.venue || null,
+    starts_at: r.event_date + 'T08:00:00',
+    ends_at: r.event_date + 'T18:00:00',
+    has_longest_drive: ct === 'ld' || ct === 'both' ? 1 : 0,
+    has_closest_pin:   ct === 'ctp' || ct === 'both' ? 1 : 0,
+    admin_phone: r.admin_phone || null,
+    venue_lat: Number.isFinite(r.venue_lat) ? r.venue_lat : null,
+    venue_lon: Number.isFinite(r.venue_lon) ? r.venue_lon : null,
+  };
+}
+
+const REQUEST_EMAIL_TEMPLATES = {
+  welcome: (r) => ({
+    subject: `Re: ${r.tournament_name} — Welcome to JORD Golf`,
+    body: `Hi ${r.admin_name},\n\nThanks for signing up ${r.tournament_name} at ${r.venue}. We are excited to set up live scoring for your event on ${r.event_date}.\n\nNext steps will follow shortly.\n\n— JORD Golf Team`,
+  }),
+  more_info: (r) => ({
+    subject: `Re: ${r.tournament_name} — A few more details`,
+    body: `Hi ${r.admin_name},\n\nThanks for the request. Could you share a bit more about ${r.tournament_name}?\n\n- Confirmed start time on ${r.event_date}?\n- Format details (4-player teams, scramble, etc.)?\n- Any sponsors who need branding on the leaderboard?\n\n— JORD Golf Team`,
+  }),
+  pricing: (r) => ({
+    subject: `Re: ${r.tournament_name} — Pricing`,
+    body: `Hi ${r.admin_name},\n\nFor ${r.expected_players} players at ${r.venue} on ${r.event_date}, here is our pricing:\n\n[pricing details here]\n\nLet us know if you would like to move forward.\n\n— JORD Golf Team`,
+  }),
+  reject: (r) => ({
+    subject: `Re: ${r.tournament_name}`,
+    body: `Hi ${r.admin_name},\n\nThank you for your interest in JORD Golf for ${r.tournament_name}. Unfortunately we are unable to support this event at this time.\n\n— JORD Golf Team`,
+  }),
+};
+
+function renderRequestEmailTemplate(key, request) {
+  const fn = REQUEST_EMAIL_TEMPLATES[key];
+  if (!fn) return null;
+  return fn(request);
+}
+
+function validateRequestPatch(input) {
+  const allowed = ['tournament_name', 'event_date', 'venue', 'location', 'contest_type', 'expected_players', 'admin_name', 'admin_email', 'admin_phone', 'notes', 'status', 'event_url', 'venue_lat', 'venue_lon'];
+  const out = {};
+  for (const k of allowed) {
+    if (input[k] === undefined) continue;
+    if (k === 'expected_players') {
+      const n = parseInt(input[k], 10);
+      if (Number.isNaN(n) || n < 1) throw new Error('expected_players must be a positive integer');
+      out[k] = n;
+    } else if (k === 'admin_email') {
+      const v = String(input[k]).trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) throw new Error('admin_email must be a valid email');
+      out[k] = v;
+    } else if (k === 'contest_type') {
+      const v = String(input[k]).toLowerCase();
+      if (!['ld', 'ctp', 'both'].includes(v)) throw new Error('contest_type must be ld | ctp | both');
+      out[k] = v;
+    } else if (k === 'status') {
+      const v = String(input[k]).toLowerCase();
+      if (!REQUEST_STATUSES.includes(v)) throw new Error('invalid status');
+      out[k] = v;
+    } else if (k === 'event_url') {
+      const v = String(input[k]).trim();
+      if (v && !/^https?:\/\//i.test(v)) throw new Error('event_url must start with http:// or https://');
+      out[k] = v || null;
+    } else if (k === 'venue_lat' || k === 'venue_lon') {
+      if (input[k] === null || input[k] === '') { out[k] = null; continue; }
+      const n = parseFloat(input[k]);
+      if (!Number.isFinite(n)) throw new Error(`${k} must be a number`);
+      out[k] = n;
+    } else {
+      out[k] = String(input[k]).trim();
+    }
+  }
+  return out;
+}
+
+// LIST — super admin only. Optional ?status= filter.
+app.get('/api/admin/tournament-requests', requireAuth, requireSuper, (req, res) => {
+  const { status } = req.query;
+  const where = status && REQUEST_STATUSES.includes(status) ? `WHERE status=?` : '';
+  const params = where ? [status] : [];
+  const rows = db.prepare(`SELECT * FROM tournament_requests ${where} ORDER BY created_at DESC`).all(...params);
+  res.json(rows);
+});
+
+// DETAIL — also returns rendered email templates for convenience
+app.get('/api/admin/tournament-requests/:id', requireAuth, requireSuper, (req, res) => {
+  const r = db.prepare('SELECT * FROM tournament_requests WHERE id=?').get(parseInt(req.params.id, 10));
+  if (!r) return res.status(404).json({ error: 'Not found' });
+  const templates = {};
+  for (const key of Object.keys(REQUEST_EMAIL_TEMPLATES)) {
+    templates[key] = renderRequestEmailTemplate(key, r);
+  }
+  res.json({ ...r, templates });
+});
+
+// EDIT — fields and/or status. Status changes go through the state machine.
+app.patch('/api/admin/tournament-requests/:id', requireAuth, requireSuper, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const existing = db.prepare('SELECT * FROM tournament_requests WHERE id=?').get(id);
+  if (!existing) return res.status(404).json({ error: 'Not found' });
+  let patch;
+  try { patch = validateRequestPatch(req.body); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
+  if (patch.status && patch.status !== existing.status && !canTransitionRequestStatus(existing.status, patch.status)) {
+    return res.status(400).json({ error: `Cannot transition ${existing.status} → ${patch.status}` });
+  }
+  const entries = Object.entries(patch);
+  if (!entries.length) return res.status(400).json({ error: 'Nothing to update' });
+  db.prepare(`UPDATE tournament_requests SET ${entries.map(([k]) => `${k}=?`).join(',')}, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .run(...entries.map(([, v]) => v), id);
+  res.json(db.prepare('SELECT * FROM tournament_requests WHERE id=?').get(id));
+});
+
+// ACCEPT — creates an event row from the request, links back via created_event_id
+app.post('/api/admin/tournament-requests/:id/accept', requireAuth, requireSuper, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const r = db.prepare('SELECT * FROM tournament_requests WHERE id=?').get(id);
+  if (!r) return res.status(404).json({ error: 'Not found' });
+  if (r.status === 'accepted' && r.created_event_id) {
+    return res.status(400).json({ error: 'Already accepted', event_id: r.created_event_id });
+  }
+  if (!canTransitionRequestStatus(r.status, 'accepted')) {
+    return res.status(400).json({ error: `Cannot transition ${r.status} → accepted` });
+  }
+  const draft = requestToEventDraft(r);
+  if (!draft) return res.status(400).json({ error: 'Request missing required fields for event creation' });
+  const eventId = uid('EVT');
+  db.prepare(`INSERT INTO events
+    (id,name,venue,starts_at,ends_at,has_longest_drive,has_closest_pin,admin_phone,admin_id,venue_lat,venue_lon)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    .run(eventId, draft.name, draft.venue, draft.starts_at, draft.ends_at,
+         draft.has_longest_drive, draft.has_closest_pin, draft.admin_phone, req.admin.id,
+         draft.venue_lat, draft.venue_lon);
+  db.prepare(`UPDATE tournament_requests SET status='accepted', created_event_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(eventId, id);
+  res.json({ event_id: eventId, request: db.prepare('SELECT * FROM tournament_requests WHERE id=?').get(id) });
+});
+
+// EMAIL — send a custom email reply, append to reply_log, mark replied
+app.post('/api/admin/tournament-requests/:id/email', requireAuth, requireSuper, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const r = db.prepare('SELECT * FROM tournament_requests WHERE id=?').get(id);
+  if (!r) return res.status(404).json({ error: 'Not found' });
+  const { subject, body } = req.body || {};
+  if (!subject || !body) return res.status(400).json({ error: 'subject and body required' });
+
+  if (transporter) {
+    try {
+      await transporter.sendMail({
+        from: SMTP_USER,
+        to: r.admin_email,
+        subject: String(subject),
+        text: String(body),
+      });
+    } catch (e) {
+      console.error('[Request Email Error]', e);
+      return res.status(500).json({ error: 'Failed to send email' });
+    }
+  } else {
+    console.log('[Email] Transporter not configured. Reply to', r.admin_email, '— Subject:', subject);
+  }
+
+  let log;
+  try { log = JSON.parse(r.reply_log || '[]'); } catch { log = []; }
+  log.push({ at: new Date().toISOString(), by: req.admin.email, subject: String(subject), body: String(body) });
+
+  // Only flip to 'replied' if the request is currently pending; preserve accepted/rejected status
+  const newStatus = r.status === 'pending' ? 'replied' : r.status;
+  db.prepare(`UPDATE tournament_requests SET reply_log=?, status=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+    .run(JSON.stringify(log), newStatus, id);
+
+  res.json({ ok: true, request: db.prepare('SELECT * FROM tournament_requests WHERE id=?').get(id) });
+});
+
+// DELETE
+app.delete('/api/admin/tournament-requests/:id', requireAuth, requireSuper, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const info = db.prepare('DELETE FROM tournament_requests WHERE id=?').run(id);
+  if (info.changes === 0) return res.status(404).json({ error: 'Not found' });
+  res.json({ ok: true });
 });
 
 // ─── TEST EMAIL (super admin only) ───────────────────────────────────────────

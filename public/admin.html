@@ -271,6 +271,7 @@
           <h1 class="mt-2" id="list-heading">Your Events</h1>
         </div>
         <div class="row gap-2">
+          <button class="btn btn-ghost hidden" id="btn-manage-requests">📥 Inbound Requests <span id="requests-pending-badge" class="hidden" style="background:var(--primary);color:var(--primary-ink);font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;margin-left:4px"></span></button>
           <button class="btn btn-ghost hidden" id="btn-manage-global">🌍 Global LB</button>
           <button class="btn btn-ghost hidden" id="btn-manage-admins">👤 Manage Admins</button>
           <button class="btn btn-primary" id="btn-new-event">＋ New event</button>
@@ -574,6 +575,27 @@
       <div id="admins-list" class="col gap-2"></div>
     </section>
 
+    <!-- ── Inbound tournament requests view (super only) ── -->
+    <section id="view-requests" class="hidden">
+      <div class="row row-between mb-4">
+        <div>
+          <a href="#" id="btn-back-to-events-r" class="pill-link">← Back to events</a>
+          <h1 class="mt-2">Inbound Tournament Requests</h1>
+          <p class="mt-1" style="color:var(--ink-2);font-size:14px;">Submitted via the public <a href="/signup" target="_blank" style="color:var(--primary)">/signup</a> form. Review, edit, accept (creates an event), or reply by email.</p>
+        </div>
+        <div class="row gap-2">
+          <select id="requests-status-filter" class="input" style="font-size:13px;padding:6px 10px;min-height:32px">
+            <option value="">All statuses</option>
+            <option value="pending" selected>Pending</option>
+            <option value="replied">Replied</option>
+            <option value="accepted">Accepted</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+      </div>
+      <div id="requests-list" class="col gap-2"></div>
+    </section>
+
   </div>
 </main>
 
@@ -695,10 +717,11 @@
     }
     // Show super-admin-only buttons
     if (currentAdmin?.role === 'super') {
-      ['#btn-manage-admins', '#btn-manage-global'].forEach(sel => {
+      ['#btn-manage-admins', '#btn-manage-global', '#btn-manage-requests'].forEach(sel => {
         const btn = $(sel);
         if (btn) btn.classList.remove('hidden');
       });
+      refreshRequestsBadge();
     }
 
     try { const cfg = await JORD.api('/api/config'); mapboxToken = cfg.mapbox_token || ''; } catch {}
@@ -790,6 +813,7 @@
     $('#view-editor').classList.add('hidden');
     $('#view-admins').classList.add('hidden');
     $('#view-global').classList.add('hidden');
+    $('#view-requests').classList.add('hidden');
     if (map) { map.remove(); map = null; }
     loadEvents();
     history.replaceState(null, '', window.location.pathname);
@@ -801,6 +825,8 @@
   $('#btn-manage-admins').addEventListener('click', () => {
     $('#view-list').classList.add('hidden');
     $('#view-editor').classList.add('hidden');
+    $('#view-global').classList.add('hidden');
+    $('#view-requests').classList.add('hidden');
     $('#view-admins').classList.remove('hidden');
     loadAdmins();
   });
@@ -962,6 +988,7 @@
     $('#view-list').classList.add('hidden');
     $('#view-editor').classList.add('hidden');
     $('#view-admins').classList.add('hidden');
+    $('#view-requests').classList.add('hidden');
     $('#view-global').classList.remove('hidden');
     loadGlobalEvents();
   });
@@ -1007,6 +1034,251 @@
     } catch (err) {
       list.innerHTML = `<p style="color:var(--red);">${err.message}</p>`;
     }
+  }
+
+  // ── Inbound tournament requests (super only) ───────────────────────────────
+
+  const STATUS_BADGE_STYLE = {
+    pending:  'background:rgba(234,179,8,0.18);color:#a16207;border:1px solid rgba(234,179,8,0.45)',
+    replied:  'background:rgba(59,130,246,0.18);color:#1e40af;border:1px solid rgba(59,130,246,0.45)',
+    accepted: 'background:rgba(34,197,94,0.18);color:#166534;border:1px solid rgba(34,197,94,0.45)',
+    rejected: 'background:rgba(220,38,38,0.18);color:#991b1b;border:1px solid rgba(220,38,38,0.45)',
+  };
+  function statusBadge(status) {
+    const style = STATUS_BADGE_STYLE[status] || STATUS_BADGE_STYLE.pending;
+    return el('span', { style: { fontSize: '11px', fontWeight: '700', padding: '3px 9px', borderRadius: '12px', textTransform: 'uppercase', letterSpacing: '0.5px', cssText: style } }, status);
+  }
+  function fmtRequestDate(s) {
+    if (!s) return '';
+    try { return new Date(s).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }); }
+    catch { return s; }
+  }
+
+  $('#btn-manage-requests').addEventListener('click', () => {
+    $('#view-list').classList.add('hidden');
+    $('#view-editor').classList.add('hidden');
+    $('#view-admins').classList.add('hidden');
+    $('#view-global').classList.add('hidden');
+    $('#view-requests').classList.remove('hidden');
+    loadRequests($('#requests-status-filter').value);
+  });
+  $('#btn-back-to-events-r').addEventListener('click', e => { e.preventDefault(); backToList(); });
+  $('#requests-status-filter').addEventListener('change', e => loadRequests(e.target.value));
+
+  async function refreshRequestsBadge() {
+    try {
+      const rows = await JORD.api('/api/admin/tournament-requests?status=pending');
+      const badge = $('#requests-pending-badge');
+      if (!badge) return;
+      if (rows.length > 0) {
+        badge.textContent = rows.length;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    } catch { /* not super or not logged in — silent */ }
+  }
+
+  async function loadRequests(status) {
+    const list = $('#requests-list');
+    list.innerHTML = '<div style="color:var(--ink-2);font-size:13px;">Loading…</div>';
+    try {
+      const url = status ? `/api/admin/tournament-requests?status=${encodeURIComponent(status)}` : '/api/admin/tournament-requests';
+      const rows = await JORD.api(url);
+      list.innerHTML = '';
+      if (!rows.length) {
+        list.innerHTML = '<div class="card" style="padding:var(--s-5);color:var(--ink-2);text-align:center;">No requests' + (status ? ` with status "${status}"` : '') + '.</div>';
+        return;
+      }
+      for (const r of rows) {
+        const contestLabel = { ld: 'Longest Drive', ctp: 'Closest to Pin', both: 'LD + CTP' }[r.contest_type] || r.contest_type;
+        const card = el('div', { class: 'card', style: { padding: '14px 18px', cursor: 'pointer' }, on: { click: () => openRequestDetail(r.id) } },
+          el('div', { class: 'row row-between', style: { alignItems: 'flex-start', gap: '12px' } },
+            el('div', { class: 'col gap-1', style: { flex: '1 1 auto', minWidth: '0' } },
+              el('div', { class: 'row gap-2', style: { alignItems: 'center', flexWrap: 'wrap' } },
+                el('strong', null, r.tournament_name),
+                statusBadge(r.status)
+              ),
+              el('div', { style: { fontSize: '13px', color: 'var(--ink-2)' } }, (r.venue || '—') + ' · ' + r.location + ' · ' + r.event_date),
+              el('div', { style: { fontSize: '12px', color: 'var(--ink-2)' } }, contestLabel + ' · ' + r.expected_players + ' players · from ' + r.admin_name + ' (' + r.admin_email + ')'),
+              r.event_url ? el('div', { style: { fontSize: '12px', marginTop: '2px' } },
+                el('a', { href: r.event_url, target: '_blank', style: { color: 'var(--primary)' }, on: { click: (e) => e.stopPropagation() } }, '↗ ' + r.event_url)
+              ) : null,
+              el('div', { style: { fontSize: '11px', color: 'var(--ink-2)' } }, 'Submitted ' + fmtRequestDate(r.created_at))
+            ),
+            el('button', { class: 'btn btn-ghost', style: { fontSize: '12px', padding: '6px 12px', flexShrink: '0' }, on: { click: (e) => { e.stopPropagation(); openRequestDetail(r.id); } } }, 'Open →')
+          )
+        );
+        list.appendChild(card);
+      }
+    } catch (err) {
+      list.innerHTML = `<p style="color:var(--red);">${err.message}</p>`;
+    }
+  }
+
+  async function openRequestDetail(id) {
+    let r;
+    try { r = await JORD.api('/api/admin/tournament-requests/' + id); }
+    catch (err) { JORD.error(err.message); return; }
+
+    // Editable fields
+    const f = {};
+    f.tournament_name = el('input', { class: 'input', type: 'text', value: r.tournament_name });
+    f.event_date      = el('input', { class: 'input', type: 'date', value: r.event_date });
+    f.venue           = el('input', { class: 'input', type: 'text', value: r.venue });
+    f.location        = el('input', { class: 'input', type: 'text', value: r.location });
+    f.contest_type    = el('select', { class: 'input' },
+      el('option', { value: 'ld' }, 'Longest Drive'),
+      el('option', { value: 'ctp' }, 'Closest to Pin'),
+      el('option', { value: 'both' }, 'Both')
+    );
+    f.contest_type.value = r.contest_type;
+    f.expected_players = el('input', { class: 'input', type: 'number', min: '1', value: r.expected_players });
+    f.admin_name       = el('input', { class: 'input', type: 'text', value: r.admin_name });
+    f.admin_email      = el('input', { class: 'input', type: 'email', value: r.admin_email });
+    f.admin_phone      = el('input', { class: 'input', type: 'tel', value: r.admin_phone });
+    f.event_url        = el('input', { class: 'input', type: 'url', value: r.event_url || '', placeholder: 'https://...' });
+    f.notes            = el('textarea', { class: 'input', rows: '3' }); f.notes.value = r.notes || '';
+
+    // Email reply section
+    const templateSelect = el('select', { class: 'input' },
+      el('option', { value: '' }, '— Pick a template (or type your own) —'),
+      el('option', { value: 'welcome' }, 'Welcome / Confirm'),
+      el('option', { value: 'more_info' }, 'Need more info'),
+      el('option', { value: 'pricing' }, 'Pricing'),
+      el('option', { value: 'reject' }, 'Polite decline')
+    );
+    const emailSubject = el('input', { class: 'input', type: 'text', placeholder: 'Subject' });
+    const emailBody = el('textarea', { class: 'input', rows: '8', placeholder: 'Type your reply here, or pick a template above to start' });
+    templateSelect.addEventListener('change', () => {
+      const key = templateSelect.value;
+      if (!key) return;
+      const t = r.templates?.[key];
+      if (t) { emailSubject.value = t.subject; emailBody.value = t.body; }
+    });
+
+    // Reply log display
+    let replyLog = [];
+    try { replyLog = JSON.parse(r.reply_log || '[]'); } catch {}
+    const replyLogEl = el('div', { class: 'col gap-2' },
+      ...(replyLog.length === 0
+        ? [el('div', { style: { fontSize: '12px', color: 'var(--ink-2)', fontStyle: 'italic' } }, 'No replies sent yet.')]
+        : replyLog.map(item => el('div', { style: { fontSize: '12px', padding: '8px 10px', background: 'rgba(0,0,0,0.04)', borderRadius: '6px', borderLeft: '3px solid var(--primary)' } },
+            el('div', { style: { fontWeight: '600', marginBottom: '2px' } }, item.subject),
+            el('div', { style: { color: 'var(--ink-2)', whiteSpace: 'pre-wrap', marginBottom: '4px' } }, item.body),
+            el('div', { style: { fontSize: '10px', color: 'var(--ink-2)' } }, 'Sent ' + fmtRequestDate(item.at) + ' by ' + item.by)
+          ))
+      )
+    );
+
+    // Status display (read-only badge — change via action buttons)
+    const statusDisplay = el('div', { class: 'row gap-2', style: { alignItems: 'center' } },
+      el('label', { style: { fontWeight: '600' } }, 'Status:'),
+      statusBadge(r.status),
+      r.created_event_id ? el('a', { href: `#${r.created_event_id}`, style: { fontSize: '12px', color: 'var(--primary)' }, on: { click: () => { m.close(); openEvent(r.created_event_id); } } }, 'Open created event →') : null
+    );
+
+    const body = el('div', { class: 'col gap-4' },
+      statusDisplay,
+      el('div', { class: 'col gap-3' },
+        el('h3', { style: { margin: '0', fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ink-2)' } }, 'Request details'),
+        el('div', { class: 'field' }, el('label', null, 'Tournament name'), f.tournament_name),
+        el('div', { class: 'row gap-3' },
+          el('div', { class: 'field', style: { flex: '1' } }, el('label', null, 'Event date'), f.event_date),
+          el('div', { class: 'field', style: { flex: '1' } }, el('label', null, 'Contest type'), f.contest_type)
+        ),
+        el('div', { class: 'row gap-3' },
+          el('div', { class: 'field', style: { flex: '2' } }, el('label', null, 'Venue'), f.venue),
+          el('div', { class: 'field', style: { flex: '1' } }, el('label', null, 'Expected players'), f.expected_players)
+        ),
+        el('div', { class: 'field' }, el('label', null, 'Location'), f.location),
+        el('div', { class: 'field' }, el('label', null, 'Contact name'), f.admin_name),
+        el('div', { class: 'row gap-3' },
+          el('div', { class: 'field', style: { flex: '1' } }, el('label', null, 'Email'), f.admin_email),
+          el('div', { class: 'field', style: { flex: '1' } }, el('label', null, 'Phone'), f.admin_phone)
+        ),
+        el('div', { class: 'field' },
+          el('label', null, 'Event URL'),
+          f.event_url,
+          r.event_url ? el('div', { style: { fontSize: '12px', marginTop: '4px' } },
+            el('a', { href: r.event_url, target: '_blank', style: { color: 'var(--primary)' } }, '↗ Open: ' + r.event_url)
+          ) : null
+        ),
+        el('div', { class: 'field' }, el('label', null, 'Notes'), f.notes)
+      ),
+      el('div', { class: 'col gap-3', style: { borderTop: '1px solid var(--border)', paddingTop: '16px' } },
+        el('h3', { style: { margin: '0', fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ink-2)' } }, 'Reply by email'),
+        el('div', { class: 'field' }, el('label', null, 'Template starter'), templateSelect),
+        el('div', { class: 'field' }, el('label', null, 'Subject'), emailSubject),
+        el('div', { class: 'field' }, el('label', null, 'Body'), emailBody),
+        el('div', { class: 'col gap-2' },
+          el('h4', { style: { margin: '8px 0 0', fontSize: '12px', fontWeight: '600', color: 'var(--ink-2)' } }, 'Previous replies'),
+          replyLogEl
+        )
+      )
+    );
+
+    const saveBtn = el('button', { class: 'btn btn-ghost', on: { click: async () => {
+      const patch = {
+        tournament_name: f.tournament_name.value, event_date: f.event_date.value,
+        venue: f.venue.value, location: f.location.value, contest_type: f.contest_type.value,
+        expected_players: f.expected_players.value, admin_name: f.admin_name.value,
+        admin_email: f.admin_email.value, admin_phone: f.admin_phone.value,
+        event_url: f.event_url.value, notes: f.notes.value,
+      };
+      try { await JORD.api('/api/admin/tournament-requests/' + id, { method: 'PATCH', body: patch }); JORD.success('Saved'); m.close(); loadRequests($('#requests-status-filter').value); refreshRequestsBadge(); }
+      catch (err) { JORD.error(err.message); }
+    } } }, 'Save edits');
+
+    const sendBtn = el('button', { class: 'btn btn-primary', on: { click: async () => {
+      if (!emailSubject.value.trim() || !emailBody.value.trim()) return JORD.error('Subject and body are required');
+      try {
+        await JORD.api('/api/admin/tournament-requests/' + id + '/email', { method: 'POST', body: { subject: emailSubject.value, body: emailBody.value } });
+        JORD.success('Email sent to ' + r.admin_email);
+        m.close(); loadRequests($('#requests-status-filter').value); refreshRequestsBadge();
+      } catch (err) { JORD.error(err.message); }
+    } } }, '📧 Send email');
+
+    const acceptBtn = el('button', { class: 'btn btn-primary', style: { background: '#166534', borderColor: '#166534' }, on: { click: async () => {
+      if (!await JORD.confirm('Accept this request? An event will be created from these details.', { okText: 'Accept & create event' })) return;
+      try {
+        const result = await JORD.api('/api/admin/tournament-requests/' + id + '/accept', { method: 'POST' });
+        JORD.success('Event created');
+        m.close();
+        if (result.event_id) openEvent(result.event_id);
+        loadRequests($('#requests-status-filter').value); refreshRequestsBadge();
+      } catch (err) { JORD.error(err.message); }
+    } } }, '✓ Accept (create event)');
+
+    const rejectBtn = el('button', { class: 'btn btn-ghost', style: { color: '#b91c1c' }, on: { click: async () => {
+      if (!await JORD.confirm('Reject this request?', { danger: true, okText: 'Reject' })) return;
+      try {
+        await JORD.api('/api/admin/tournament-requests/' + id, { method: 'PATCH', body: { status: 'rejected' } });
+        JORD.success('Marked rejected');
+        m.close(); loadRequests($('#requests-status-filter').value); refreshRequestsBadge();
+      } catch (err) { JORD.error(err.message); }
+    } } }, '✗ Reject');
+
+    const deleteBtn = el('button', { class: 'btn btn-ghost', style: { color: '#b91c1c', fontSize: '12px' }, on: { click: async () => {
+      if (!await JORD.confirm('Delete this request permanently? This cannot be undone.', { danger: true, okText: 'Delete forever' })) return;
+      try {
+        await JORD.api('/api/admin/tournament-requests/' + id, { method: 'DELETE' });
+        JORD.success('Request deleted');
+        m.close(); loadRequests($('#requests-status-filter').value); refreshRequestsBadge();
+      } catch (err) { JORD.error(err.message); }
+    } } }, 'Delete');
+
+    const footer = el('div', { class: 'row row-between', style: { width: '100%', alignItems: 'center', gap: '8px', flexWrap: 'wrap' } },
+      deleteBtn,
+      el('div', { class: 'row gap-2', style: { flexWrap: 'wrap' } },
+        rejectBtn,
+        saveBtn,
+        sendBtn,
+        r.status !== 'accepted' ? acceptBtn : null
+      )
+    );
+
+    const m = JORD.modal({ title: 'Tournament Request', body, footer, lg: true });
   }
 
   function fillHeader() {
