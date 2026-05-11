@@ -297,16 +297,48 @@
       enableSubmit();
       return;
     }
-    setGPS('locking', '📡', 'Acquiring GPS…');
-    navigator.geolocation.getCurrentPosition(
+    setGPS('locking', '📡', 'Acquiring GPS — hold still…');
+    // Multi-sample averaging — collects several reads, drops outliers, averages the best
+    var samples = [];
+    var watchId = null;
+    var SAMPLE_MS = 8000;     // collect for 8 seconds
+    var GOOD_M = 4;           // can early-stop once readings are this tight
+    function finalize() {
+      if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
+      if (!samples.length) {
+        setGPS('error', '❌', 'Could not get a GPS fix — try moving to an open area');
+        return;
+      }
+      // Keep best 60% by accuracy, weight by 1/accuracy
+      var sorted = samples.slice().sort(function (a, b) { return a.acc - b.acc; });
+      var keep = sorted.slice(0, Math.max(1, Math.ceil(sorted.length * 0.6)));
+      var wSum = 0, latSum = 0, lonSum = 0, accSum = 0;
+      keep.forEach(function (s) {
+        var w = 1 / Math.max(1, s.acc);
+        wSum += w; latSum += s.lat * w; lonSum += s.lon * w; accSum += s.acc;
+      });
+      var lat = latSum / wSum, lon = lonSum / wSum, acc = Math.round(accSum / keep.length);
+      gpsPos = { lat: lat, lon: lon, acc: acc };
+      setGPS('locked', '📍', 'Location locked — averaged from ' + keep.length + ' samples (±' + acc + 'm)');
+      autoSelectZone(lat, lon, acc);
+      if (ballData && ballData.has_closest_pin) checkCTPZone(lat, lon);
+      enableSubmit();
+    }
+    var timer = setTimeout(finalize, SAMPLE_MS);
+    watchId = navigator.geolocation.watchPosition(
       function (pos) {
-        gpsPos = { lat: pos.coords.latitude, lon: pos.coords.longitude, acc: Math.round(pos.coords.accuracy) };
-        setGPS('locked', '📍', 'Location locked — you\'re good to go!');
-        autoSelectZone(gpsPos.lat, gpsPos.lon, gpsPos.acc);
-        if (ballData && ballData.has_closest_pin) checkCTPZone(gpsPos.lat, gpsPos.lon);
-        enableSubmit();
+        if (pos.coords.accuracy > 30) {
+          setGPS('locking', '📡', 'Weak signal (±' + Math.round(pos.coords.accuracy) + 'm) — hold still…');
+          return;
+        }
+        samples.push({ lat: pos.coords.latitude, lon: pos.coords.longitude, acc: pos.coords.accuracy });
+        setGPS('locking', '📡', 'Sampling GPS (' + samples.length + ' reads, ±' + Math.round(pos.coords.accuracy) + 'm)…');
+        if (samples.length >= 4 && pos.coords.accuracy <= GOOD_M) {
+          clearTimeout(timer); finalize();
+        }
       },
       function (err) {
+        clearTimeout(timer);
         setGPS('error', '❌', 'GPS unavailable: ' + (err.message || 'check location permission'));
       },
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }

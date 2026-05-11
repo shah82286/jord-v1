@@ -1879,6 +1879,24 @@
     // ── Freehand drawing ──
     const canvas = map.getCanvas();
 
+    // Chaikin's corner-cutting algorithm — smooths jittery mouse paths
+    // Each iteration roughly doubles points but rounds sharp corners
+    function chaikinSmooth(pts, iterations) {
+      let out = pts;
+      for (let it = 0; it < iterations; it++) {
+        if (out.length < 3) return out;
+        const next = [out[0]];
+        for (let i = 0; i < out.length - 1; i++) {
+          const p0 = out[i], p1 = out[i + 1];
+          next.push([p0[0] * 0.75 + p1[0] * 0.25, p0[1] * 0.75 + p1[1] * 0.25]);
+          next.push([p0[0] * 0.25 + p1[0] * 0.75, p0[1] * 0.25 + p1[1] * 0.75]);
+        }
+        next.push(out[out.length - 1]);
+        out = next;
+      }
+      return out;
+    }
+
     function startFreehand(kind) {
       freehandActive = true;
       currentDrawKind = kind;
@@ -1910,7 +1928,9 @@
       }
       const c = map.unproject([e.offsetX, e.offsetY]);
       freehandPoints.push([c.lng, c.lat]);
-      map.getSource('freehand-preview').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: freehandPoints } });
+      // Show smoothed preview so user sees clean curves while drawing
+      const preview = freehandPoints.length >= 4 ? chaikinSmooth(freehandPoints, 1) : freehandPoints;
+      map.getSource('freehand-preview').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: preview } });
     });
 
     function stopFreehand() {
@@ -1937,7 +1957,9 @@
         canvas.style.cursor = 'crosshair';
         return;
       }
-      const closed = [...freehandPoints, freehandPoints[0]];
+      // Smooth the freehand path before closing — removes mouse jitter
+      const smoothed = freehandPoints.length >= 4 ? chaikinSmooth(freehandPoints, 2) : freehandPoints;
+      const closed = [...smoothed, smoothed[0]];
       let feat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closed] }, properties: { kind: currentDrawKind } };
       /* Simplify — reduces freehand noise from hundreds of points to ~10-30 clean vertices */
       if (window.turf) {
@@ -2038,9 +2060,9 @@
       if (!navigator.geolocation) { JORD.error('GPS not available on this device'); return; }
       const name = await JORD.prompt("Tee box name?", { placeholder: "e.g. Men's, Women's, Senior", defaultValue: 'Main', okText: 'Continue to GPS' });
       if (!name) return;
-      if (!await JORD.confirm(`Stand directly on the "${name}" tee marker and hold your device still, then click OK. GPS will sample for up to 10 seconds.`, { okText: 'Start GPS Capture' })) return;
+      if (!await JORD.confirm(`Stand directly on the "${name}" tee marker and hold your device still, then click OK. GPS will sample for up to 10 seconds and average the best readings.`, { okText: 'Start GPS Capture' })) return;
 
-      let bestPos = null;
+      let samples = [];
       let watchId = null;
       const SAMPLE_MS = 10000;
       const GOOD_ENOUGH_M = 3;
@@ -2070,9 +2092,10 @@
       const finish = async () => {
         if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
         pinBadge.style.display = 'none';
-        if (!bestPos) { JORD.error('Could not get a GPS fix — try again in an open area'); return; }
-        const lat = bestPos.coords.latitude, lon = bestPos.coords.longitude;
-        const acc = Math.round(bestPos.coords.accuracy);
+        const agg = gpsAggregate(samples);
+        if (!agg) { JORD.error('Could not get a GPS fix — try again in an open area'); return; }
+        const lat = agg.lat, lon = agg.lon;
+        const acc = Math.round(agg.accuracy);
         const hole_type = currentHoleTab === 'ctp' ? 'closest_pin' : 'longest_drive';
         try {
           const teeBox = await JORD.api(`/api/events/${currentEvent.id}/tee-boxes`, { method: 'POST', body: { name, color: 'white', lat, lon, hole_type } });
@@ -2080,16 +2103,17 @@
           currentEvent.tee_boxes.push(teeBox);
           drawTeeMarkers(); renderTees(); updateHoleDistanceDisplay();
           map.flyTo({ center: [lon, lat], zoom: 18 });
-          JORD.success(`"${name}" tee placed ±${acc}m accuracy`);
+          JORD.success(`"${name}" tee placed ±${acc}m avg from ${agg.count} samples`);
         } catch (e) { JORD.error('Failed to save tee: ' + e.message); }
       };
 
       const timer = setTimeout(finish, SAMPLE_MS);
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
-          if (!bestPos || pos.coords.accuracy < bestPos.coords.accuracy) bestPos = pos;
+          if (pos.coords.accuracy > 25) { updateTeeBadge(pos.coords.accuracy); return; }
+          samples.push({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy });
           updateTeeBadge(pos.coords.accuracy);
-          if (pos.coords.accuracy <= GOOD_ENOUGH_M) { clearTimeout(timer); finish(); }
+          if (samples.length >= 3 && pos.coords.accuracy <= GOOD_ENOUGH_M) { clearTimeout(timer); finish(); }
         },
         (err) => { clearTimeout(timer); pinBadge.style.display = 'none'; JORD.error('GPS error: ' + err.message); },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
@@ -2136,15 +2160,31 @@
       JORD.success('Pin removed — Save map to confirm');
     };
 
-    // GPS Pin Grab — watches for up to 10 s and uses the reading with best accuracy
+    // ── GPS sample aggregation helpers ─────────────────────────────────────
+    // Median lat/lon, weighted by accuracy — robust against single outliers
+    function gpsAggregate(samples) {
+      if (!samples.length) return null;
+      // Filter to only the best 60% by accuracy (drop early bad reads)
+      const sorted = samples.slice().sort((a, b) => a.accuracy - b.accuracy);
+      const keep = sorted.slice(0, Math.max(1, Math.ceil(sorted.length * 0.6)));
+      // Weighted average by inverse accuracy (good reads count more)
+      let wSum = 0, latSum = 0, lonSum = 0, accSum = 0;
+      for (const s of keep) {
+        const w = 1 / Math.max(1, s.accuracy);
+        wSum += w; latSum += s.lat * w; lonSum += s.lon * w; accSum += s.accuracy;
+      }
+      return { lat: latSum / wSum, lon: lonSum / wSum, accuracy: accSum / keep.length, count: keep.length };
+    }
+
+    // GPS Pin Grab — watches for up to 10 s; averages best samples for accuracy
     $('#tool-grab-pin').onclick = async () => {
       if (!navigator.geolocation) { JORD.error('GPS not available on this device'); return; }
-      if (!await JORD.confirm('Stand directly at the hole flag and hold your device still, then click OK. It will sample GPS for up to 10 seconds and use the most accurate reading.', { okText: 'Start GPS Capture' })) return;
+      if (!await JORD.confirm('Stand directly at the hole flag and hold your device still, then click OK. It will sample GPS for up to 10 seconds and average the best readings.', { okText: 'Start GPS Capture' })) return;
 
-      let bestPos = null;
+      let samples = [];
       let watchId = null;
-      const SAMPLE_MS = 10000;   // collect for 10 seconds
-      const GOOD_ENOUGH_M = 3;   // stop early if we hit this accuracy
+      const SAMPLE_MS = 10000;
+      const GOOD_ENOUGH_M = 3;
       const pinBadge = $('#pin-accuracy-badge');
 
       function updatePinBadge(accuracyM) {
@@ -2171,9 +2211,10 @@
       const finish = () => {
         if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
         pinBadge.style.display = 'none';
-        if (!bestPos) { JORD.error('Could not get a GPS fix — try again in an open area'); return; }
-        const lat = bestPos.coords.latitude, lon = bestPos.coords.longitude;
-        const acc = Math.round(bestPos.coords.accuracy);
+        const agg = gpsAggregate(samples);
+        if (!agg) { JORD.error('Could not get a GPS fix — try again in an open area'); return; }
+        const lat = agg.lat, lon = agg.lon;
+        const acc = Math.round(agg.accuracy);
         if (currentHoleTab === 'ld') {
           currentEvent.pin_lat = lat; currentEvent.pin_lon = lon;
           drawPinMarker();
@@ -2183,18 +2224,19 @@
         }
         map.flyTo({ center: [lon, lat], zoom: 18 });
         updateHoleDistanceDisplay(); updatePinCoordsDisplay();
-        JORD.success(`Pin placed ±${acc}m accuracy at ${lat.toFixed(6)}, ${lon.toFixed(6)} — Save map to confirm`);
+        JORD.success(`Pin placed ±${acc}m avg from ${agg.count} samples — Save map to confirm`);
       };
 
       const timer = setTimeout(finish, SAMPLE_MS);
 
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
-          if (!bestPos || pos.coords.accuracy < bestPos.coords.accuracy) {
-            bestPos = pos;
-          }
+          // Reject obvious bad reads — accuracy worse than 25m is likely junk
+          if (pos.coords.accuracy > 25) { updatePinBadge(pos.coords.accuracy); return; }
+          samples.push({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy });
           updatePinBadge(pos.coords.accuracy);
-          if (pos.coords.accuracy <= GOOD_ENOUGH_M) {
+          // Early stop: need at least 3 good samples AND a tight one
+          if (samples.length >= 3 && pos.coords.accuracy <= GOOD_ENOUGH_M) {
             clearTimeout(timer);
             finish();
           }
@@ -2344,7 +2386,9 @@
         return;
       }
       const kind = currentHoleTab === 'ctp' ? 'ctp_green' : $('#tool-trace-kind').value;
-      const closedPts = [...tracePoints, tracePoints[0]];
+      // Smooth GPS jitter before closing the polygon
+      const smoothedTrace = tracePoints.length >= 4 ? chaikinSmooth(tracePoints, 2) : tracePoints;
+      const closedPts = [...smoothedTrace, smoothedTrace[0]];
       let traceFeat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closedPts] }, properties: { kind } };
       if (window.turf) {
         try { traceFeat = turf.simplify(traceFeat, { tolerance: 0.000015, highQuality: true }); } catch {}

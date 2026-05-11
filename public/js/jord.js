@@ -284,8 +284,27 @@
   };
   APP.path = (i) => window.location.pathname.split('/').filter(Boolean)[i];
 
-  /* ─── ESRI World Imagery style (drop-in Mapbox GL JS style object) ─── */
-  APP.satelliteStyle = function () {
+  /* ─── Satellite style — prefer Mapbox @2x retina if token set, else ESRI ─── */
+  APP.satelliteStyle = function (opts) {
+    opts = opts || {};
+    var token = opts.token || (typeof mapboxgl !== 'undefined' && mapboxgl.accessToken) || '';
+    var prefer = opts.prefer || 'mapbox'; /* 'mapbox' | 'esri' */
+
+    if (prefer === 'mapbox' && token) {
+      return {
+        version: 8,
+        glyphs: 'mapbox://fonts/mapbox/{fontstack}/{range}',
+        sources: {
+          'mapbox-satellite': {
+            type: 'raster',
+            tiles: [`https://api.mapbox.com/v4/mapbox.satellite/{z}/{x}/{y}@2x.jpg90?access_token=${token}`],
+            tileSize: 512,
+            attribution: '&copy; Mapbox &copy; Maxar'
+          }
+        },
+        layers: [{ id: 'mapbox-satellite', type: 'raster', source: 'mapbox-satellite' }]
+      };
+    }
     return {
       version: 8,
       glyphs: 'mapbox://fonts/mapbox/{fontstack}/{range}',
