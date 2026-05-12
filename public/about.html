@@ -369,7 +369,9 @@
     .foot-inner { flex-direction: column; align-items: flex-start; gap: 18px; }
   }
   @media (max-width: 480px) {
-    .nav .nav-link { display: none; }
+    .nav .nav-link[data-secondary] { display: none; }
+    .nav .nav-link { font-size: 12px; padding: 4px 6px; }
+    .nav .nav-right { gap: 8px; }
     .vs-card { padding: 24px 18px; }
     .vs-card h3 { font-size: 1.4rem; }
     .phone-frame { max-width: 200px; }
@@ -385,7 +387,7 @@
     <span class="sub">Tournaments</span>
   </a>
   <div class="nav-right">
-    <a href="/" class="nav-link">Home</a>
+    <a href="/" class="nav-link" data-secondary>Home</a>
     <a href="/admin" class="nav-link">Sign in</a>
     <a href="/signup" class="nav-cta">Sign up</a>
   </div>

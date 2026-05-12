@@ -284,6 +284,37 @@
   };
   APP.path = (i) => window.location.pathname.split('/').filter(Boolean)[i];
 
+  /* ─── Geolocation error translator ─────────────────────────────────────
+   * Turns a GeolocationPositionError into something the user can act on.
+   * Detects insecure context (HTTP not HTTPS, biggest single cause of
+   * "permission denied" reports) and gives precise next steps per code.
+   * ─────────────────────────────────────────────────────────────────────── */
+  APP.gpsError = function (err) {
+    if (typeof window !== 'undefined' && window.isSecureContext === false) {
+      return 'GPS requires HTTPS. This page is loaded over http:// — geolocation is blocked. Open the site over https:// (or localhost) and try again.';
+    }
+    if (!err) return 'GPS error.';
+    switch (err.code) {
+      case 1: // PERMISSION_DENIED
+        return 'Location permission denied. To fix: tap the location/lock icon in your browser address bar → set Location to "Allow" → reload this page. On iPhone: Settings → Safari → Location → set to "Ask" or "Allow".';
+      case 2: // POSITION_UNAVAILABLE
+        return 'Your device cannot determine its location. Check that Location Services are turned on (Settings → Privacy → Location Services) and try again outdoors.';
+      case 3: // TIMEOUT
+        return 'GPS lock took too long. Move to an open area away from buildings and try again.';
+      default:
+        return 'GPS error: ' + (err.message || 'unknown');
+    }
+  };
+
+  /* Check current geolocation permission state without prompting */
+  APP.gpsPermissionState = async function () {
+    try {
+      if (!navigator.permissions || !navigator.permissions.query) return 'unknown';
+      const r = await navigator.permissions.query({ name: 'geolocation' });
+      return r.state; // 'granted' | 'prompt' | 'denied'
+    } catch { return 'unknown'; }
+  };
+
   /* ─── Satellite style — prefer Mapbox @2x retina if token set, else ESRI ─── */
   APP.satelliteStyle = function (opts) {
     opts = opts || {};

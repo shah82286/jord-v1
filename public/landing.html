@@ -344,7 +344,9 @@
     .foot-meta { font-size: 11px; line-height: 1.7; }
   }
   @media (max-width: 480px) {
-    .nav .nav-link { display: none; }     /* hide secondary text links, keep CTA */
+    .nav .nav-link[data-secondary] { display: none; } /* hide secondary text links */
+    .nav .nav-link { font-size: 12px; padding: 4px 6px; }
+    .nav .nav-right { gap: 8px; }
     .nav { padding: 12px 16px; }
     .hero h1 { font-size: clamp(1.9rem, 8vw, 2.4rem); }
     .hero .lead { font-size: 15px; }
@@ -367,7 +369,7 @@
     <span class="sub">Tournaments</span>
   </a>
   <div class="nav-right">
-    <a href="/about" class="nav-link">How It Works</a>
+    <a href="/about" class="nav-link" data-secondary>How It Works</a>
     <a href="/admin" class="nav-link">Sign in</a>
     <a href="/signup" class="nav-cta">Sign up</a>
   </div>

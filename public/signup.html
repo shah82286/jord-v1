@@ -177,6 +177,8 @@
     .nav { padding: 14px 18px; }
     .nav .brand img { height: 28px; }
     .nav .brand .sub { display: none; }
+    .nav .nav-link[data-secondary] { display: none; }
+    .nav .nav-link { font-size: 12px; }
     .signup-shell { grid-template-columns: 1fr; min-height: auto; }
     .signup-photo { min-height: 320px; background-position: center 25%; }
     .signup-photo .photo-content { bottom: 28px; left: 22px; right: 22px; }
@@ -204,8 +206,9 @@
     <img src="/img/logos/logo-script-black.png" alt="JORD Golf">
     <span class="sub">Tournaments</span>
   </a>
-  <div>
-    <a href="/about" class="nav-link">How it works</a>
+  <div style="display:flex;gap:18px;align-items:center">
+    <a href="/about" class="nav-link" data-secondary>How it works</a>
+    <a href="/admin" class="nav-link">Sign in</a>
   </div>
 </nav>
 

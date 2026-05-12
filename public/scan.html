@@ -339,7 +339,7 @@
       },
       function (err) {
         clearTimeout(timer);
-        setGPS('error', '❌', 'GPS unavailable: ' + (err.message || 'check location permission'));
+        setGPS('error', '❌', JORD.gpsError(err));
       },
       { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
     );

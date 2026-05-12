@@ -558,6 +558,131 @@ test('mapper sets venue coords to null when absent', () => {
   assertEqual(e.venue_lon, null);
 });
 
+/* ─────────────────────────────────────────────────────────────────────
+ * Feature: GPS error helper + sample aggregation
+ * Where: public/js/jord.js (gpsError) and public/admin.html (gpsAggregate)
+ * ─────────────────────────────────────────────────────────────────── */
+
+console.log('\nGPS error helper + sample aggregation');
+
+// Mirror of JORD.gpsError — when run in node, isSecureContext check is skipped
+function gpsError(err, opts) {
+  const isSecure = opts && opts.isSecureContext;
+  if (isSecure === false) {
+    return 'GPS requires HTTPS. This page is loaded over http:// — geolocation is blocked. Open the site over https:// (or localhost) and try again.';
+  }
+  if (!err) return 'GPS error.';
+  switch (err.code) {
+    case 1: return 'Location permission denied. To fix: tap the location/lock icon in your browser address bar → set Location to "Allow" → reload this page. On iPhone: Settings → Safari → Location → set to "Ask" or "Allow".';
+    case 2: return 'Your device cannot determine its location. Check that Location Services are turned on (Settings → Privacy → Location Services) and try again outdoors.';
+    case 3: return 'GPS lock took too long. Move to an open area away from buildings and try again.';
+    default: return 'GPS error: ' + (err.message || 'unknown');
+  }
+}
+
+// Mirror of admin.html gpsAggregate
+function gpsAggregate(samples) {
+  if (!samples.length) return null;
+  const sorted = samples.slice().sort((a, b) => a.accuracy - b.accuracy);
+  const keep = sorted.slice(0, Math.max(1, Math.ceil(sorted.length * 0.6)));
+  let wSum = 0, latSum = 0, lonSum = 0, accSum = 0;
+  for (const s of keep) {
+    const w = 1 / Math.max(1, s.accuracy);
+    wSum += w; latSum += s.lat * w; lonSum += s.lon * w; accSum += s.accuracy;
+  }
+  return { lat: latSum / wSum, lon: lonSum / wSum, accuracy: accSum / keep.length, count: keep.length };
+}
+
+// Mirror of admin.html sample-classification logic in resolveGpsSamples
+function classifyGpsSamples(samples) {
+  const good = samples.filter(s => s.accuracy <= 25);
+  if (good.length) return { kind: 'good', payload: gpsAggregate(good) };
+  if (samples.length) {
+    const best = samples.reduce((m, s) => s.accuracy < m.accuracy ? s : m);
+    return { kind: 'poor', payload: { lat: best.lat, lon: best.lon, accuracy: best.accuracy, count: 1 } };
+  }
+  return { kind: 'none', payload: null };
+}
+
+/* gpsError */
+test('gpsError flags insecure context when isSecureContext=false', () => {
+  const msg = gpsError(null, { isSecureContext: false });
+  assert(msg.includes('HTTPS'));
+  assert(msg.includes('http://'));
+});
+test('gpsError code 1 → PERMISSION_DENIED unblock instructions', () => {
+  const msg = gpsError({ code: 1 });
+  assert(msg.includes('permission denied') || msg.includes('Allow'));
+  assert(msg.includes('address bar') || msg.includes('Safari'));
+});
+test('gpsError code 2 → POSITION_UNAVAILABLE OS hint', () => {
+  const msg = gpsError({ code: 2 });
+  assert(msg.includes('Location Services'));
+});
+test('gpsError code 3 → TIMEOUT open-area hint', () => {
+  const msg = gpsError({ code: 3 });
+  assert(msg.includes('open area'));
+});
+test('gpsError unknown code falls back to err.message', () => {
+  const msg = gpsError({ code: 99, message: 'weird' });
+  assert(msg.includes('weird'));
+});
+test('gpsError null → generic', () => {
+  assertEqual(gpsError(null), 'GPS error.');
+});
+
+/* gpsAggregate */
+test('gpsAggregate returns null on empty', () => assertEqual(gpsAggregate([]), null));
+test('gpsAggregate returns single sample as-is', () => {
+  const r = gpsAggregate([{ lat: 33.5, lon: -84.4, accuracy: 5 }]);
+  assertEqual(r.lat, 33.5);
+  assertEqual(r.lon, -84.4);
+  assertEqual(r.count, 1);
+});
+test('gpsAggregate weights tight readings more than loose', () => {
+  // Two samples at lat 33.5 ±2m, one outlier at lat 34.5 ±100m
+  // Filter keeps top 60% = 2 of 3 (the ±2m pair). Outlier dropped.
+  const r = gpsAggregate([
+    { lat: 33.5,  lon: -84.4, accuracy: 2 },
+    { lat: 33.5,  lon: -84.4, accuracy: 3 },
+    { lat: 34.5,  lon: -83.4, accuracy: 100 },
+  ]);
+  assert(Math.abs(r.lat - 33.5) < 0.01, `lat ${r.lat} should be near 33.5 after outlier dropped`);
+  assertEqual(r.count, 2);
+});
+
+/* Sample classification — drives the new resolveGpsSamples branching */
+test('classify: all samples ≤25m → kind=good', () => {
+  const r = classifyGpsSamples([
+    { lat: 33.5, lon: -84.4, accuracy: 3 },
+    { lat: 33.5, lon: -84.4, accuracy: 5 },
+  ]);
+  assertEqual(r.kind, 'good');
+  assert(r.payload.lat);
+});
+test('classify: only samples >25m → kind=poor (desktop GPS case)', () => {
+  const r = classifyGpsSamples([
+    { lat: 33.5, lon: -84.4, accuracy: 80 },
+    { lat: 33.6, lon: -84.5, accuracy: 120 },
+  ]);
+  assertEqual(r.kind, 'poor');
+  // Should pick the BEST (lowest accuracy number) sample
+  assertEqual(r.payload.accuracy, 80);
+  assertEqual(r.payload.lat, 33.5);
+});
+test('classify: mixed → kind=good (good samples win)', () => {
+  const r = classifyGpsSamples([
+    { lat: 33.5, lon: -84.4, accuracy: 5 },
+    { lat: 50.0, lon: 0,     accuracy: 200 }, // bad outlier ignored
+  ]);
+  assertEqual(r.kind, 'good');
+  // Aggregate should use only the good sample
+  assert(Math.abs(r.payload.lat - 33.5) < 0.01);
+});
+test('classify: empty → kind=none', () => {
+  assertEqual(classifyGpsSamples([]).kind, 'none');
+});
+
 /* ─── Summary ─────────────────────────────────────────────────────── */
 
 console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

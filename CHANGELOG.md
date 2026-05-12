@@ -2,6 +2,37 @@
 
 ---
 
+## v3.8.1 — 2026-05-12
+### Session 21 — GPS UX fixes, public-page Sign in visibility
+
+#### What Changed
+
+##### GPS — actionable error messages
+- New `JORD.gpsError(err)` translator (`public/js/jord.js`) maps `GeolocationPositionError` codes to specific recovery steps: code 1 → exact browser unblock instructions (Chrome address bar / Safari Settings), code 2 → OS Location Services hint, code 3 → open-area hint. Insecure-context check → "GPS requires HTTPS" when page is loaded over `http://`.
+- New `JORD.gpsPermissionState()` queries `navigator.permissions` without prompting. Admin's Grab GPS Tee + Grab GPS Pin buttons precheck state — if `denied`, user sees unblock instructions instantly instead of "stand at pin → click OK → silent fail" loop.
+- All 4 GPS error handlers (admin tee / admin pin / admin trace / scan) now route through the translator instead of showing raw `err.message`.
+
+##### GPS — desktop / poor-accuracy fallback (`resolveGpsSamples`)
+- Old watch loop filtered every reading with `accuracy > 25m` inline. On desktop (IP geolocation ≈ ±100m) every sample was rejected → samples empty → "Could not get a GPS fix" with no recourse.
+- Watch loop now collects ALL samples. After timeout, `resolveGpsSamples()` branches:
+  1. Good samples (≤25m) exist → aggregate as before.
+  2. Only poor samples → confirm "GPS is poor — best was ±Xm. Use rough position anyway?" Lets desktop users place a coarse marker after acknowledging.
+  3. Zero samples → specific error: "No GPS signal received. Check Location allowed, try outdoors with phone."
+
+##### Public-page Sign in button visibility (mobile)
+- `public/landing.html` `@media (max-width: 480px)` had `.nav .nav-link { display: none }` — hid "Sign in" along with "How It Works". Same bug in `public/about.html`. `public/signup.html` nav was missing Sign in entirely.
+- Fix: `data-secondary` attribute marks links to hide on mobile; Sign in keeps showing on every viewport. signup.html nav now includes Sign in.
+
+##### Regression tests +13 (68/68 total)
+- `gpsError` per code + insecure-context branch.
+- `gpsAggregate` empty / single / outlier-resistant weighting.
+- Sample classification — good / poor / mixed / none — drives `resolveGpsSamples` branching.
+
+#### Why
+Founder hit "Could not find — try again" on Grab GPS Pin while testing locally on desktop. The 25m filter was right for phone-on-course but dead-ended desktop testing. Also caught that public marketing pages were hiding the Sign in link on phones, defeating the "scan QR → sign in to set up tournament" mobile flow.
+
+---
+
 ## v3.8.0 — 2026-05-11
 ### Session 20 — Platform-wide cream editorial theme
 

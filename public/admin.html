@@ -2058,6 +2058,11 @@
     $('#tool-grab-tee').onclick = async () => {
       if (teeCountForHole() >= 4) { JORD.warn('Max 4 tee boxes per hole — delete one to add another'); return; }
       if (!navigator.geolocation) { JORD.error('GPS not available on this device'); return; }
+      if (window.isSecureContext === false) { JORD.error(JORD.gpsError(null)); return; }
+      if (await JORD.gpsPermissionState() === 'denied') {
+        JORD.error('Location is blocked for this site. Click the location/lock icon in your address bar → set Location to Allow → reload, then try again.');
+        return;
+      }
       const name = await JORD.prompt("Tee box name?", { placeholder: "e.g. Men's, Women's, Senior", defaultValue: 'Main', okText: 'Continue to GPS' });
       if (!name) return;
       if (!await JORD.confirm(`Stand directly on the "${name}" tee marker and hold your device still, then click OK. GPS will sample for up to 10 seconds and average the best readings.`, { okText: 'Start GPS Capture' })) return;
@@ -2092,8 +2097,8 @@
       const finish = async () => {
         if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
         pinBadge.style.display = 'none';
-        const agg = gpsAggregate(samples);
-        if (!agg) { JORD.error('Could not get a GPS fix — try again in an open area'); return; }
+        const agg = await resolveGpsSamples(samples, 'tee');
+        if (!agg) return;
         const lat = agg.lat, lon = agg.lon;
         const acc = Math.round(agg.accuracy);
         const hole_type = currentHoleTab === 'ctp' ? 'closest_pin' : 'longest_drive';
@@ -2110,12 +2115,13 @@
       const timer = setTimeout(finish, SAMPLE_MS);
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
-          if (pos.coords.accuracy > 25) { updateTeeBadge(pos.coords.accuracy); return; }
           samples.push({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy });
           updateTeeBadge(pos.coords.accuracy);
-          if (samples.length >= 3 && pos.coords.accuracy <= GOOD_ENOUGH_M) { clearTimeout(timer); finish(); }
+          // Early stop only on multiple sub-3m readings (real outdoor lock)
+          const good = samples.filter(s => s.accuracy <= GOOD_ENOUGH_M).length;
+          if (good >= 3) { clearTimeout(timer); finish(); }
         },
-        (err) => { clearTimeout(timer); pinBadge.style.display = 'none'; JORD.error('GPS error: ' + err.message); },
+        (err) => { clearTimeout(timer); pinBadge.style.display = 'none'; JORD.error(JORD.gpsError(err)); },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
       );
     };
@@ -2161,6 +2167,29 @@
     };
 
     // ── GPS sample aggregation helpers ─────────────────────────────────────
+    // Resolve raw samples into a usable fix.
+    // Returns { lat, lon, accuracy, count } or null if user declined / nothing.
+    // Three paths:
+    //   - good samples (≤25m) exist → aggregate them (production happy path)
+    //   - only poor samples (>25m, typical desktop browser) → ask if rough is OK
+    //   - no samples at all (permission denied silently or no GPS) → friendly error
+    async function resolveGpsSamples(samples, label) {
+      const goodSamples = samples.filter(s => s.accuracy <= 25);
+      if (goodSamples.length) return gpsAggregate(goodSamples);
+      if (samples.length) {
+        const best = samples.reduce((m, s) => s.accuracy < m.accuracy ? s : m);
+        const accM = Math.round(best.accuracy);
+        const ok = await JORD.confirm(
+          `GPS accuracy is poor — best reading was ±${accM}m. This usually means you're on a desktop browser or indoors. For a real ${label}, use your phone outdoors at the course (target: ±3m). Use this rough position anyway?`,
+          { okText: `Use ±${accM}m position`, danger: true }
+        );
+        if (!ok) return null;
+        return { lat: best.lat, lon: best.lon, accuracy: best.accuracy, count: 1 };
+      }
+      JORD.error('No GPS signal received. Check that Location is allowed for this site (click the location icon in the address bar), then try again outdoors with a phone for best results.');
+      return null;
+    }
+
     // Median lat/lon, weighted by accuracy — robust against single outliers
     function gpsAggregate(samples) {
       if (!samples.length) return null;
@@ -2179,6 +2208,11 @@
     // GPS Pin Grab — watches for up to 10 s; averages best samples for accuracy
     $('#tool-grab-pin').onclick = async () => {
       if (!navigator.geolocation) { JORD.error('GPS not available on this device'); return; }
+      if (window.isSecureContext === false) { JORD.error(JORD.gpsError(null)); return; }
+      if (await JORD.gpsPermissionState() === 'denied') {
+        JORD.error('Location is blocked for this site. Click the location/lock icon in your address bar → set Location to Allow → reload, then try again.');
+        return;
+      }
       if (!await JORD.confirm('Stand directly at the hole flag and hold your device still, then click OK. It will sample GPS for up to 10 seconds and average the best readings.', { okText: 'Start GPS Capture' })) return;
 
       let samples = [];
@@ -2208,11 +2242,11 @@
 
       JORD.toast('Acquiring GPS lock — hold still…', 'warn');
 
-      const finish = () => {
+      const finish = async () => {
         if (watchId !== null) { navigator.geolocation.clearWatch(watchId); watchId = null; }
         pinBadge.style.display = 'none';
-        const agg = gpsAggregate(samples);
-        if (!agg) { JORD.error('Could not get a GPS fix — try again in an open area'); return; }
+        const agg = await resolveGpsSamples(samples, 'pin');
+        if (!agg) return;
         const lat = agg.lat, lon = agg.lon;
         const acc = Math.round(agg.accuracy);
         if (currentHoleTab === 'ld') {
@@ -2231,17 +2265,13 @@
 
       watchId = navigator.geolocation.watchPosition(
         (pos) => {
-          // Reject obvious bad reads — accuracy worse than 25m is likely junk
-          if (pos.coords.accuracy > 25) { updatePinBadge(pos.coords.accuracy); return; }
           samples.push({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy });
           updatePinBadge(pos.coords.accuracy);
-          // Early stop: need at least 3 good samples AND a tight one
-          if (samples.length >= 3 && pos.coords.accuracy <= GOOD_ENOUGH_M) {
-            clearTimeout(timer);
-            finish();
-          }
+          // Early stop on 3+ sub-3m readings (real outdoor lock)
+          const good = samples.filter(s => s.accuracy <= GOOD_ENOUGH_M).length;
+          if (good >= 3) { clearTimeout(timer); finish(); }
         },
-        (err) => { clearTimeout(timer); pinBadge.style.display = 'none'; JORD.error('GPS error: ' + err.message); },
+        (err) => { clearTimeout(timer); pinBadge.style.display = 'none'; JORD.error(JORD.gpsError(err)); },
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
       );
     };
@@ -2369,7 +2399,7 @@
           map.getSource('gps-trace').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: tracePoints } });
           map.setCenter([pos.coords.longitude, pos.coords.latitude]);
         },
-        (err) => JORD.warn('GPS error: ' + err.message),
+        (err) => JORD.warn(JORD.gpsError(err)),
         { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }
       );
     };
