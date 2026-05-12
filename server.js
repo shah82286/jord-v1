@@ -305,6 +305,13 @@ function getSessionAdmin(token) {
 // ─── MIDDLEWARE ───────────────────────────────────────────────────────────────
 app.use(cors({ origin: '*' }));
 
+// ─── HEALTHCHECK (must be BEFORE HTTPS redirect) ──────────────────────────────
+// Railway probes the container directly on its internal port, without going
+// through the proxy. That means no x-forwarded-proto: https header, so the
+// HTTPS redirect below would 301 the healthcheck and Railway would mark the
+// deployment unhealthy. Register these routes first so they always return 200.
+app.get(['/ping', '/healthz'], (req, res) => res.status(200).send('OK'));
+
 // ─── SECURITY HEADERS ─────────────────────────────────────────────────────────
 // Must be before express.static so headers are applied to all responses
 app.use((req, res, next) => {
