@@ -958,7 +958,7 @@
               el('div', { html: resetInfo })
             ),
             el('div', { class: 'row gap-2' },
-              a.role !== 'super' ? el('button', { class: 'btn btn-ghost', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: () => editAdmin(a) } }, 'Edit') : null,
+              el('button', { class: 'btn btn-ghost', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: () => editAdmin(a) } }, '✏️ Edit'),
               el('button', { class: 'btn btn-ghost', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: () => genResetLink(a) } }, '🔑 Reset pwd'),
               a.id !== currentAdmin?.id ? el('button', { class: 'btn btn-danger', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: () => deleteAdmin(a) } }, 'Remove') : null
             )

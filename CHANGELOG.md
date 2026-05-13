@@ -2,6 +2,25 @@
 
 ---
 
+## v3.9.3 — 2026-05-13
+### Session 25 — Fix delete-admin 500, edit any admin (incl. super)
+
+#### What Changed
+
+##### Fixed 500 on "Remove admin"
+- Root cause: `DELETE FROM admins` hit a FOREIGN KEY constraint failure when the admin had any rows in `password_reset_tokens`. The handler cleared `sessions` but missed reset tokens.
+- New handler clears `sessions` + `password_reset_tokens` + sets `events.admin_id = NULL` (events.admin_id has no FK constraint but stale ids leave "creator unknown" placeholders) all inside one DB transaction. Failures roll back cleanly and return a real error message instead of crashing the response.
+- Also guards: super admins can't delete their own account.
+
+##### Edit any admin (including super) + last-super guard
+- "Edit" button used to be hidden on super admin rows (`a.role !== 'super'` gate in admin.html:961). Removed — every admin row now shows the Edit button so super admins can adjust each other's name, email, role, active status, and per-permission toggles.
+- `PATCH /api/admins/:id` now refuses to demote-from-super or deactivate the last active super admin (prevents lockout) and refuses to deactivate your own account.
+
+##### Live end-to-end verified
+- Same test path that previously 500'd now passes: create admin → issue reset link → admin creates an event → promote to super → demote back → toggle permissions → DELETE returns 200 → event preserved with `admin_id = NULL`.
+
+---
+
 ## v3.9.2 — 2026-05-13
 ### Session 24 — Admin password UX (auto-gen, self-serve change, fix reset link)
 

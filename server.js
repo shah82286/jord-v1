@@ -1058,6 +1058,23 @@ app.patch('/api/admins/:id', requireAuth, requireSuper, (req, res) => {
   const allowed = ['name','email','role','active','perm_corrections','perm_end_tournament','perm_manage_players','perm_manage_balls'];
   const updates = Object.entries(req.body).filter(([k]) => allowed.includes(k));
   if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
+  const target = db.prepare('SELECT * FROM admins WHERE id=?').get(req.params.id);
+  if (!target) return res.status(404).json({ error: 'Admin not found' });
+
+  // Guard: can't demote or deactivate the last active super admin
+  const newRole = updates.find(([k]) => k === 'role')?.[1];
+  const newActive = updates.find(([k]) => k === 'active')?.[1];
+  const wouldLoseSuper = (newRole !== undefined && newRole !== 'super' && target.role === 'super')
+                     || (newActive !== undefined && !newActive && target.role === 'super');
+  if (wouldLoseSuper) {
+    const otherSupers = db.prepare("SELECT COUNT(*) AS n FROM admins WHERE role='super' AND active=1 AND id!=?").get(req.params.id).n;
+    if (otherSupers === 0) return res.status(400).json({ error: 'Cannot change role or deactivate the last super admin' });
+  }
+  // Guard: can't deactivate yourself (would lock you out)
+  if (target.id === req.admin.id && newActive !== undefined && !newActive) {
+    return res.status(400).json({ error: 'You cannot deactivate your own account' });
+  }
+
   db.prepare(`UPDATE admins SET ${updates.map(([k]) => `${k}=?`).join(',')} WHERE id=?`)
     .run(...updates.map(([,v]) => v), req.params.id);
   res.json(db.prepare('SELECT id,name,email,role,active,perm_corrections,perm_end_tournament,perm_manage_players,perm_manage_balls FROM admins WHERE id=?').get(req.params.id));
@@ -1066,12 +1083,26 @@ app.patch('/api/admins/:id', requireAuth, requireSuper, (req, res) => {
 app.delete('/api/admins/:id', requireAuth, requireSuper, (req, res) => {
   const admin = db.prepare('SELECT * FROM admins WHERE id=?').get(req.params.id);
   if (!admin) return res.status(404).json({ error: 'Admin not found' });
+  if (admin.id === req.admin.id) return res.status(400).json({ error: 'You cannot delete your own account' });
   if (admin.role === 'super' && db.prepare("SELECT COUNT(*) AS n FROM admins WHERE role='super' AND active=1").get().n <= 1) {
     return res.status(400).json({ error: 'Cannot delete the last super admin' });
   }
-  db.prepare('DELETE FROM sessions WHERE admin_id=?').run(req.params.id);
-  db.prepare('DELETE FROM admins WHERE id=?').run(req.params.id);
-  res.json({ success: true });
+  // Clear every row that references this admin BEFORE deleting (FK constraint).
+  // events.admin_id has no FK constraint but we still null it out so events
+  // owned by the deleted admin show "creator unknown" instead of a stale id.
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM sessions WHERE admin_id=?').run(req.params.id);
+    db.prepare('DELETE FROM password_reset_tokens WHERE admin_id=?').run(req.params.id);
+    db.prepare('UPDATE events SET admin_id=NULL WHERE admin_id=?').run(req.params.id);
+    db.prepare('DELETE FROM admins WHERE id=?').run(req.params.id);
+  });
+  try {
+    tx();
+    res.json({ success: true });
+  } catch (e) {
+    console.error('[Admin Delete Error]', e);
+    res.status(500).json({ error: 'Failed to delete admin: ' + e.message });
+  }
 });
 
 app.post('/api/admins/:id/reset-password', requireAuth, requireSuper, (req, res) => {
