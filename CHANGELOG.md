@@ -2,6 +2,25 @@
 
 ---
 
+## v3.8.2 — 2026-05-12
+### Session 22 — Mobile pin tap + events-list button cut-off
+
+#### What Changed
+
+##### Mobile pin tap on Course Map (`public/admin.html`)
+- "Click the map to place the pin" worked on desktop but not on phones. Two root causes:
+  1. Mapbox Draw mode was sometimes left in `draw_polygon` / `direct_select` after a previous action, swallowing the tap before `map.on('click')` could fire.
+  2. Mapbox's synthetic `click` from `touchend` requires the finger to land within ~1px of where it started — any drift treats the gesture as a drag, no click event fires.
+- Fix 1: `#tool-pin` handler now calls `stopFreehand()`, `stopNodeEdit()`, and `draw.changeMode('simple_select')` before flipping the picker flag.
+- Fix 2: new explicit `touchend` listener on the map canvas that, when a pin picker is active, unprojects the touch coordinates directly via `map.unproject([x, y])`. Drift-tolerant — fires even if the finger slid a few pixels.
+
+##### Events list button row no longer cuts off "+ New event" (`public/admin.html`)
+- Old `@media (max-width: 640px)` rule used `flex-wrap: nowrap; overflow-x: auto` — buttons formed a horizontal scrollable strip and "+ New event" was off-screen for super admins (who see 3 extra topbar buttons).
+- New rule: `flex-wrap: wrap; align-items: stretch`. Buttons stack to multiple rows. `#btn-new-event` is forced to its own row at the top with `flex-basis: 100%; order: -1` so it's always the first thing you see.
+- Verified via headless Puppeteer at iPhone 14 viewport: button right edge 378px in a 390px viewport, fully in view.
+
+---
+
 ## v3.8.1 — 2026-05-12
 ### Session 21 — GPS UX fixes, public-page Sign in visibility
 

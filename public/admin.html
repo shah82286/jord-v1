@@ -96,10 +96,11 @@
     .editor-nav::before { content: ''; position: absolute; right: 0; top: 0; bottom: 0; width: 100px; background: linear-gradient(to right, transparent 20%, rgba(0,0,0,0.08) 70%); pointer-events: none; z-index: 9; }
   }
   @media (max-width: 640px) {
-    /* Events list header — stack title and buttons, make button row scrollable on very small screens */
-    #view-list > .row.row-between { flex-direction: column; align-items: flex-start; gap: var(--s-3); }
-    #view-list > .row.row-between > .row { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 6px; padding-bottom: 4px; }
-    #view-list > .row.row-between > .row .btn { flex-shrink: 0; font-size: 11px; padding: 6px 9px; min-height: 32px; }
+    /* Events list header — stack title and buttons, wrap buttons to multiple rows so + New event is never cut off */
+    #view-list > .row.row-between { flex-direction: column; align-items: stretch; gap: var(--s-3); }
+    #view-list > .row.row-between > .row { flex-wrap: wrap; gap: 6px; width: 100%; }
+    #view-list > .row.row-between > .row .btn { flex: 1 1 auto; min-width: 0; font-size: 11px; padding: 7px 8px; min-height: 36px; white-space: nowrap; }
+    #view-list > .row.row-between > .row #btn-new-event { flex-basis: 100%; order: -1; } /* New event button on its own row, first */
 
     /* Event editor header — stack name and buttons */
     #view-editor > .row.row-between { flex-direction: column; align-items: flex-start; gap: var(--s-3); }
@@ -273,6 +274,7 @@
           <button class="btn btn-ghost hidden" id="btn-manage-requests">📥 Inbound Requests <span id="requests-pending-badge" class="hidden" style="background:var(--primary);color:var(--primary-ink);font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;margin-left:4px"></span></button>
           <button class="btn btn-ghost hidden" id="btn-manage-global">🌍 Global LB</button>
           <button class="btn btn-ghost hidden" id="btn-manage-admins">👤 Manage Admins</button>
+          <button class="btn btn-ghost hidden" id="btn-manage-backups">💾 Backups</button>
           <button class="btn btn-primary" id="btn-new-event">＋ New event</button>
         </div>
       </div>
@@ -716,7 +718,7 @@
     }
     // Show super-admin-only buttons
     if (currentAdmin?.role === 'super') {
-      ['#btn-manage-admins', '#btn-manage-global', '#btn-manage-requests'].forEach(sel => {
+      ['#btn-manage-admins', '#btn-manage-global', '#btn-manage-requests', '#btn-manage-backups'].forEach(sel => {
         const btn = $(sel);
         if (btn) btn.classList.remove('hidden');
       });
@@ -830,6 +832,72 @@
     loadAdmins();
   });
   $('#btn-back-to-events').addEventListener('click', e => { e.preventDefault(); backToList(); });
+
+  // ── Backups (super admin) ──
+  $('#btn-manage-backups').addEventListener('click', openBackupsModal);
+
+  function fmtBytes(b) {
+    if (!b && b !== 0) return '—';
+    if (b < 1024) return b + ' B';
+    if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1024 / 1024).toFixed(2) + ' MB';
+  }
+  function fmtWhen(iso) {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleString(); } catch { return iso; }
+  }
+
+  async function openBackupsModal() {
+    const body = el('div', { class: 'col gap-3' },
+      el('div', { id: 'backup-status', style: { color: 'var(--ink-2)', fontSize: '13px' } }, 'Loading…')
+    );
+    const downloadBtn = el('button', { class: 'btn btn-primary' }, '⬇ Download backup');
+    const runBtn      = el('button', { class: 'btn btn-ghost' }, '↻ Run backup now');
+    const footer      = el('div', { class: 'row gap-2', style: { justifyContent: 'flex-end' } }, runBtn, downloadBtn);
+    const m = JORD.modal({ title: 'Database backups', body, footer });
+
+    const adminToken = localStorage.getItem('jord_admin_token') || '';
+
+    async function refresh() {
+      const status = $('#backup-status');
+      status.textContent = 'Loading…';
+      try {
+        const s = await JORD.api('/api/admin/backup/status');
+        const latestLine = s.latest
+          ? `<strong>${s.latest.name}</strong> · ${fmtBytes(s.latest.bytes)} · ${fmtWhen(s.latest.mtime)}`
+          : 'No backup yet — click <em>Run backup now</em> to create one.';
+        const s3Line = s.s3Enabled
+          ? `☁️ Cloud upload: <strong>enabled</strong> (bucket: ${s.s3Bucket})`
+          : '☁️ Cloud upload: <strong>disabled</strong> — set S3_BUCKET env vars on Railway to enable';
+        status.innerHTML = `
+          <div style="margin-bottom:8px;"><strong>Latest backup:</strong> ${latestLine}</div>
+          <div style="margin-bottom:8px;">📦 Local snapshots stored: <strong>${s.count}</strong> (rotated to last 14 days)</div>
+          <div style="margin-bottom:8px;">${s3Line}</div>
+          <div style="font-size:12px;color:var(--ink-3);">DB path: <code>${s.dbPath}</code></div>
+        `;
+      } catch (err) {
+        status.innerHTML = `<span style="color:var(--danger)">${err.message}</span>`;
+      }
+    }
+
+    runBtn.addEventListener('click', async () => {
+      runBtn.disabled = true; runBtn.textContent = 'Running…';
+      try {
+        const r = await JORD.api('/api/admin/backup/run', { method: 'POST' });
+        JORD.success(`Backup saved: ${r.file}${r.uploaded ? ' (uploaded to cloud)' : ''}`);
+        await refresh();
+      } catch (err) { JORD.error(err.message); }
+      finally { runBtn.disabled = false; runBtn.textContent = '↻ Run backup now'; }
+    });
+
+    downloadBtn.addEventListener('click', () => {
+      // Stream a fresh snapshot — uses the token query param since <a download> can't carry headers
+      const url = '/api/admin/backup/download?token=' + encodeURIComponent(adminToken);
+      window.location.href = url;
+    });
+
+    await refresh();
+  }
 
   async function loadAdmins() {
     const list = $('#admins-list');
@@ -2014,6 +2082,30 @@
     }, { passive: false });
     canvas.addEventListener('touchcancel', () => { if (isDrawingFreehand) finishFreehand(); });
 
+    // Mobile pin placement — Mapbox's synthetic click can miss when the
+    // finger drifts a few pixels (treated as a drag, not a click). This
+    // touchend handler unprojects the touch directly so taps always land.
+    canvas.addEventListener('touchend', (e) => {
+      if (!pinPickerActive && !ctpPinPickerActive) return;
+      if (isDrawingFreehand) return;
+      if (!e.changedTouches || !e.changedTouches[0]) return;
+      e.preventDefault(); e.stopPropagation();
+      const r = canvas.getBoundingClientRect();
+      const t = e.changedTouches[0];
+      const c = map.unproject([t.clientX - r.left, t.clientY - r.top]);
+      if (pinPickerActive) {
+        currentEvent.pin_lat = c.lat; currentEvent.pin_lon = c.lng;
+        drawPinMarker(); pinPickerActive = false; canvas.style.cursor = '';
+        updateHoleDistanceDisplay(); updatePinCoordsDisplay();
+        JORD.success('LD Pin placed — Save map to confirm');
+      } else if (ctpPinPickerActive) {
+        currentEvent.ctp_pin_lat = c.lat; currentEvent.ctp_pin_lon = c.lng;
+        drawCtpPinMarker(); ctpPinPickerActive = false; canvas.style.cursor = '';
+        updateHoleDistanceDisplay(); updatePinCoordsDisplay();
+        JORD.success('CTP Pin placed — Save map to confirm');
+      }
+    }, { passive: false });
+
     // Escape key or click outside the map exits draw/node-edit mode
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
@@ -2141,10 +2233,16 @@
     };
 
     $('#tool-pin').onclick = () => {
+      // Reset any active Mapbox Draw state so the tap reaches map.on('click')
+      // and the new touchend handler. Leftover freehand or direct_select modes
+      // were swallowing the tap on mobile.
+      if (freehandActive) stopFreehand();
+      if (_nodeEditActive) stopNodeEdit();
+      try { draw.changeMode('simple_select'); } catch {}
       if (currentHoleTab === 'ld') { pinPickerActive = true; }
       else { ctpPinPickerActive = true; }
       canvas.style.cursor = 'crosshair';
-      JORD.toast('Click the map to place the pin for this hole', 'warn');
+      JORD.toast('Tap the map to place the pin for this hole', 'warn');
     };
 
     // Delete pin — clear the pin for the current hole
