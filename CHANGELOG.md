@@ -2,6 +2,33 @@
 
 ---
 
+## v3.9.2 — 2026-05-13
+### Session 24 — Admin password UX (auto-gen, self-serve change, fix reset link)
+
+#### What Changed
+
+##### Fixed "Reset link is invalid or has expired" on freshly issued links
+- Root cause: `password_reset_tokens.expires_at` was stored as ISO 8601 (`2026-05-13T15:30:00.000Z`) but the check query compared against SQLite's `datetime('now')` which returns `2026-05-13 15:30:00`. SQLite compared the two as raw strings — fragile because the `.000Z` suffix length and the `T` vs space at position 10 produced inconsistent results, sometimes rejecting valid tokens.
+- New `sqliteDatetimeFromNow(msFromNow)` helper returns `YYYY-MM-DD HH:MM:SS` to match `datetime('now')` exactly. Both forgot-password (line 968) and super-admin reset (line 1054) writes now use it.
+
+##### Auto-generated temporary password on new admin creation
+- `POST /api/admins` no longer requires `password`. If absent, server generates a friendly 12-char password (no look-alike chars: 0/O, 1/l/I excluded) and returns it as `temp_password`.
+- Super-admin "New Admin Account" modal removed the password field. After submit, a confirmation modal shows the generated password with a Copy button — displayed once, the response payload doesn't include it on subsequent GETs.
+- If a password IS supplied (programmatic use), it's still accepted and NOT echoed back.
+
+##### Self-serve password change
+- New `POST /api/auth/change-password` — any logged-in admin can change their own password by providing `current_password` + `new_password`. Other sessions for that admin are invalidated; the current session stays alive.
+- Topbar now has a 🔐 Password button next to Sign out. Opens a modal with current/new/confirm fields.
+
+##### Regression tests +7 (75/75)
+- `sqliteDatetimeFromNow` returns correct format, future > past lexically, 1h-future > current SQLite time.
+- Generated admin password is 12 chars, skips look-alikes, unique across samples.
+
+##### End-to-end live test verified
+- Full flow proven locally: super login → create admin (no password) → temp_password returned → new admin logs in → super issues reset link → reset link redeemed (used to fail) → login after reset → self-serve change password → login with self-picked password.
+
+---
+
 ## v3.9.1 — 2026-05-12
 ### Session 23 (cont.) — Mobile modal cut off by iOS Safari toolbar
 

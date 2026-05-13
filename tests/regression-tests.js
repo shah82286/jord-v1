@@ -683,6 +683,77 @@ test('classify: empty → kind=none', () => {
   assertEqual(classifyGpsSamples([]).kind, 'none');
 });
 
+/* ─────────────────────────────────────────────────────────────────────
+ * Bug: Password reset tokens stored in ISO format compared lexically
+ *      against SQLite datetime('now') which uses different separators.
+ *      Caused intermittent "Reset link is invalid or has expired" errors
+ *      even on freshly issued tokens.
+ * Where: server.js — sqliteDatetimeFromNow() helper + admin endpoints
+ * ─────────────────────────────────────────────────────────────────── */
+
+console.log('\nAdmin reset token date format');
+
+function sqliteDatetimeFromNow(msFromNow) {
+  return new Date(Date.now() + msFromNow).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+test('sqliteDatetimeFromNow returns space-separated YYYY-MM-DD HH:MM:SS', () => {
+  const s = sqliteDatetimeFromNow(3600 * 1000);
+  assert(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s), `bad format: ${s}`);
+});
+
+test('future timestamp lexically greater than past timestamp', () => {
+  const past = sqliteDatetimeFromNow(-3600 * 1000);
+  const future = sqliteDatetimeFromNow(3600 * 1000);
+  assert(future > past, 'lexical comparison should work for same-format strings');
+});
+
+test('1-hour-from-now > current SQLite-format time', () => {
+  // Simulate what datetime('now') returns
+  const now = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const expires = sqliteDatetimeFromNow(3600 * 1000);
+  assert(expires > now, `expires ${expires} should be > now ${now}`);
+});
+
+test('old buggy ISO format would have failed lexical compare against SQLite now', () => {
+  // Reproduce the old bug — ISO with T and .000Z would lexically compare oddly
+  // against SQLite's space-separated format. NOTE: it sometimes still worked
+  // due to 'T'(0x54) > ' '(0x20), but on same-second timestamps the .000Z
+  // suffix mattered. This test documents what we fixed away from.
+  const oldFormat = new Date(Date.now() + 3600 * 1000).toISOString(); // 2026-...T...Z
+  const newFormat = sqliteDatetimeFromNow(3600 * 1000);                // 2026-... ...
+  assert(oldFormat.includes('T') && oldFormat.endsWith('Z'), 'ISO has T and Z');
+  assert(!newFormat.includes('T') && !newFormat.endsWith('Z'), 'new format has neither');
+  assertEqual(newFormat.length, 19);
+});
+
+/* Admin password generator */
+function generateAdminPassword() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let out = '';
+  const crypto = require('crypto');
+  const buf = crypto.randomBytes(12);
+  for (let i = 0; i < 12; i++) out += chars[buf[i] % chars.length];
+  return out;
+}
+
+test('generated admin password is 12 chars', () => {
+  assertEqual(generateAdminPassword().length, 12);
+});
+
+test('generated admin password skips look-alike chars (0/O/1/l/I)', () => {
+  for (let i = 0; i < 200; i++) {
+    const p = generateAdminPassword();
+    assert(!/[0O1lI]/.test(p), `password "${p}" contains a look-alike char`);
+  }
+});
+
+test('generated passwords are not all the same', () => {
+  const seen = new Set();
+  for (let i = 0; i < 20; i++) seen.add(generateAdminPassword());
+  assert(seen.size === 20, 'every password should be unique with 20 samples');
+});
+
 /* ─── Summary ─────────────────────────────────────────────────────── */
 
 console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

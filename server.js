@@ -426,6 +426,22 @@ function uid(prefix = '') {
   return prefix + crypto.randomBytes(4).toString('hex').toUpperCase();
 }
 
+// SQLite datetime() returns "YYYY-MM-DD HH:MM:SS" (no T, no Z, no ms).
+// Comparing against an ISO string is lexically unstable — match the format.
+function sqliteDatetimeFromNow(msFromNow) {
+  return new Date(Date.now() + msFromNow).toISOString().slice(0, 19).replace('T', ' ');
+}
+
+// Friendly random password — 12 chars, mix of letters + digits, no
+// look-alike characters (0/O, 1/l/I) so a tired admin can type it.
+function generateAdminPassword() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let out = '';
+  const buf = crypto.randomBytes(12);
+  for (let i = 0; i < 12; i++) out += chars[buf[i] % chars.length];
+  return out;
+}
+
 function haversineYards(lat1, lon1, lat2, lon2) {
   const R  = 6371000;
   const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
@@ -960,7 +976,7 @@ app.post('/api/auth/forgot-password', forgotLimiter, (req, res) => {
   const admin = db.prepare('SELECT * FROM admins WHERE email=? AND active=1').get(email.toLowerCase().trim());
   if (!admin) return res.json({ success: true, message: 'If that email exists, a reset link has been generated.' });
   const token = crypto.randomBytes(24).toString('hex');
-  const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+  const expires = sqliteDatetimeFromNow(60 * 60 * 1000); // 1 hour
   db.prepare('INSERT INTO password_reset_tokens (token,admin_id,expires_at) VALUES (?,?,?)').run(token, admin.id, expires);
   const resetUrl = `${APP_URL}/admin?reset_token=${token}`;
   // When Klaviyo is wired up, send email here. For now, super admin sees this in /api/admins/reset-requests
@@ -975,6 +991,22 @@ app.post('/api/auth/forgot-username', (req, res) => {
   const [user, domain] = admin.email.split('@');
   const masked = user.slice(0, 2) + '***@' + domain;
   res.json({ success: true, hint: masked });
+});
+
+// Self-serve password change — any logged-in admin can change their own password
+app.post('/api/auth/change-password', requireAuth, (req, res) => {
+  const { current_password, new_password } = req.body;
+  if (!current_password || !new_password) return res.status(400).json({ error: 'current_password and new_password required' });
+  if (new_password.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  const fullAdmin = db.prepare('SELECT * FROM admins WHERE id=?').get(req.admin.id);
+  if (!fullAdmin || !verifyPassword(current_password, fullAdmin.password_hash)) {
+    return res.status(400).json({ error: 'Current password is incorrect' });
+  }
+  db.prepare('UPDATE admins SET password_hash=? WHERE id=?').run(hashPassword(new_password), req.admin.id);
+  // Keep current session alive — only invalidate OTHER sessions for this admin.
+  const currentToken = req.headers['x-admin-token'] || req.query.token;
+  db.prepare('DELETE FROM sessions WHERE admin_id=? AND token!=?').run(req.admin.id, currentToken);
+  res.json({ success: true });
 });
 
 app.post('/api/auth/reset-password', resetLimiter, (req, res) => {
@@ -1002,15 +1034,24 @@ app.get('/api/admins', requireAuth, requireSuper, (req, res) => {
 
 app.post('/api/admins', requireAuth, requireSuper, (req, res) => {
   const { name, email, password, role } = req.body;
-  if (!name || !email || !password) return res.status(400).json({ error: 'name, email, password required' });
-  if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  if (!name || !email) return res.status(400).json({ error: 'name and email required' });
+  // Password is optional — if absent, generate a temp one and return it so super admin can share it.
+  let finalPassword = password;
+  let generated = false;
+  if (!finalPassword) {
+    finalPassword = generateAdminPassword();
+    generated = true;
+  } else if (finalPassword.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
   const existing = db.prepare('SELECT id FROM admins WHERE email=?').get(email.toLowerCase().trim());
   if (existing) return res.status(400).json({ error: 'An admin with that email already exists' });
   const id = uid('ADM');
   db.prepare('INSERT INTO admins (id,name,email,password_hash,role) VALUES (?,?,?,?,?)')
-    .run(id, name.trim(), email.toLowerCase().trim(), hashPassword(password), role === 'super' ? 'super' : 'admin');
+    .run(id, name.trim(), email.toLowerCase().trim(), hashPassword(finalPassword), role === 'super' ? 'super' : 'admin');
   const created = db.prepare('SELECT id,name,email,role,active,perm_corrections,perm_end_tournament,perm_manage_players,perm_manage_balls,created_at FROM admins WHERE id=?').get(id);
-  res.json(created);
+  // Only echo the password when we generated it — never echo back a password the caller supplied.
+  res.json({ ...created, ...(generated ? { temp_password: finalPassword } : {}) });
 });
 
 app.patch('/api/admins/:id', requireAuth, requireSuper, (req, res) => {
@@ -1037,7 +1078,7 @@ app.post('/api/admins/:id/reset-password', requireAuth, requireSuper, (req, res)
   const admin = db.prepare('SELECT * FROM admins WHERE id=?').get(req.params.id);
   if (!admin) return res.status(404).json({ error: 'Admin not found' });
   const token = crypto.randomBytes(24).toString('hex');
-  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24 hours
+  const expires = sqliteDatetimeFromNow(24 * 60 * 60 * 1000); // 24 hours
   db.prepare('UPDATE password_reset_tokens SET used=1 WHERE admin_id=? AND used=0').run(req.params.id); // invalidate old tokens
   db.prepare('INSERT INTO password_reset_tokens (token,admin_id,expires_at) VALUES (?,?,?)').run(token, req.params.id, expires);
   const resetUrl = `${APP_URL}/admin?reset_token=${token}`;

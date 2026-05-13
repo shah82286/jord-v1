@@ -694,8 +694,32 @@
   });
 
   // ── Topbar ──
+  function openChangePasswordModal() {
+    const cur = el('input', { class: 'input', type: 'password', placeholder: 'Current password' });
+    const next = el('input', { class: 'input', type: 'password', placeholder: 'New password (6+ chars)' });
+    const next2 = el('input', { class: 'input', type: 'password', placeholder: 'Confirm new password' });
+    const body = el('div', { class: 'col gap-3' },
+      el('div', { class: 'field' }, el('label', null, 'Current password'), cur),
+      el('div', { class: 'field' }, el('label', null, 'New password'), next, el('div', { class: 'hint' }, 'Minimum 6 characters')),
+      el('div', { class: 'field' }, el('label', null, 'Confirm new password'), next2)
+    );
+    const saveBtn = el('button', { class: 'btn btn-primary', on: { click: async () => {
+      if (!cur.value || !next.value) { JORD.warn('Fill in both password fields'); return; }
+      if (next.value.length < 6) { JORD.warn('New password must be at least 6 characters'); return; }
+      if (next.value !== next2.value) { JORD.warn('New passwords do not match'); return; }
+      try {
+        await JORD.api('/api/auth/change-password', { method: 'POST', body: { current_password: cur.value, new_password: next.value } });
+        m.close();
+        JORD.success('Password updated');
+      } catch (err) { JORD.error(err.message); }
+    }}}, 'Update password');
+    const m = JORD.modal({ title: 'Change your password', body, footer: saveBtn, lg: false });
+    cur.focus();
+  }
+
   const topbarRight = el('div', { class: 'row gap-2', style: { alignItems: 'center' } },
     el('span', { id: 'topbar-user', style: { fontSize: '13px', color: 'var(--ink-2)' } }),
+    el('button', { class: 'btn btn-ghost', title: 'Change your password', on: { click: openChangePasswordModal } }, '🔐 Password'),
     el('button', { class: 'btn btn-ghost', on: { click: async () => {
       try { await JORD.api('/api/auth/logout', { method: 'POST' }); } catch {}
       JORD.clearToken(); location.reload();
@@ -1025,7 +1049,6 @@
   $('#btn-new-admin').addEventListener('click', () => {
     const nameInput  = el('input', { class: 'input', type: 'text', placeholder: 'Full name' });
     const emailInput = el('input', { class: 'input', type: 'email', placeholder: 'Email address' });
-    const pwdInput   = el('input', { class: 'input', type: 'password', placeholder: 'Temporary password' });
     const roleSelect = el('select', { class: 'input' },
       el('option', { value: 'admin' }, 'Tournament Admin (manage events, players, corrections)'),
       el('option', { value: 'super' }, 'Super Admin (all access, can create other admins)')
@@ -1033,16 +1056,32 @@
     const body = el('div', { class: 'col gap-3' },
       el('div', { class: 'field' }, el('label', null, 'Name'), nameInput),
       el('div', { class: 'field' }, el('label', null, 'Email'), emailInput),
-      el('div', { class: 'field' }, el('label', null, 'Temporary password'), pwdInput, el('div', { class: 'hint' }, 'Minimum 6 characters')),
-      el('div', { class: 'field' }, el('label', null, 'Role'), roleSelect)
+      el('div', { class: 'field' }, el('label', null, 'Role'), roleSelect),
+      el('div', { class: 'hint', style: { padding: '10px 12px', background: 'var(--surface-2)', borderRadius: '6px', fontSize: '12px' } },
+        '🔐 A temporary password will be generated for this admin. They can change it from the account menu after signing in.')
     );
     const createBtn = el('button', { class: 'btn btn-primary', on: { click: async () => {
-      if (!nameInput.value.trim() || !emailInput.value.trim() || pwdInput.value.length < 6) {
-        JORD.warn('Name, email, and a password (6+ chars) are required'); return;
+      if (!nameInput.value.trim() || !emailInput.value.trim()) {
+        JORD.warn('Name and email are required'); return;
       }
       try {
-        await JORD.api('/api/admins', { method: 'POST', body: { name: nameInput.value.trim(), email: emailInput.value.trim(), password: pwdInput.value, role: roleSelect.value } });
-        m.close(); loadAdmins(); JORD.success(`${roleSelect.value === 'super' ? 'Super admin' : 'Admin'} account created`);
+        const created = await JORD.api('/api/admins', { method: 'POST', body: { name: nameInput.value.trim(), email: emailInput.value.trim(), role: roleSelect.value } });
+        m.close();
+        loadAdmins();
+        if (created.temp_password) {
+          // Show the temp password ONCE — admin must copy it before closing.
+          const pwdField = el('input', { class: 'input', value: created.temp_password, readonly: true, style: { fontFamily: 'var(--font-mono)', fontSize: '18px', textAlign: 'center', fontWeight: '700' } });
+          pwdField.addEventListener('click', () => pwdField.select());
+          const copyBtn = el('button', { class: 'btn btn-ghost', on: { click: () => { navigator.clipboard.writeText(created.temp_password).then(() => JORD.success('Copied')); } } }, '📋 Copy');
+          const detail = el('div', { class: 'col gap-3' },
+            el('p', { style: { fontSize: '14px', margin: '0' } }, `Account for ${created.name} (${created.email}) created. Share this temporary password with them securely — it won't be shown again.`),
+            el('div', { class: 'row gap-2', style: { alignItems: 'stretch' } }, pwdField, copyBtn),
+            el('p', { style: { fontSize: '12px', color: 'var(--ink-2)', margin: '0' } }, 'They can change it from the account menu after signing in.')
+          );
+          JORD.modal({ title: 'Temporary password', body: detail, lg: false });
+        } else {
+          JORD.success(`${roleSelect.value === 'super' ? 'Super admin' : 'Admin'} account created`);
+        }
       } catch (err) { JORD.error(err.message); }
     }}}, 'Create admin');
     const m = JORD.modal({ title: 'New Admin Account', body, footer: createBtn, lg: false });
