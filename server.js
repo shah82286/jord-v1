@@ -13,6 +13,7 @@ const path     = require('path');
 const crypto   = require('crypto');
 const fs       = require('fs');
 const nodemailer = require('nodemailer');
+const backup    = require('./scripts/backup');
 
 // Load env
 const env = {};
@@ -42,12 +43,31 @@ const SMTP_PASS      = env.SMTP_PASS      || process.env.SMTP_PASS       || '';
 const SUPPORT_EMAIL  = env.SUPPORT_EMAIL  || process.env.SUPPORT_EMAIL   || 'support@jordgolf.com';
 
 const app = express();
-if (!fs.existsSync('./data')) fs.mkdirSync('./data', { recursive: true });
+
+// DB_PATH points at the persistent volume in production (e.g. /data/jord.db on Railway).
+// Defaults to ./data/jord.db for local dev.
+const DB_PATH = env.DB_PATH || process.env.DB_PATH || './data/jord.db';
+const DB_DIR  = path.dirname(DB_PATH);
+if (!fs.existsSync(DB_DIR)) fs.mkdirSync(DB_DIR, { recursive: true });
+
+// First-boot migration: if the volume DB doesn't exist yet but a legacy ./data/jord.db
+// is bundled in the image, copy it over so a one-time deploy doesn't lose history.
+// Idempotent: only runs when the target file is missing.
+const LEGACY_DB = './data/jord.db';
+if (!fs.existsSync(DB_PATH) && LEGACY_DB !== DB_PATH && fs.existsSync(LEGACY_DB)) {
+  try {
+    fs.copyFileSync(LEGACY_DB, DB_PATH);
+    console.log(`[DB] First-boot: copied legacy DB ${LEGACY_DB} -> ${DB_PATH}`);
+  } catch (err) {
+    console.warn('[DB] Legacy copy failed (continuing with fresh DB):', err.message);
+  }
+}
+
 let db;
 try {
-  db = new Database('./data/jord.db');
+  db = new Database(DB_PATH);
   db.pragma('journal_mode = WAL');
-  console.log('[DB] Connected to SQLite');
+  console.log(`[DB] Connected to SQLite at ${DB_PATH}`);
 } catch (err) {
   console.error('[FATAL] Database initialization failed:', err.message);
   process.exit(1);
@@ -1030,6 +1050,41 @@ app.patch('/api/admins/:id/password', requireAuth, requireSuper, (req, res) => {
   db.prepare('UPDATE admins SET password_hash=? WHERE id=?').run(hashPassword(password), req.params.id);
   db.prepare('DELETE FROM sessions WHERE admin_id=?').run(req.params.id);
   res.json({ success: true });
+});
+
+// ─── API: BACKUPS (super admin) ──────────────────────────────────────────────
+app.get('/api/admin/backup/status', requireAuth, requireSuper, (_req, res) => {
+  const list   = backup.listBackups(DB_PATH);
+  const latest = list[0] || null;
+  res.json({
+    dbPath:     DB_PATH,
+    backupDir:  backup.backupDir(DB_PATH),
+    count:      list.length,
+    latest,
+    s3Enabled:  !!process.env.S3_BUCKET,
+    s3Bucket:   process.env.S3_BUCKET || null,
+  });
+});
+
+app.post('/api/admin/backup/run', requireAuth, requireSuper, async (_req, res) => {
+  try {
+    const result = await backup.runBackupNow(db, DB_PATH);
+    res.json({ success: true, file: path.basename(result.file), bytes: result.bytes, uploaded: result.uploaded });
+  } catch (err) {
+    console.error('[Backup] Manual run failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/admin/backup/download', requireAuth, requireSuper, async (_req, res) => {
+  try {
+    // Always take a fresh snapshot for download so it's the live state
+    const result = await backup.runBackupNow(db, DB_PATH);
+    res.download(result.file, path.basename(result.file));
+  } catch (err) {
+    console.error('[Backup] Download failed:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── API: EVENTS ─────────────────────────────────────────────────────────────
@@ -2406,6 +2461,9 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // ─── START ────────────────────────────────────────────────────────────────────
+backup.scheduleDailyBackups(db, DB_PATH);
+console.log(`[Backup] Daily backups scheduled (local: ${backup.backupDir(DB_PATH)}, S3: ${process.env.S3_BUCKET ? 'enabled' : 'disabled'})`);
+
 console.log(`[Server] Starting on 0.0.0.0:${PORT}... [LIVE BUILD]`);
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`

@@ -3,6 +3,7 @@ node_modules/
 data/*.db
 data/*.db-shm
 data/*.db-wal
+data/backups/
 .DS_Store
 Thumbs.db
 tests/visual-report/

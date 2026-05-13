@@ -2,6 +2,37 @@
 
 ---
 
+## v3.9.0 — 2026-05-12
+### Session 23 — Database persistence + daily backups
+
+#### What Changed
+
+##### Database persistence (Railway volume) — `server.js`
+- Root cause of past data wipes: every Railway deploy spins up a fresh container, and the DB file at `./data/jord.db` lived inside the container — wiped on every push.
+- Fix: DB path now reads from `DB_PATH` env var (defaults to `./data/jord.db` for local dev). Railway service has a volume mounted at `/data` and `DB_PATH=/data/jord.db`.
+- First-boot migration: on startup, if the volume DB doesn't exist yet but a legacy `./data/jord.db` is bundled in the image, it's copied onto the volume once. Idempotent — only runs when the target is missing.
+
+##### Daily backup module — `scripts/backup.js`
+- Uses better-sqlite3's online backup API (`db.backup()`) — safe with WAL, no lock on the live DB.
+- Snapshots stored in `${DB_DIR}/backups/jord-<ISO-timestamp>.db`. Rotation keeps last 14 days; older snapshots auto-deleted.
+- Scheduled via `setInterval` in-process (no extra Railway cron service needed) — fires 60s after boot, then every 24 hours.
+- Optional S3/R2 upload: if `S3_BUCKET` env var is set, the same snapshot uploads to S3-compatible storage. Provider-agnostic via `S3_ENDPOINT` (Cloudflare R2 supported). Gracefully no-ops if vars are unset — local-only is the default.
+
+##### Admin "💾 Backups" UI — `public/admin.html`
+- Super-admin only. New button in the events-list topbar opens a modal showing latest backup file, count of stored snapshots, S3 status, and DB path.
+- Buttons: **↻ Run backup now** (manual snapshot), **⬇ Download backup** (streams a fresh snapshot to the browser).
+
+##### Admin API — `server.js`
+- `GET  /api/admin/backup/status` — current backup status (super only)
+- `POST /api/admin/backup/run` — manual snapshot trigger
+- `GET  /api/admin/backup/download` — takes a fresh snapshot and streams it as a file download
+
+##### Deps + docs
+- Added `@aws-sdk/client-s3` to dependencies (used only when S3_BUCKET is set).
+- `DEPLOY-BACKUPS.md` — one-page Railway dashboard walkthrough for volume creation, env vars, and the optional Cloudflare R2 setup.
+
+---
+
 ## v3.8.2 — 2026-05-12
 ### Session 22 — Mobile pin tap + events-list button cut-off
 
