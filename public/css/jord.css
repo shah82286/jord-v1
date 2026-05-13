@@ -533,9 +533,18 @@ body { overflow-x: hidden; }
   /* Toast — full-width at bottom on mobile */
   #toast-stack { top: auto; bottom: 12px; left: 12px; right: 12px; max-width: none; }
 
-  /* Modals — bottom sheet */
+  /* Modals — bottom sheet (iOS Safari: dvh respects the dynamic toolbar, env() respects the home-indicator safe area) */
   .modal-backdrop { align-items: flex-end; padding: 0; }
-  .modal { border-radius: var(--r-lg) var(--r-lg) 0 0; max-height: 88vh; }
+  .modal {
+    border-radius: var(--r-lg) var(--r-lg) 0 0;
+    max-height: 85dvh;
+  }
+  .modal-footer {
+    /* Keep action buttons visible at the bottom; respect iOS home indicator */
+    position: sticky; bottom: 0;
+    background: var(--surface);
+    padding-bottom: calc(var(--s-4) + env(safe-area-inset-bottom));
+  }
 
   /* Map */
   .map-container { height: 300px; border-radius: var(--r-md); }

@@ -2,6 +2,25 @@
 
 ---
 
+## v3.9.1 — 2026-05-12
+### Session 23 (cont.) — Mobile modal cut off by iOS Safari toolbar
+
+#### What Changed
+
+##### Bottom-sheet modal action buttons now reachable on iOS (`public/css/jord.css`)
+- Bug: on iPhone, `JORD.prompt` / `JORD.confirm` / `JORD.modal` modals open as bottom sheets. Action buttons in the footer were hidden behind Safari's bottom toolbar — user couldn't Save/Cancel without scrolling/dismissing the toolbar.
+- Root cause: mobile bottom-sheet used `max-height: 88vh`. iOS `vh` does NOT shrink when Safari's chrome appears, so the modal's bottom extended past the visible viewport.
+- Fix:
+  - `max-height: 85dvh` (dynamic viewport height — automatically respects Safari's toolbar)
+  - `.modal-footer` now `position: sticky; bottom: 0` so action buttons are always pinned to the visible bottom edge of the scroll container
+  - `padding-bottom: calc(var(--s-4) + env(safe-area-inset-bottom))` so the footer also clears the iOS home-indicator safe area
+
+##### Added `viewport-fit=cover` across all pages (12 HTML files)
+- Without `viewport-fit=cover`, `env(safe-area-inset-bottom)` returns 0 on iOS and the home-indicator fix above does nothing.
+- Updated in: admin, about, landing, global, signup, register, monitor, test, leaderboard, scan, dashboard, system-summary.
+
+---
+
 ## v3.9.0 — 2026-05-12
 ### Session 23 — Database persistence + daily backups
 
