@@ -763,8 +763,9 @@
     }
 
     try { const cfg = await JORD.api('/api/config'); mapboxToken = cfg.mapbox_token || ''; } catch {}
-    await loadEvents();
-    /* editor.html: parse /admin/events/:id/:panel from URL pathname */
+    /* editor.html: parse /admin/events/:id/:panel from URL pathname.
+       Open event in parallel with anything else — don't await loadEvents()
+       since this page doesn't show the events list. */
     const pathMatch = window.location.pathname.match(/^\/admin\/events\/(\d+)(?:\/([\w-]+))?\/?$/);
     if (pathMatch) {
       const eventId = parseInt(pathMatch[1], 10);
@@ -777,6 +778,10 @@
         window.location.href = '/admin';
       }
     } else {
+      /* fallback: no /events/:id in URL — show events list (this only
+         happens if someone hits editor.html via a stale link).
+         Lazy-load the list so the common path stays fast. */
+      await loadEvents();
       /* legacy hash fallback (#123/map) */
       const hash = window.location.hash.slice(1);
       if (hash) {
