@@ -623,13 +623,10 @@
   const gate = $('#gate'), app = $('#app');
   let currentAdmin = null;
 
-  function showGate(formId = 'gate-form') {
-    gate.classList.remove('hidden');
-    app.classList.add('hidden');
-    ['gate-form','forgot-pwd-form','forgot-user-form','reset-pwd-form'].forEach(id => {
-      const el = $('#' + id);
-      if (el) el.classList.toggle('hidden', id !== formId);
-    });
+  // editor.html requires auth — never shows its own login. Bounce to /admin.
+  function showGate(_formId = 'gate-form') {
+    const next = encodeURIComponent(location.pathname + location.search);
+    window.location.href = '/admin?next=' + next;
   }
 
   let topbarRendered = false;
@@ -647,12 +644,7 @@
     JORD.renderTopbar('Tournament Admin', topbarRight);
   }
 
-  function showApp() {
-    /* If a ?next= URL is set, jump there instead of staying on /admin */
-    const next = new URLSearchParams(location.search).get('next');
-    if (next && next.startsWith('/admin')) { window.location.href = next; return; }
-    gate.classList.add('hidden'); app.classList.remove('hidden'); renderAppTopbar(); init();
-  }
+  function showApp() { gate.classList.add('hidden'); app.classList.remove('hidden'); renderAppTopbar(); init(); }
 
   // Check for ?reset_token= in URL
   const resetToken = new URLSearchParams(location.search).get('reset_token');
@@ -772,15 +764,29 @@
 
     try { const cfg = await JORD.api('/api/config'); mapboxToken = cfg.mapbox_token || ''; } catch {}
     await loadEvents();
-    /* Restore last open event + panel from URL hash (e.g. #123/map) */
-    const hash = window.location.hash.slice(1);
-    if (hash) {
-      const [eventId, panel] = hash.split('/');
-      if (eventId) {
-        try {
-          await openEvent(parseInt(eventId));
-          if (panel) showPanel(panel);
-        } catch { history.replaceState(null, '', window.location.pathname); }
+    /* editor.html: parse /admin/events/:id/:panel from URL pathname */
+    const pathMatch = window.location.pathname.match(/^\/admin\/events\/(\d+)(?:\/([\w-]+))?\/?$/);
+    if (pathMatch) {
+      const eventId = parseInt(pathMatch[1], 10);
+      const panel = pathMatch[2] || null;
+      try {
+        await openEvent(eventId);
+        if (panel) showPanel(panel);
+      } catch (err) {
+        JORD.error('Could not open event: ' + err.message);
+        window.location.href = '/admin';
+      }
+    } else {
+      /* legacy hash fallback (#123/map) */
+      const hash = window.location.hash.slice(1);
+      if (hash) {
+        const [eventId, panel] = hash.split('/');
+        if (eventId) {
+          try {
+            await openEvent(parseInt(eventId));
+            if (panel) showPanel(panel);
+          } catch { history.replaceState(null, '', window.location.pathname); }
+        }
       }
     }
   }
@@ -796,7 +802,7 @@
     if (!events.length) { empty.classList.remove('hidden'); return; }
     empty.classList.add('hidden');
     for (const ev of events) {
-      const card = el('div', { class: 'card event-card', on: { click: () => { window.location.href = '/admin/events/' + ev.id; } } },
+      const card = el('div', { class: 'card event-card', on: { click: () => openEvent(ev.id) } },
         el('div', null,
           el('h3', null, ev.name),
           el('div', { class: 'event-meta' },
@@ -854,25 +860,25 @@
     renderTees();
   }
   function backToList() {
-    currentEvent = null;
-    $('#view-list').classList.remove('hidden');
-    $('#view-editor').classList.add('hidden');
-    $('#view-admins').classList.add('hidden');
-    $('#view-global').classList.add('hidden');
-    $('#view-requests').classList.add('hidden');
-    if (map) { map.remove(); map = null; }
-    loadEvents();
-    history.replaceState(null, '', window.location.pathname);
+    /* editor.html: navigate back to the events list page (real URL, real back button) */
+    window.location.href = '/admin';
   }
   $('#btn-back').addEventListener('click', (e) => { e.preventDefault(); backToList(); });
 
   // ── Admin management (super only) ──────────────────────────────────────────
 
-  // Super-admin nav buttons → real URLs (separate module pages)
-  $('#btn-manage-admins').addEventListener('click',   () => { window.location.href = '/admin/admins'; });
-  $('#btn-manage-global').addEventListener('click',   () => { window.location.href = '/admin/global'; });
-  $('#btn-manage-requests').addEventListener('click', () => { window.location.href = '/admin/requests'; });
-  $('#btn-manage-backups').addEventListener('click',  () => { window.location.href = '/admin/backups'; });
+  $('#btn-manage-admins').addEventListener('click', () => {
+    $('#view-list').classList.add('hidden');
+    $('#view-editor').classList.add('hidden');
+    $('#view-global').classList.add('hidden');
+    $('#view-requests').classList.add('hidden');
+    $('#view-admins').classList.remove('hidden');
+    loadAdmins();
+  });
+  $('#btn-back-to-events').addEventListener('click', e => { e.preventDefault(); backToList(); });
+
+  // ── Backups (super admin) ──
+  $('#btn-manage-backups').addEventListener('click', openBackupsModal);
 
   function fmtBytes(b) {
     if (!b && b !== 0) return '—';
@@ -1104,7 +1110,15 @@
 
   // ── Global Leaderboard management (super only) ──────────────────────────────
 
-  /* Old in-page handler removed — btn-manage-global now redirects to /admin/global */
+  $('#btn-manage-global').addEventListener('click', () => {
+    $('#view-list').classList.add('hidden');
+    $('#view-editor').classList.add('hidden');
+    $('#view-admins').classList.add('hidden');
+    $('#view-requests').classList.add('hidden');
+    $('#view-global').classList.remove('hidden');
+    loadGlobalEvents();
+  });
+  $('#btn-back-to-events-g').addEventListener('click', e => { e.preventDefault(); backToList(); });
 
   async function loadGlobalEvents() {
     const list = $('#global-events-list');
@@ -1166,7 +1180,16 @@
     catch { return s; }
   }
 
-  /* Old in-page handler removed — btn-manage-requests now redirects to /admin/requests */
+  $('#btn-manage-requests').addEventListener('click', () => {
+    $('#view-list').classList.add('hidden');
+    $('#view-editor').classList.add('hidden');
+    $('#view-admins').classList.add('hidden');
+    $('#view-global').classList.add('hidden');
+    $('#view-requests').classList.remove('hidden');
+    loadRequests($('#requests-status-filter').value);
+  });
+  $('#btn-back-to-events-r').addEventListener('click', e => { e.preventDefault(); backToList(); });
+  $('#requests-status-filter').addEventListener('change', e => loadRequests(e.target.value));
 
   async function refreshRequestsBadge() {
     try {
@@ -1494,8 +1517,20 @@
     if (name === 'players') loadTeams();
     if (name === 'alerts') loadAlerts();
     if (name === 'balls') loadBalls();
-    if (currentEvent) history.replaceState(null, '', '#' + currentEvent.id + '/' + name);
+    /* Phase 2: sub-tabs become real URL paths /admin/events/:id/:panel.
+       Use pushState so back button steps through panels. */
+    if (currentEvent) {
+      const newPath = '/admin/events/' + currentEvent.id + '/' + name;
+      if (window.location.pathname !== newPath) {
+        history.pushState({ panel: name }, '', newPath);
+      }
+    }
   }
+  /* Back/forward buttons should switch panels too */
+  window.addEventListener('popstate', () => {
+    const m = window.location.pathname.match(/^\/admin\/events\/\d+(?:\/([\w-]+))?\/?$/);
+    if (m && currentEvent) showPanel(m[1] || 'settings');
+  });
   $$('.editor-nav .nav-item').forEach(n => n.addEventListener('click', () => showPanel(n.dataset.panel)));
 
   // ── Venue autocomplete (CSV first, Mapbox geocoding fallback, validated) ──

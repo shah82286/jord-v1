@@ -2522,6 +2522,8 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   '/admin/backups':  'admin/backups.html',
   '/admin/global':   'admin/global.html',
   '/admin/requests': 'admin/requests.html',
+  '/admin/events/:id':       'admin/editor.html',
+  '/admin/events/:id/:tab':  'admin/editor.html',
   '/register/:id': 'register.html',
   '/scan': 'scan.html', '/scan/:code': 'scan.html', '/leaderboard/:id': 'leaderboard.html',
   '/dashboard/:eid/:code': 'dashboard.html', '/monitor/:id': 'monitor.html',
