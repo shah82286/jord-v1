@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Admin Accounts · JORD Admin</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+</head>
+<body>
+  <main class="container" style="padding-top: 24px; padding-bottom: 48px;">
+    <div class="row row-between mb-4" style="align-items:flex-start; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <a href="/admin" class="btn btn-ghost" style="margin-bottom: 12px;">← Back to events</a>
+        <h1 class="mt-2">Admin Accounts</h1>
+        <p class="mt-1" style="color:var(--ink-2);font-size:14px;">Manage who can log in and run tournaments.</p>
+      </div>
+      <button class="btn btn-primary" id="btn-new-admin">＋ New admin</button>
+    </div>
+    <div id="admins-list" class="col gap-2"></div>
+  </main>
+
+  <script src="/js/jord.js"></script>
+  <script src="/admin/_shared/auth.js"></script>
+  <script>
+    const el = JORD.el, $ = JORD.$, $$ = JORD.$$;
+
+    ADMIN.requireAuth({ super: true }).then(async () => {
+      ADMIN.renderTopbar('Admin');
+      await loadAdmins();
+      wireNewAdmin();
+    });
+
+    async function loadAdmins() {
+      const list = $('#admins-list');
+      list.innerHTML = '<div style="color:var(--ink-2);font-size:13px;">Loading…</div>';
+      try {
+        const admins = await JORD.api('/api/admins');
+        list.innerHTML = '';
+        for (const a of admins) {
+          const roleTag = a.role === 'super'
+            ? `<span class="badge badge-primary" style="font-size:11px;">Super Admin</span>`
+            : `<span class="badge" style="font-size:11px;">Tournament Admin</span>`;
+          const perms = a.role !== 'super' ? `
+            <div style="font-size:12px;color:var(--ink-2);margin-top:6px;">
+              Permissions: ${[
+                a.perm_corrections    ? 'Corrections' : null,
+                a.perm_end_tournament ? 'End tournament' : null,
+                a.perm_manage_players ? 'Manage players' : null,
+                a.perm_manage_balls   ? 'Manage balls' : null,
+              ].filter(Boolean).join(' · ') || 'None'}
+            </div>` : '';
+          const resetInfo = a.pending_reset
+            ? `<div style="font-size:12px;color:var(--primary);margin-top:4px;">⚠ Pending reset — <a href="${window.location.origin}/admin?reset_token=${a.pending_reset.token}" target="_blank" style="color:var(--primary);text-decoration:underline;">copy link</a></div>`
+            : '';
+          const card = el('div', { class: 'card', style: { padding: '14px 18px' } },
+            el('div', { class: 'row row-between', style: { alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' } },
+              el('div', { class: 'col gap-1' },
+                el('div', { class: 'row gap-2', style: { alignItems: 'center' } },
+                  el('strong', null, a.name),
+                  el('span', { html: roleTag }),
+                  a.active ? null : el('span', { class: 'badge badge-red', style: { fontSize: '11px' } }, 'Inactive')
+                ),
+                el('div', { style: { fontSize: '13px', color: 'var(--ink-2)' } }, a.email),
+                el('div', { html: perms }),
+                el('div', { html: resetInfo })
+              ),
+              el('div', { class: 'row gap-2' },
+                el('button', { class: 'btn btn-ghost', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: () => editAdmin(a) } }, '✏️ Edit'),
+                el('button', { class: 'btn btn-ghost', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: () => genResetLink(a) } }, '🔑 Reset pwd'),
+                a.id !== ADMIN.currentAdmin?.id ? el('button', { class: 'btn btn-danger', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: () => deleteAdmin(a) } }, 'Remove') : null
+              )
+            )
+          );
+          list.appendChild(card);
+        }
+        if (!admins.length) list.innerHTML = '<p style="color:var(--ink-2);">No admins found.</p>';
+      } catch (err) {
+        list.innerHTML = `<p style="color:var(--red);">${err.message}</p>`;
+      }
+    }
+
+    async function genResetLink(a) {
+      try {
+        const res = await JORD.api(`/api/admins/${a.id}/reset-password`, { method: 'POST' });
+        await JORD.modal({ title: `Reset link for ${a.name}`, body: `<p style="font-size:13px;margin-bottom:10px;">Share this link with the admin. It expires in 24 hours.</p><input class="input" value="${res.reset_url}" readonly onclick="this.select()" style="font-size:12px;">` });
+        loadAdmins();
+      } catch (err) { JORD.error(err.message); }
+    }
+
+    async function deleteAdmin(a) {
+      const ok = await JORD.confirm(`Remove ${a.name} (${a.email})? They will no longer be able to log in.`, { danger: true, okText: 'Remove admin' });
+      if (!ok) return;
+      try { await JORD.api(`/api/admins/${a.id}`, { method: 'DELETE' }); loadAdmins(); }
+      catch (err) { JORD.error(err.message); }
+    }
+
+    function editAdmin(a) {
+      const nameInput  = el('input', { class: 'input', type: 'text', value: a.name, placeholder: 'Full name' });
+      const emailInput = el('input', { class: 'input', type: 'email', value: a.email, placeholder: 'Email' });
+      const pwdInput   = el('input', { class: 'input', type: 'password', placeholder: 'New password (leave blank to keep)' });
+      const roleSelect = el('select', { class: 'input' },
+        el('option', { value: 'admin' }, 'Tournament Admin (manage events, players, corrections)'),
+        el('option', { value: 'super' }, 'Super Admin (all access, can create other admins)')
+      );
+      roleSelect.value = a.role || 'admin';
+      const checks = ['perm_corrections','perm_end_tournament','perm_manage_players','perm_manage_balls'].map(p => {
+        const cb = el('input', { type: 'checkbox' }); cb.checked = !!a[p]; cb.dataset.perm = p;
+        const label = { perm_corrections: 'Run corrections', perm_end_tournament: 'End tournament', perm_manage_players: 'Manage players', perm_manage_balls: 'Manage balls' }[p];
+        return el('label', { class: 'row gap-2', style: { fontSize: '13px', alignItems: 'center' } }, cb, label);
+      });
+      const activeBox = el('input', { type: 'checkbox' }); activeBox.checked = !!a.active;
+      const activeLabel = el('label', { class: 'row gap-2', style: { fontSize: '13px', alignItems: 'center' } }, activeBox, 'Account active');
+
+      const permSection = el('div', { class: 'col gap-2' }, el('label', null, 'Permissions'), ...checks);
+
+      const body = el('div', { class: 'col gap-3' },
+        el('div', { class: 'field' }, el('label', null, 'Name'), nameInput),
+        el('div', { class: 'field' }, el('label', null, 'Email'), emailInput),
+        el('div', { class: 'field' }, el('label', null, 'New password'), pwdInput, el('div', { class: 'hint' }, 'Leave blank to keep current password')),
+        el('div', { class: 'field' }, el('label', null, 'Role'), roleSelect),
+        permSection,
+        activeLabel
+      );
+
+      const updatePermDisplay = () => {
+        permSection.style.display = roleSelect.value === 'super' ? 'none' : 'block';
+      };
+      roleSelect.addEventListener('change', updatePermDisplay);
+      updatePermDisplay();
+
+      const saveBtn = el('button', { class: 'btn btn-primary', on: { click: async () => {
+        const updates = {
+          name: nameInput.value.trim(),
+          email: emailInput.value.trim(),
+          role: roleSelect.value,
+          active: activeBox.checked ? 1 : 0,
+        };
+        if (roleSelect.value === 'admin') {
+          checks.forEach(l => {
+            const cb = l.querySelector('input[type=checkbox]');
+            updates[cb.dataset.perm] = cb.checked ? 1 : 0;
+          });
+        }
+        try {
+          await JORD.api(`/api/admins/${a.id}`, { method: 'PATCH', body: updates });
+          if (pwdInput.value.trim().length >= 6) {
+            await JORD.api(`/api/admins/${a.id}/password`, { method: 'PATCH', body: { password: pwdInput.value.trim() } });
+          }
+          m.close(); loadAdmins(); JORD.success(`${roleSelect.value === 'super' ? 'Super admin' : 'Admin'} updated`);
+        } catch (err) { JORD.error(err.message); }
+      }}}, 'Save changes');
+      const m = JORD.modal({ title: `Edit ${a.name}`, body, footer: saveBtn, lg: true });
+    }
+
+    function wireNewAdmin() {
+      $('#btn-new-admin').addEventListener('click', () => {
+        const nameInput  = el('input', { class: 'input', type: 'text', placeholder: 'Full name' });
+        const emailInput = el('input', { class: 'input', type: 'email', placeholder: 'Email address' });
+        const roleSelect = el('select', { class: 'input' },
+          el('option', { value: 'admin' }, 'Tournament Admin (manage events, players, corrections)'),
+          el('option', { value: 'super' }, 'Super Admin (all access, can create other admins)')
+        );
+        const body = el('div', { class: 'col gap-3' },
+          el('div', { class: 'field' }, el('label', null, 'Name'), nameInput),
+          el('div', { class: 'field' }, el('label', null, 'Email'), emailInput),
+          el('div', { class: 'field' }, el('label', null, 'Role'), roleSelect),
+          el('div', { class: 'hint', style: { padding: '10px 12px', background: 'var(--surface-2)', borderRadius: '6px', fontSize: '12px' } },
+            '🔐 A temporary password will be generated for this admin. They can change it from the account menu after signing in.')
+        );
+        const createBtn = el('button', { class: 'btn btn-primary', on: { click: async () => {
+          if (!nameInput.value.trim() || !emailInput.value.trim()) {
+            JORD.warn('Name and email are required'); return;
+          }
+          try {
+            const created = await JORD.api('/api/admins', { method: 'POST', body: { name: nameInput.value.trim(), email: emailInput.value.trim(), role: roleSelect.value } });
+            m.close();
+            loadAdmins();
+            if (created.temp_password) {
+              const pwdField = el('input', { class: 'input', value: created.temp_password, readonly: true, style: { fontFamily: 'var(--font-mono)', fontSize: '18px', textAlign: 'center', fontWeight: '700' } });
+              pwdField.addEventListener('click', () => pwdField.select());
+              const copyBtn = el('button', { class: 'btn btn-ghost', on: { click: () => { navigator.clipboard.writeText(created.temp_password).then(() => JORD.success('Copied')); } } }, '📋 Copy');
+              const detail = el('div', { class: 'col gap-3' },
+                el('p', { style: { fontSize: '14px', margin: '0' } }, `Account for ${created.name} (${created.email}) created. Share this temporary password with them securely — it won't be shown again.`),
+                el('div', { class: 'row gap-2', style: { alignItems: 'stretch' } }, pwdField, copyBtn),
+                el('p', { style: { fontSize: '12px', color: 'var(--ink-2)', margin: '0' } }, 'They can change it from the account menu after signing in.')
+              );
+              JORD.modal({ title: 'Temporary password', body: detail, lg: false });
+            } else {
+              JORD.success(`${roleSelect.value === 'super' ? 'Super admin' : 'Admin'} account created`);
+            }
+          } catch (err) { JORD.error(err.message); }
+        }}}, 'Create admin');
+        const m = JORD.modal({ title: 'New Admin Account', body, footer: createBtn, lg: false });
+        nameInput.focus();
+      });
+    }
+  </script>
+</body>
+</html>

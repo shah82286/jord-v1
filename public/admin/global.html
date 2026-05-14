@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Global Leaderboard · JORD Admin</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+</head>
+<body>
+  <main class="container" style="padding-top: 24px; padding-bottom: 48px;">
+    <div class="row row-between mb-4" style="align-items:flex-start; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <a href="/admin" class="btn btn-ghost" style="margin-bottom: 12px;">← Back to events</a>
+        <h1 class="mt-2">Global Leaderboard</h1>
+        <p class="mt-1" style="color:var(--ink-2);font-size:14px;">Toggle which ended tournaments appear on the public <a href="/global" target="_blank" style="color:var(--primary)">/global</a> leaderboard.</p>
+      </div>
+      <a href="/global" target="_blank" class="btn btn-ghost">🌍 View public page</a>
+    </div>
+    <div id="global-events-list" class="col gap-2"></div>
+  </main>
+
+  <script src="/js/jord.js"></script>
+  <script src="/admin/_shared/auth.js"></script>
+  <script>
+    const el = JORD.el, $ = JORD.$;
+    ADMIN.requireAuth({ super: true }).then(async () => {
+      ADMIN.renderTopbar('Admin');
+      await loadGlobalEvents();
+    });
+
+    async function loadGlobalEvents() {
+      const list = $('#global-events-list');
+      list.innerHTML = '<div style="color:var(--ink-2);font-size:13px;">Loading…</div>';
+      try {
+        const events = await JORD.api('/api/global/events');
+        list.innerHTML = '';
+        if (!events.length) {
+          list.innerHTML = '<div class="card" style="padding:var(--s-5);color:var(--ink-2);text-align:center;">No ended tournaments yet. End a tournament to add it here.</div>';
+          return;
+        }
+        for (const ev of events) {
+          const isPublished = !!ev.global_published;
+          const card = el('div', { class: 'card', style: { padding: '14px 18px' } },
+            el('div', { class: 'row row-between', style: { alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
+              el('div', { class: 'col gap-1' },
+                el('strong', null, ev.name),
+                el('div', { style: { fontSize: '13px', color: 'var(--ink-2)' } }, (ev.venue || '—') + ' · ' + JORD.fmt.date(ev.starts_at)),
+                el('div', { style: { fontSize: '12px', color: 'var(--ink-2)' } }, ev.fairway_count + ' fairway drives eligible')
+              ),
+              (() => {
+                const cb = document.createElement('input');
+                cb.type = 'checkbox'; cb.checked = isPublished;
+                cb.style.cssText = 'width:18px;height:18px;accent-color:var(--primary);cursor:pointer';
+                const lbl = el('span', { style: { fontSize: '14px', fontWeight: '500' } }, isPublished ? 'Published' : 'Not published');
+                cb.addEventListener('change', async (e) => {
+                  try {
+                    await JORD.api(`/api/events/${ev.id}/global-publish`, { method: 'PATCH', body: { published: e.target.checked } });
+                    lbl.textContent = e.target.checked ? 'Published' : 'Not published';
+                    JORD.success(e.target.checked ? `${ev.name} added to Global Leaderboard` : `${ev.name} removed from Global Leaderboard`);
+                  } catch (err) { JORD.error(err.message); e.target.checked = !e.target.checked; }
+                });
+                return el('label', { class: 'row gap-2', style: { alignItems: 'center', cursor: 'pointer' } }, cb, lbl);
+              })()
+            )
+          );
+          list.appendChild(card);
+        }
+      } catch (err) {
+        list.innerHTML = `<p style="color:var(--red);">${err.message}</p>`;
+      }
+    }
+  </script>
+</body>
+</html>
