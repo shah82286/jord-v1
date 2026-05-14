@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Backups · JORD Admin</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+</head>
+<body>
+  <main class="container" style="padding-top: 24px; padding-bottom: 48px;">
+    <div class="row row-between" style="align-items:center; margin-bottom: 24px;">
+      <div>
+        <a href="/admin" class="btn btn-ghost" style="margin-bottom: 12px;">← Back to events</a>
+        <div class="hero-eyebrow">Database</div>
+        <h1 class="mt-2">Backups</h1>
+      </div>
+    </div>
+
+    <div id="backup-card" class="card" style="padding: 24px;">
+      <div id="backup-status" style="color: var(--ink-2); font-size: 14px;">Loading…</div>
+      <div class="row gap-2" style="margin-top: 20px; flex-wrap: wrap;">
+        <button id="btn-run"      class="btn btn-ghost">↻ Run backup now</button>
+        <button id="btn-download" class="btn btn-primary">⬇ Download latest backup</button>
+      </div>
+    </div>
+
+    <div class="card" style="padding: 20px; margin-top: 24px; background: var(--surface-2);">
+      <strong style="display:block; margin-bottom: 8px;">How backups work</strong>
+      <ul style="color: var(--ink-2); font-size: 13px; line-height: 1.7; margin: 0; padding-left: 20px;">
+        <li>Daily snapshot taken automatically, kept for 14 days on the Railway volume.</li>
+        <li>Download button takes a fresh snapshot and downloads it to your computer — safe to do anytime, no lock on the live DB.</li>
+        <li>Cloud upload (Cloudflare R2 / AWS S3) runs automatically if <code>S3_BUCKET</code> is configured in Railway env vars.</li>
+        <li>See <code>DEPLOY-BACKUPS.md</code> in the repo for the full setup walkthrough.</li>
+      </ul>
+    </div>
+  </main>
+
+  <script src="/js/jord.js"></script>
+  <script src="/admin/_shared/auth.js"></script>
+  <script>
+    ADMIN.requireAuth({ super: true }).then(async () => {
+      ADMIN.renderTopbar('Admin');
+      await refresh();
+      wireButtons();
+    });
+
+    function fmtBytes(b) {
+      if (!b && b !== 0) return '—';
+      if (b < 1024) return b + ' B';
+      if (b < 1024 * 1024) return (b / 1024).toFixed(1) + ' KB';
+      return (b / 1024 / 1024).toFixed(2) + ' MB';
+    }
+    function fmtWhen(iso) {
+      if (!iso) return '—';
+      try { return new Date(iso).toLocaleString(); } catch { return iso; }
+    }
+
+    async function refresh() {
+      const status = document.querySelector('#backup-status');
+      status.textContent = 'Loading…';
+      try {
+        const s = await JORD.api('/api/admin/backup/status');
+        const latestLine = s.latest
+          ? `<strong>${s.latest.name}</strong> · ${fmtBytes(s.latest.bytes)} · ${fmtWhen(s.latest.mtime)}`
+          : 'No backup yet — click <em>Run backup now</em> to create one.';
+        const s3Line = s.s3Enabled
+          ? `☁️ Cloud upload: <strong>enabled</strong> (bucket: ${s.s3Bucket})`
+          : '☁️ Cloud upload: <strong>disabled</strong> — set S3_BUCKET env vars on Railway to enable';
+        status.innerHTML = `
+          <div style="margin-bottom:10px;"><strong>Latest backup:</strong> ${latestLine}</div>
+          <div style="margin-bottom:10px;">📦 Local snapshots stored: <strong>${s.count}</strong> (rotated to last 14 days)</div>
+          <div style="margin-bottom:10px;">${s3Line}</div>
+          <div style="font-size:12px; color: var(--ink-3); margin-top: 12px;">DB path: <code>${s.dbPath}</code></div>
+        `;
+      } catch (err) {
+        status.innerHTML = `<span style="color:var(--danger)">${err.message}</span>`;
+      }
+    }
+
+    function wireButtons() {
+      const runBtn = document.querySelector('#btn-run');
+      const dlBtn  = document.querySelector('#btn-download');
+
+      runBtn.addEventListener('click', async () => {
+        runBtn.disabled = true; runBtn.textContent = 'Running…';
+        try {
+          const r = await JORD.api('/api/admin/backup/run', { method: 'POST' });
+          JORD.success(`Backup saved: ${r.file}${r.uploaded ? ' (uploaded to cloud)' : ''}`);
+          await refresh();
+        } catch (err) { JORD.error(err.message); }
+        finally { runBtn.disabled = false; runBtn.textContent = '↻ Run backup now'; }
+      });
+
+      dlBtn.addEventListener('click', () => {
+        const token = JORD.getToken();
+        window.location.href = '/api/admin/backup/download?token=' + encodeURIComponent(token);
+      });
+    }
+  </script>
+</body>
+</html>

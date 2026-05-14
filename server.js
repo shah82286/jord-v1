@@ -350,7 +350,9 @@ app.use((req, res, next) => {
 });
 
 app.use(express.json());
-app.use(express.static('public'));
+// redirect:false → don't 301 /admin → /admin/ when public/admin/ exists as a dir;
+// page routes below handle clean URLs like /admin and /admin/backups themselves.
+app.use(express.static('public', { redirect: false }));
 
 // ─── EMAIL ────────────────────────────────────────────────────────────────────
 const transporter = SMTP_HOST && SMTP_USER ? nodemailer.createTransport({
@@ -2514,7 +2516,10 @@ app.post('/api/test/registration-email', requireAuth, requireSuper, async (req, 
 });
 
 // ─── PAGES ───────────────────────────────────────────────────────────────────
-const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'about.html', '/signup': 'signup.html', '/admin': 'admin.html', '/register/:id': 'register.html',
+const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'about.html', '/signup': 'signup.html',
+  '/admin': 'admin.html',
+  '/admin/backups': 'admin/backups.html',
+  '/register/:id': 'register.html',
   '/scan': 'scan.html', '/scan/:code': 'scan.html', '/leaderboard/:id': 'leaderboard.html',
   '/dashboard/:eid/:code': 'dashboard.html', '/monitor/:id': 'monitor.html',
   '/global': 'global.html', '/test': 'test.html', '/system-summary': 'system-summary.html' };
