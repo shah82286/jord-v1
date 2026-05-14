@@ -284,13 +284,13 @@
     </div>
     <div class="lb-map-teams" id="lb-map-teams"></div>
     <div class="lb-map-legend">
-      <button id="lb-zone-all" style="font-size:10px;font-weight:700;padding:4px 10px;border-radius:var(--r-sm);border:1px solid #BEFF3A;background:#BEFF3A;color:#0C2010;cursor:pointer;line-height:1.2">Show All</button>
-      <span class="leg-fairway lb-zone-toggle" data-zone="fairway" style="cursor:pointer;user-select:none">Fairway</span>
-      <span class="leg-rough lb-zone-toggle" data-zone="rough" style="cursor:pointer;user-select:none">Rough</span>
-      <span class="leg-oob lb-zone-toggle" data-zone="oob" style="cursor:pointer;user-select:none">OOB</span>
-      <span class="leg-green lb-zone-toggle" data-zone="green" style="cursor:pointer;user-select:none">Green</span>
-      <span class="leg-ld">Drive</span>
-      <span class="leg-cp">Pin shot</span>
+      <button id="lb-zone-all" class="btn btn-ghost" style="font-size:11px;padding:5px 12px;line-height:1.2;height:auto;min-height:0">👁 Show All</button>
+      <button class="zone-chip" data-zone="fairway" data-color="59,130,246" style="font-size:11px;font-weight:600;padding:5px 10px;border-radius:999px;cursor:pointer;border:1.5px solid rgba(59,130,246,0.85);background:rgba(59,130,246,0.18);color:#60A5FA;line-height:1.2;transition:all .15s">✓ Fairway</button>
+      <button class="zone-chip" data-zone="rough" data-color="234,179,8" style="font-size:11px;font-weight:600;padding:5px 10px;border-radius:999px;cursor:pointer;border:1.5px solid rgba(234,179,8,0.85);background:rgba(234,179,8,0.18);color:#FBC02D;line-height:1.2;transition:all .15s">✓ Rough</button>
+      <button class="zone-chip" data-zone="oob" data-color="220,38,38" style="font-size:11px;font-weight:600;padding:5px 10px;border-radius:999px;cursor:pointer;border:1.5px solid rgba(220,38,38,0.85);background:rgba(220,38,38,0.18);color:#F87171;line-height:1.2;transition:all .15s">✓ OOB</button>
+      <button class="zone-chip" data-zone="green" data-color="34,197,94" style="font-size:11px;font-weight:600;padding:5px 10px;border-radius:999px;cursor:pointer;border:1.5px solid rgba(34,197,94,0.85);background:rgba(34,197,94,0.18);color:#4ADE80;line-height:1.2;transition:all .15s">✓ Green</button>
+      <span class="leg-ld" style="margin-left:auto">● Drive</span>
+      <span class="leg-cp">● Pin shot</span>
     </div>
   </div>
 </div>
@@ -375,18 +375,25 @@
         });
       });
     });
-    document.querySelectorAll('.lb-zone-toggle').forEach(function (el) {
+    document.querySelectorAll('.zone-chip').forEach(function (el) {
       var zone = el.dataset.zone;
-      el.style.opacity = zoneVisibility[zone] ? '1' : '0.35';
-      el.style.textDecoration = zoneVisibility[zone] ? 'none' : 'line-through';
+      var rgb = el.dataset.color;
+      var on = zoneVisibility[zone];
+      var label = el.textContent.replace(/^[✓✗]\s*/, '');
+      el.textContent = (on ? '✓ ' : '✗ ') + label;
+      el.style.background = on ? 'rgba(' + rgb + ',0.18)' : 'transparent';
+      el.style.borderStyle = on ? 'solid' : 'dashed';
+      el.style.opacity = on ? '1' : '0.55';
     });
   }
-  document.querySelectorAll('.lb-zone-toggle').forEach(function (el) {
+  document.querySelectorAll('.zone-chip').forEach(function (el) {
     el.addEventListener('click', function () {
       var zone = el.dataset.zone;
       zoneVisibility[zone] = !zoneVisibility[zone];
       applyZoneVisibility();
     });
+    el.addEventListener('mouseenter', function () { el.style.transform = 'translateY(-1px)'; });
+    el.addEventListener('mouseleave', function () { el.style.transform = ''; });
   });
   document.getElementById('lb-zone-all').addEventListener('click', function () {
     Object.keys(zoneVisibility).forEach(function (z) { zoneVisibility[z] = true; });
