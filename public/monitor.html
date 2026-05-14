@@ -334,7 +334,7 @@
       + '<div class="legend-item" style="color:var(--ink-3)">Tap 📍 by a team name to focus map</div>';
     mapCard.appendChild(legend);
 
-    /* Wire zone toggles */
+    /* Wire zone toggles — use zoneBar.querySelector since mapCard isn't yet attached to document */
     zoneBar.querySelectorAll('.mon-zone-toggle').forEach(function (el) {
       el.addEventListener('click', function () {
         var zone = el.dataset.zone;
@@ -342,7 +342,7 @@
         applyMonZoneVisibility();
       });
     });
-    document.getElementById('mon-zone-all').addEventListener('click', function () {
+    zoneBar.querySelector('#mon-zone-all').addEventListener('click', function () {
       Object.keys(monZoneVisibility).forEach(function (z) { monZoneVisibility[z] = true; });
       applyMonZoneVisibility();
     });
