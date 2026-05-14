@@ -772,15 +772,14 @@
 
     try { const cfg = await JORD.api('/api/config'); mapboxToken = cfg.mapbox_token || ''; } catch {}
     await loadEvents();
-    /* Restore last open event + panel from URL hash (e.g. #123/map) */
+    /* Legacy hash URLs (e.g. /admin#123/map) → redirect to new path-based route */
     const hash = window.location.hash.slice(1);
     if (hash) {
       const [eventId, panel] = hash.split('/');
       if (eventId) {
-        try {
-          await openEvent(parseInt(eventId));
-          if (panel) showPanel(panel);
-        } catch { history.replaceState(null, '', window.location.pathname); }
+        const target = '/admin/events/' + parseInt(eventId, 10) + (panel ? '/' + panel : '');
+        window.location.replace(target);
+        return;
       }
     }
   }

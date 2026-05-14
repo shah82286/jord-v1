@@ -1510,7 +1510,7 @@
   }
 
   // ── Tab navigation ──
-  function showPanel(name) {
+  function showPanel(name, opts = {}) {
     $$('.editor-nav .nav-item').forEach(n => n.classList.toggle('is-active', n.dataset.panel === name));
     $$('.panel').forEach(p => p.classList.toggle('is-active', p.dataset.panel === name));
     if (name === 'map') { requestAnimationFrame(initMap); }
@@ -1518,20 +1518,21 @@
     if (name === 'alerts') loadAlerts();
     if (name === 'balls') loadBalls();
     /* Phase 2: sub-tabs become real URL paths /admin/events/:id/:panel.
-       Use pushState so back button steps through panels. */
-    if (currentEvent) {
+       Push history ONLY when the user actively clicks a tab — not on
+       initial load or popstate, otherwise back springs forward again. */
+    if (currentEvent && opts.push) {
       const newPath = '/admin/events/' + currentEvent.id + '/' + name;
       if (window.location.pathname !== newPath) {
         history.pushState({ panel: name }, '', newPath);
       }
     }
   }
-  /* Back/forward buttons should switch panels too */
+  /* Back/forward switch panels in-place (no push — that would spring forward) */
   window.addEventListener('popstate', () => {
     const m = window.location.pathname.match(/^\/admin\/events\/\d+(?:\/([\w-]+))?\/?$/);
     if (m && currentEvent) showPanel(m[1] || 'settings');
   });
-  $$('.editor-nav .nav-item').forEach(n => n.addEventListener('click', () => showPanel(n.dataset.panel)));
+  $$('.editor-nav .nav-item').forEach(n => n.addEventListener('click', () => showPanel(n.dataset.panel, { push: true })));
 
   // ── Venue autocomplete (CSV first, Mapbox geocoding fallback, validated) ──
   let venueDebounce = null;
