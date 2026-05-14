@@ -764,11 +764,12 @@
 
     try { const cfg = await JORD.api('/api/config'); mapboxToken = cfg.mapbox_token || ''; } catch {}
     /* editor.html: parse /admin/events/:id/:panel from URL pathname.
+       Event IDs are strings like EVTD3364277, NOT integers.
        Open event in parallel with anything else — don't await loadEvents()
        since this page doesn't show the events list. */
-    const pathMatch = window.location.pathname.match(/^\/admin\/events\/(\d+)(?:\/([\w-]+))?\/?$/);
+    const pathMatch = window.location.pathname.match(/^\/admin\/events\/([A-Za-z0-9_-]+)(?:\/([\w-]+))?\/?$/);
     if (pathMatch) {
-      const eventId = parseInt(pathMatch[1], 10);
+      const eventId = pathMatch[1];
       const panel = pathMatch[2] || null;
       try {
         await openEvent(eventId);
@@ -782,13 +783,13 @@
          happens if someone hits editor.html via a stale link).
          Lazy-load the list so the common path stays fast. */
       await loadEvents();
-      /* legacy hash fallback (#123/map) */
+      /* legacy hash fallback (#EVTXXXX/map). Event IDs are strings, not ints. */
       const hash = window.location.hash.slice(1);
       if (hash) {
         const [eventId, panel] = hash.split('/');
         if (eventId) {
           try {
-            await openEvent(parseInt(eventId));
+            await openEvent(eventId);
             if (panel) showPanel(panel);
           } catch { history.replaceState(null, '', window.location.pathname); }
         }
@@ -1534,7 +1535,7 @@
   }
   /* Back/forward switch panels in-place (no push — that would spring forward) */
   window.addEventListener('popstate', () => {
-    const m = window.location.pathname.match(/^\/admin\/events\/\d+(?:\/([\w-]+))?\/?$/);
+    const m = window.location.pathname.match(/^\/admin\/events\/[A-Za-z0-9_-]+(?:\/([\w-]+))?\/?$/);
     if (m && currentEvent) showPanel(m[1] || 'settings');
   });
   $$('.editor-nav .nav-item').forEach(n => n.addEventListener('click', () => showPanel(n.dataset.panel, { push: true })));

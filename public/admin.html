@@ -772,12 +772,13 @@
 
     try { const cfg = await JORD.api('/api/config'); mapboxToken = cfg.mapbox_token || ''; } catch {}
     await loadEvents();
-    /* Legacy hash URLs (e.g. /admin#123/map) → redirect to new path-based route */
+    /* Legacy hash URLs (e.g. /admin#EVTD3364277/map) → redirect to new path-based route.
+       Event IDs are strings (alphanumeric, e.g. EVT-prefix), NOT integers. */
     const hash = window.location.hash.slice(1);
     if (hash) {
       const [eventId, panel] = hash.split('/');
       if (eventId) {
-        const target = '/admin/events/' + parseInt(eventId, 10) + (panel ? '/' + panel : '');
+        const target = '/admin/events/' + eventId + (panel ? '/' + panel : '');
         window.location.replace(target);
         return;
       }
