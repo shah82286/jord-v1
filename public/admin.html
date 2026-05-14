@@ -456,15 +456,14 @@
             </div>
 
             <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;margin-top:var(--s-3)">
-              <div style="font-size:11px;color:var(--ink-2);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Zones shown on player maps</div>
-              <p style="font-size:12px;color:var(--ink-2);margin:0 0 var(--s-2)">Default zones to display on the leaderboard and monitor maps. Saves automatically. Viewers can also toggle individual zones from the map legend.</p>
+              <div style="font-size:11px;color:var(--ink-2);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Hide zones while editing</div>
+              <p style="font-size:12px;color:var(--ink-2);margin:0 0 var(--s-2)">Temporarily hide a zone on this map while you're drawing — makes it easier to see the satellite imagery underneath. Does not affect what players see.</p>
               <div class="row gap-3 row-wrap" style="margin-top:8px">
-                <label class="switch" title="Show fairway on player-facing maps"><input type="checkbox" data-zone-toggle="fairway" checked><span class="switch-track"></span><span class="switch-label">🔵 Fairway</span></label>
-                <label class="switch" title="Show rough"><input type="checkbox" data-zone-toggle="rough" checked><span class="switch-track"></span><span class="switch-label">🟡 Rough</span></label>
-                <label class="switch" title="Show OOB"><input type="checkbox" data-zone-toggle="oob" checked><span class="switch-track"></span><span class="switch-label">🔴 OOB</span></label>
-                <label class="switch" title="Show green (both LD and CTP greens)"><input type="checkbox" data-zone-toggle="green" checked><span class="switch-track"></span><span class="switch-label">🟢 Green</span></label>
+                <label class="switch" title="Show/hide fairway on this admin map only"><input type="checkbox" data-admin-zone-toggle="fairway" checked><span class="switch-track"></span><span class="switch-label">🔵 Fairway</span></label>
+                <label class="switch" title="Show/hide rough"><input type="checkbox" data-admin-zone-toggle="rough" checked><span class="switch-track"></span><span class="switch-label">🟡 Rough</span></label>
+                <label class="switch" title="Show/hide OOB"><input type="checkbox" data-admin-zone-toggle="oob" checked><span class="switch-track"></span><span class="switch-label">🔴 OOB</span></label>
+                <label class="switch" title="Show/hide green (both LD and CTP greens)"><input type="checkbox" data-admin-zone-toggle="green" checked><span class="switch-track"></span><span class="switch-label">🟢 Green</span></label>
               </div>
-              <div id="zone-vis-status" style="font-size:11px;color:var(--ink-2);margin-top:6px;min-height:14px"></div>
             </div>
 
             <h4 class="mt-5 mb-2">Tee boxes <small id="tee-list-label" style="font-weight:400;color:var(--ink-2)"></small></h4>
@@ -1618,10 +1617,8 @@
     f.rough_penalty_mode.value = currentEvent.rough_penalty_mode || 'perpendicular';
     f.oob_penalty_mode.value   = currentEvent.oob_penalty_mode   || 'half_hole';
     for (const k of ['rough_fixed_yards', 'oob_fixed_yards', 'hole_distance_yards', 'cp_off_green_penalty_ft']) f[k].value = currentEvent[k] || 0;
-    /* Zone visibility — defaults to all on if not set */
-    let zv = { fairway: 1, rough: 1, oob: 1, green: 1 };
-    try { if (currentEvent.zone_visibility) zv = { ...zv, ...JSON.parse(currentEvent.zone_visibility) }; } catch {}
-    document.querySelectorAll('[data-zone-toggle]').forEach(cb => { cb.checked = !!zv[cb.dataset.zoneToggle]; });
+    /* Admin-only zone view toggles default to all on when opening editor */
+    document.querySelectorAll('[data-admin-zone-toggle]').forEach(cb => { cb.checked = true; });
   }
   $('#form-settings').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -1642,22 +1639,26 @@
     fillHeader();
   });
 
-  // ── Zone visibility (course map panel) — auto-save on change ──
-  document.addEventListener('change', async function (e) {
-    var cb = e.target.closest('[data-zone-toggle]');
-    if (!cb || !currentEvent) return;
-    var zv = {};
-    document.querySelectorAll('[data-zone-toggle]').forEach(function (el) {
-      zv[el.dataset.zoneToggle] = el.checked ? 1 : 0;
+  // ── Admin map zone visibility (local view only — does NOT save) ──
+  // Toggles fill + stroke layers on the admin editor map so admins can
+  // see satellite imagery underneath without altering player-facing maps.
+  function applyAdminZoneVisibility() {
+    if (typeof map === 'undefined' || !map) return;
+    document.querySelectorAll('[data-admin-zone-toggle]').forEach(function (cb) {
+      var kind = cb.dataset.adminZoneToggle;
+      var visible = cb.checked ? 'visible' : 'none';
+      // green checkbox controls both 'green' and 'ctp_green' layers
+      var kinds = kind === 'green' ? ['green', 'ctp_green'] : [kind];
+      kinds.forEach(function (k) {
+        ['fill', 'stroke'].forEach(function (suffix) {
+          var id = 'zone-' + suffix + '-' + k;
+          if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', visible);
+        });
+      });
     });
-    var status = document.getElementById('zone-vis-status');
-    if (status) { status.textContent = 'Saving…'; status.style.color = 'var(--ink-2)'; }
-    try {
-      currentEvent = await JORD.api('/api/events/' + currentEvent.id, { method: 'PATCH', body: { zone_visibility: JSON.stringify(zv) } });
-      if (status) { status.textContent = '✓ Saved — player maps will reflect this on next load'; status.style.color = 'var(--primary)'; }
-    } catch (err) {
-      if (status) { status.textContent = '⚠ Save failed: ' + err.message; status.style.color = 'var(--danger)'; }
-    }
+  }
+  document.addEventListener('change', function (e) {
+    if (e.target.closest('[data-admin-zone-toggle]')) applyAdminZoneVisibility();
   });
 
   // ── Map ──
