@@ -284,10 +284,11 @@
     </div>
     <div class="lb-map-teams" id="lb-map-teams"></div>
     <div class="lb-map-legend">
-      <span class="leg-fairway">Fairway</span>
-      <span class="leg-rough">Rough</span>
-      <span class="leg-oob">OOB</span>
-      <span class="leg-green">Green</span>
+      <button id="lb-zone-all" style="font-size:10px;font-weight:700;padding:3px 8px;border-radius:var(--r-sm);border:1px solid var(--primary);background:var(--primary);color:#0C2010;cursor:pointer">Show All</button>
+      <span class="leg-fairway lb-zone-toggle" data-zone="fairway" style="cursor:pointer;user-select:none">Fairway</span>
+      <span class="leg-rough lb-zone-toggle" data-zone="rough" style="cursor:pointer;user-select:none">Rough</span>
+      <span class="leg-oob lb-zone-toggle" data-zone="oob" style="cursor:pointer;user-select:none">OOB</span>
+      <span class="leg-green lb-zone-toggle" data-zone="green" style="cursor:pointer;user-select:none">Green</span>
       <span class="leg-ld">Drive</span>
       <span class="leg-cp">Pin shot</span>
     </div>
@@ -343,7 +344,54 @@
     addZone('lb-fairway',   ev.fairway_polygon,   '#3B82F6', 0.35);
     addZone('lb-green',     ev.green_polygon,     '#22C55E', 0.35);
     addZone('lb-ctp-green', ev.ctp_green_polygon, '#22C55E', 0.35);
+    applyAdminZoneDefaults(ev);
+    applyZoneVisibility();
   }
+
+  /* Per-zone visibility toggles for leaderboard map — initial state from admin settings */
+  var zoneVisibility = { fairway: true, rough: true, oob: true, green: true };
+  var zoneDefaultsApplied = false;
+  function applyAdminZoneDefaults(ev) {
+    if (zoneDefaultsApplied || !ev) return;
+    zoneDefaultsApplied = true;
+    try {
+      if (ev.zone_visibility) {
+        var saved = JSON.parse(ev.zone_visibility);
+        Object.keys(zoneVisibility).forEach(function (k) {
+          if (k in saved) zoneVisibility[k] = !!saved[k];
+        });
+      }
+    } catch (e) {}
+  }
+  var zoneLayerMap = { fairway: ['lb-fairway'], rough: ['lb-rough'], oob: ['lb-oob'], green: ['lb-green', 'lb-ctp-green'] };
+  function applyZoneVisibility() {
+    if (!lbMap) return;
+    Object.keys(zoneVisibility).forEach(function (zone) {
+      var visible = zoneVisibility[zone] ? 'visible' : 'none';
+      zoneLayerMap[zone].forEach(function (prefix) {
+        ['fill', 'line'].forEach(function (suffix) {
+          var layerId = prefix + '-' + suffix;
+          if (lbMap.getLayer(layerId)) lbMap.setLayoutProperty(layerId, 'visibility', visible);
+        });
+      });
+    });
+    document.querySelectorAll('.lb-zone-toggle').forEach(function (el) {
+      var zone = el.dataset.zone;
+      el.style.opacity = zoneVisibility[zone] ? '1' : '0.35';
+      el.style.textDecoration = zoneVisibility[zone] ? 'none' : 'line-through';
+    });
+  }
+  document.querySelectorAll('.lb-zone-toggle').forEach(function (el) {
+    el.addEventListener('click', function () {
+      var zone = el.dataset.zone;
+      zoneVisibility[zone] = !zoneVisibility[zone];
+      applyZoneVisibility();
+    });
+  });
+  document.getElementById('lb-zone-all').addEventListener('click', function () {
+    Object.keys(zoneVisibility).forEach(function (z) { zoneVisibility[z] = true; });
+    applyZoneVisibility();
+  });
 
   /* Load mapbox token — store promise so initMap can await it */
   var configReady = fetch('/api/config').then(function(r){return r.json();}).then(function(cfg){

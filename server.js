@@ -264,6 +264,7 @@ try { db.exec("ALTER TABLE balls ADD COLUMN cp_penalty_ft REAL DEFAULT 0"); } ca
 // Venue coordinates (set when admin selects course from autocomplete)
 try { db.exec("ALTER TABLE events ADD COLUMN venue_lat REAL"); } catch {}
 try { db.exec("ALTER TABLE events ADD COLUMN venue_lon REAL"); } catch {}
+try { db.exec("ALTER TABLE events ADD COLUMN zone_visibility TEXT"); } catch {}
 
 // Multi-admin: link events to the admin who created them
 try { db.exec("ALTER TABLE events ADD COLUMN admin_id TEXT"); } catch {}
@@ -1254,7 +1255,7 @@ app.patch('/api/events/:id', requireAuth, (req, res) => {
     'fairway_polygon','rough_polygon','oob_polygon','green_polygon',
     'pin_lat','pin_lon',
     'ctp_green_polygon','ctp_pin_lat','ctp_pin_lon','ctp_hole_distance_yards',
-    'cp_off_green_penalty_ft','admin_phone','venue_lat','venue_lon'];
+    'cp_off_green_penalty_ft','admin_phone','venue_lat','venue_lon','zone_visibility'];
   const updates = Object.entries(req.body).filter(([k]) => allowed.includes(k));
   if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
   db.prepare(`UPDATE events SET ${updates.map(([k])=>`${k}=?`).join(',')} WHERE id=?`)
