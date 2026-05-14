@@ -2,6 +2,50 @@
 
 ---
 
+## v3.10.0 — 2026-05-13
+### Session 23 (cont.) — Admin modular split: every view is its own URL, back button works
+
+#### Why
+Admin panel was a single-URL SPA — 5 views (events list, event editor, manage admins, global LB, requests) all toggled in/out of `admin.html` via JS. Hitting browser back from any inner view escaped straight to the landing page instead of going one step back. Tournament admins running real events need URLs they can share/bookmark and a back button that behaves predictably.
+
+#### What Changed
+
+##### New shared scaffold (`public/admin/_shared/auth.js`)
+- `ADMIN.requireAuth({ super: true })` — token check + role check, redirects to `/admin?next=<path>` on failure so the user returns to where they were after login.
+- `ADMIN.renderTopbar()` — consistent topbar (name + sign-out) across all extracted pages.
+
+##### New standalone admin module pages
+| Route | File | Purpose |
+|---|---|---|
+| `/admin/admins` | `public/admin/admins.html` | Manage admin accounts |
+| `/admin/global` | `public/admin/global.html` | Global leaderboard management |
+| `/admin/requests` | `public/admin/requests.html` | Inbound tournament requests |
+| `/admin/backups` | `public/admin/backups.html` | Database backups |
+| `/admin/events/:id` | `public/admin/editor.html` | Event editor (cloned from admin.html so the 2000+ lines of Mapbox/Mapbox-Draw map logic stay intact and untouched) |
+| `/admin/events/:id/:tab` | `public/admin/editor.html` | Same, with specific sub-tab |
+
+##### Updated `public/admin.html`
+- Event card click navigates to `/admin/events/:id` (real URL) instead of toggling an in-page view.
+- Super-admin nav buttons (Manage Admins / Global LB / Requests / Backups) navigate to the new routes.
+- After login, honors `?next=<path>` so deep-link login redirects work.
+- Legacy `#hash`-based URLs redirect to the new path-based routes.
+
+##### Phase 2: editor sub-tab pushState routing
+- `showPanel(name, { push: true })` — sub-tab clicks push real history entries so back/forward step through Settings/Course Map/Ball Codes/Players/Alerts/QR one at a time.
+- `popstate` listener swaps panels in-place (no re-push, so back doesn't spring forward).
+- Initial load & internal callers do NOT push, keeping history clean.
+
+##### Server-side
+- New page routes in `server.js`. `express.static` configured with `redirect: false` so the new `public/admin/` directory doesn't 301-redirect `/admin` → `/admin/`.
+
+#### Critical bug found during testing
+Event IDs in JORD are **strings** (e.g. `EVTD3364277`), not integers. The first version of my routing regex required digits-only (`\d+`), so `editor.html` silently failed to recognize real URLs, fell through to the events-list fallback, and the user had to click twice. Fix: regex now matches `[A-Za-z0-9_-]+`, parseInt removed across the routing logic.
+
+#### Tests
+48/48 unit + 75/75 regression pass. Manually verified in browser: single-click on event card opens editor; back/forward through sub-tabs swap panels correctly.
+
+---
+
 ## v3.9.3 — 2026-05-13
 ### Session 25 — Fix delete-admin 500, edit any admin (incl. super)
 
