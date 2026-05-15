@@ -1714,7 +1714,8 @@ app.post('/api/events/:eventId/register-player', registerLimiter, async (req, re
 
   const event = db.prepare('SELECT status FROM events WHERE id=?').get(eventId);
   if (!event) return res.status(404).json({ error: 'Event not found' });
-  if (event.status !== 'active') return res.status(403).json({ error: event.status === 'setup' ? 'Tournament has not started yet' : 'Tournament has ended' });
+  // Registration is open during setup AND active — only a finished tournament closes it.
+  if (event.status === 'ended') return res.status(403).json({ error: 'This tournament has ended — registration is closed' });
 
   const code = drop_code.trim().toUpperCase();
   const ball = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(code, eventId);
@@ -1750,7 +1751,8 @@ app.post('/api/events/:eventId/finalize-team', (req, res) => {
 
   const event = db.prepare('SELECT status FROM events WHERE id=?').get(eventId);
   if (!event) return res.status(404).json({ error: 'Event not found' });
-  if (event.status !== 'active') return res.status(403).json({ error: event.status === 'setup' ? 'Tournament has not started yet' : 'Tournament has ended' });
+  // Registration is open during setup AND active — only a finished tournament closes it.
+  if (event.status === 'ended') return res.status(403).json({ error: 'This tournament has ended — registration is closed' });
 
   // Normalize share code; ensure uniqueness within event (regenerate if conflict)
   let normalizedShare = (share_code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
@@ -1796,6 +1798,23 @@ app.post('/api/events/:eventId/finalize-team', (req, res) => {
   });
 });
 
+// List all teams for an event — powers the "join an existing team" dropdown
+// on the registration page. No auth — registration is public.
+app.get('/api/events/:eventId/teams', (req, res) => {
+  const { eventId } = req.params;
+  const event = db.prepare('SELECT id FROM events WHERE id=?').get(eventId);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+  const teams = db.prepare(`
+    SELECT t.team_name, t.share_code, COUNT(b.drop_code) AS member_count
+    FROM teams t
+    LEFT JOIN balls b ON b.team_id = t.id
+    WHERE t.event_id = ?
+    GROUP BY t.id
+    ORDER BY t.team_name COLLATE NOCASE ASC
+  `).all(eventId);
+  res.json(teams);
+});
+
 // Look up a team by its 6-char share code so a new player can confirm + join it.
 // Returns team info + member list. No auth — share code is the access token.
 app.get('/api/events/:eventId/teams/by-share-code/:code', (req, res) => {
@@ -1823,7 +1842,8 @@ app.post('/api/events/:eventId/teams/by-share-code/:code/add-player', registerLi
 
   const event = db.prepare('SELECT status FROM events WHERE id=?').get(eventId);
   if (!event) return res.status(404).json({ error: 'Event not found' });
-  if (event.status !== 'active') return res.status(403).json({ error: event.status === 'setup' ? 'Tournament has not started yet' : 'Tournament has ended' });
+  // Registration is open during setup AND active — only a finished tournament closes it.
+  if (event.status === 'ended') return res.status(403).json({ error: 'This tournament has ended — registration is closed' });
 
   const team = db.prepare('SELECT id, team_name FROM teams WHERE event_id=? AND share_code=?').get(eventId, code);
   if (!team) return res.status(404).json({ error: 'Team not found for this code' });

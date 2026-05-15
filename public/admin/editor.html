@@ -541,13 +541,33 @@
           <div class="panel card" data-panel="players">
             <h3 class="card-title">Players & teams</h3>
             <p class="card-sub">Click a team to expand and see players. Click Edit to update a player's name, email, or phone.</p>
+
+            <!-- Share registration — works before AND after the tournament starts -->
+            <div id="reg-share" style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s-4);margin-bottom:var(--s-4);display:flex;gap:var(--s-4);align-items:center;flex-wrap:wrap">
+              <img id="reg-qr" width="132" height="132" alt="Registration QR code"
+                   style="border-radius:8px;background:#fff;padding:6px;flex-shrink:0">
+              <div style="flex:1;min-width:200px">
+                <div style="font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:700;color:var(--ink-2);margin-bottom:4px">Player registration</div>
+                <p style="font-size:13px;color:var(--ink-2);margin:0 0 8px;line-height:1.5">
+                  Players scan this QR — or open the link — to register their team.
+                  Works now, even before you start the tournament.
+                </p>
+                <a id="register-deeplink" target="_blank" rel="noopener"
+                   style="font-size:13px;color:var(--accent);word-break:break-all;border-bottom:1px solid rgba(184,136,77,0.3)">/register/…</a>
+                <div class="row gap-2 mt-2">
+                  <button id="btn-copy-reg-link" class="btn btn-ghost" type="button" style="font-size:12px;padding:6px 10px">📋 Copy link</button>
+                  <a id="btn-open-reg" target="_blank" rel="noopener" class="btn btn-ghost" style="font-size:12px;padding:6px 10px">↗ Open</a>
+                </div>
+              </div>
+            </div>
+
             <div class="row gap-2 mb-3">
               <input id="players-search" class="input" type="search" placeholder="Search by team name, player name or ball code…" style="flex:1;font-size:13px">
             </div>
             <div id="teams-empty" class="empty hidden">
               <div class="empty-icon">👥</div>
               <div class="empty-title">No teams yet</div>
-              <p>Send players to <a id="register-deeplink">/register/…</a> to start registering.</p>
+              <p>Share the registration QR or link above to start registering players.</p>
             </div>
             <div id="teams-list"></div>
           </div>
@@ -1493,8 +1513,23 @@
 
     $('#btn-register-link').href = `/register/${currentEvent.id}`;
     $('#btn-register-link').target = '_blank';
-    $('#register-deeplink').href = `/register/${currentEvent.id}`;
-    $('#register-deeplink').textContent = `/register/${currentEvent.id}`;
+
+    /* Registration share block — full URL, clickable link, QR, copy button.
+       Works regardless of tournament status (registration opens pre-start). */
+    const regUrl = `${window.location.origin}/register/${currentEvent.id}`;
+    $('#register-deeplink').href = regUrl;
+    $('#register-deeplink').textContent = regUrl;
+    $('#btn-open-reg').href = regUrl;
+    $('#reg-qr').src = `/api/qr?size=264&data=${encodeURIComponent(regUrl)}`;
+    const copyBtn = $('#btn-copy-reg-link');
+    if (copyBtn && !copyBtn.dataset.wired) {
+      copyBtn.dataset.wired = '1';
+      copyBtn.addEventListener('click', () => {
+        navigator.clipboard.writeText(regUrl)
+          .then(() => JORD.success('Registration link copied'))
+          .catch(() => JORD.warn('Could not copy — select the link and copy manually'));
+      });
+    }
 
     applyEndedLock();
   }

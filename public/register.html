@@ -92,12 +92,9 @@
 (function () {
   var eid = JORD.path(1);
   var eventInfo         = null;
-  var players           = [];   /* {code, first, last, email, phone, tee_box_id} */
   var MAX               = 4;
-  var submittingWithFewer = false;
-  var teamCode          = JORD.qs('team');  /* Check URL for team code from QR scan */
-  var bulkRegistering   = false; /* Flag for alternate bulk registration mode */
-  var existingTeam      = null;  /* Set when ?team= URL matches a finalized team — triggers add-to-team flow */
+  var teamCode          = JORD.qs('team');  /* Team share code — from QR scan or the dropdown pick */
+  var existingTeam      = null;  /* Set when teamCode resolves to a real team — triggers the join flow */
 
   /* ── Bootstrap ── */
   document.addEventListener('DOMContentLoaded', function () {
@@ -113,7 +110,8 @@
       .then(function (info) {
         if (info.error) { renderError(info.error); return; }
         eventInfo = info;
-        if (info.status === 'setup') { renderError('This tournament hasn\'t started yet. Check back when it\'s live!'); return; }
+        /* Registration is open during setup (pre-tournament) AND active.
+           Only an ended tournament closes registration. */
         if (info.status === 'ended') { renderError('This tournament has ended. Registration is closed.'); return; }
 
         /* If a team code is in the URL, check whether that team has been finalized already.
@@ -168,433 +166,322 @@
 
   function renderStep() {
     var root = getRoot();
-
-    /* If the URL team code matches an already-finalized team, show "Add yourself" flow */
+    /* A team code (from a scanned QR or the dropdown) that resolved to a real
+       team → join flow. Otherwise → start a new team. */
     if (existingTeam && existingTeam.team_id) {
       showAddToExistingTeamForm(root);
       return;
     }
-
-    /* If in bulk registration mode, show bulk form instead */
-    if (bulkRegistering) {
-      showBulkRegistrationForm(root);
-      return;
-    }
-
-    var playerIndex = players.length + 1;
-    var onTeamStep  = players.length >= MAX || submittingWithFewer;
-
-    root.innerHTML = '';
-
-    /* Event header */
-    var evHead = document.createElement('div');
-    evHead.style.cssText = 'margin-bottom:var(--s-5)';
-    evHead.innerHTML = '<div class="hero-eyebrow">' + (eventInfo.venue || 'JORD Golf Tournament') + '</div>'
-      + '<h2 class="mt-1">' + eventInfo.name + '</h2>'
-      + (teamCode && players.length === 0 ? '<div style="background:rgba(184,136,77,0.12);border:1px solid rgba(184,136,77,0.4);border-radius:var(--r-md);padding:10px 14px;font-size:13px;margin-bottom:var(--s-3);color:var(--ink)">✅ Joining team code: <strong>' + teamCode + '</strong></div>' : '')
-      + '<p class="text-muted" style="margin-top:4px;font-size:14px">Register your team below. Total of 4 drop codes needed.</p>';
-    root.appendChild(evHead);
-
-    /* Step bar — 4 player pips + 1 team pip */
-    var bar = document.createElement('div');
-    bar.className = 'step-bar';
-    for (var i = 0; i < MAX; i++) {
-      var pip = document.createElement('div');
-      pip.className = 'step-pip' + (i < players.length ? ' done' : (i === players.length && !onTeamStep ? ' active' : ''));
-      bar.appendChild(pip);
-    }
-    var teamPip = document.createElement('div');
-    teamPip.className = 'step-pip' + (onTeamStep ? ' active' : '');
-    teamPip.style.flex = '1';
-    bar.appendChild(teamPip);
-    root.appendChild(bar);
-
-    /* Previously added players */
-    if (players.length > 0) {
-      var doneList = document.createElement('div');
-      doneList.className = 'players-done';
-      players.forEach(function (p) {
-        var chip = document.createElement('div');
-        chip.className = 'player-chip';
-        chip.innerHTML = '<span style="font-size:18px">✅</span>'
-          + '<span><strong>' + p.first + ' ' + p.last + '</strong></span>'
-          + '<span class="code">' + p.code + '</span>';
-        doneList.appendChild(chip);
-      });
-      root.appendChild(doneList);
-    }
-
-    /* ── Main content ── */
-    if (players.length === 0) {
-      /* First player — show form straight away */
-      showPlayerForm(root, 1);
-
-    } else if (onTeamStep) {
-      /* All 4 entered, or user chose to submit with fewer — show team name */
-      showTeamForm(root, submittingWithFewer);
-
-    } else if (players.length === 1) {
-      /* After player 1 — show team code + options */
-      if (!teamCode) teamCode = generateTeamCode();
-
-      var actions = document.createElement('div');
-
-      /* Show team code + QR code */
-      var codeBox = document.createElement('div');
-      codeBox.style.cssText = 'background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s-4);margin-bottom:var(--s-4);text-align:center';
-      codeBox.innerHTML = '<div style="font-size:11px;color:var(--ink-2);margin-bottom:6px;text-transform:uppercase;font-weight:700">Share this code with your team</div>'
-        + '<div style="font-family:var(--font-mono);font-size:28px;font-weight:700;letter-spacing:2px;margin-bottom:var(--s-3)">' + teamCode + '</div>'
-        + '<div id="qr-container" style="margin:var(--s-3) 0"></div>'
-        + '<div style="font-size:12px;color:var(--ink-2);margin-top:var(--s-2)">Players 2-4 can scan this QR code on their phones to join</div>';
-      root.appendChild(codeBox);
-
-      /* Generate QR code for team URL */
-      var teamUrl = window.location.origin + '/register/' + eid + '?team=' + teamCode;
-      generateQRCode('qr-container', teamUrl);
-
-      /* Primary: Add next player via QR */
-      var addBtn = document.createElement('button');
-      addBtn.className = 'btn btn-primary btn-block btn-lg';
-      addBtn.innerHTML = '＋ Add Player ' + playerIndex;
-      addBtn.addEventListener('click', function () {
-        showPlayerForm(root, playerIndex);
-      });
-      actions.appendChild(addBtn);
-
-      /* Divider */
-      var orDiv = document.createElement('div');
-      orDiv.style.cssText = 'display:flex;align-items:center;gap:12px;margin:var(--s-3) 0;color:var(--ink-3);font-size:13px';
-      orDiv.innerHTML = '<div style="flex:1;height:1px;background:var(--border)"></div>or<div style="flex:1;height:1px;background:var(--border)"></div>';
-      actions.appendChild(orDiv);
-
-      /* Secondary: Finish as solo — skip straight to team name */
-      var soloBtn = document.createElement('button');
-      soloBtn.className = 'btn btn-ghost btn-block';
-      soloBtn.textContent = '🏌️ Playing solo — finish registration →';
-      soloBtn.addEventListener('click', function () {
-        submittingWithFewer = true;
-        renderStep();
-      });
-      actions.appendChild(soloBtn);
-
-      root.appendChild(actions);
-
-    } else if (players.length > 1 && players.length < MAX) {
-      /* Between 2–3 players — show action buttons */
-      var actions = document.createElement('div');
-
-      /* Primary: Add next player */
-      var addBtn = document.createElement('button');
-      addBtn.className = 'btn btn-primary btn-block btn-lg';
-      addBtn.innerHTML = '＋ Add Player ' + playerIndex;
-      addBtn.addEventListener('click', function () {
-        actions.remove();
-        showPlayerForm(root, playerIndex);
-      });
-      actions.appendChild(addBtn);
-
-      /* Divider */
-      var orDiv = document.createElement('div');
-      orDiv.style.cssText = 'display:flex;align-items:center;gap:12px;margin:var(--s-3) 0;color:var(--ink-3);font-size:13px';
-      orDiv.innerHTML = '<div style="flex:1;height:1px;background:var(--border)"></div>or<div style="flex:1;height:1px;background:var(--border)"></div>';
-      actions.appendChild(orDiv);
-
-      /* Secondary: Submit with fewer */
-      var fewerBtn = document.createElement('button');
-      fewerBtn.className = 'btn btn-ghost btn-block';
-      fewerBtn.textContent = 'We\'re ready to play →';
-      fewerBtn.addEventListener('click', function () {
-        /* Inline confirmation — no popup */
-        actions.innerHTML = '';
-        var warn = document.createElement('div');
-        warn.style.cssText = 'background:rgba(234,179,8,0.12);border:1px solid rgba(234,179,8,0.45);border-radius:var(--r-md);padding:16px;margin-bottom:var(--s-3)';
-        warn.innerHTML = '<div style="font-weight:700;margin-bottom:6px">⚠️ Submitting with ' + players.length + ' of ' + MAX + ' players</div>'
-          + '<div style="font-size:13px;color:var(--ink-2)">Most teams have 4 players. You can have extra players added later through the admin panel.</div>';
-        actions.appendChild(warn);
-
-        var confirmRow = document.createElement('div');
-        confirmRow.className = 'row gap-3';
-
-        var yesBtn = document.createElement('button');
-        yesBtn.className = 'btn btn-primary grow';
-        yesBtn.textContent = 'Continue with ' + players.length + ' →';
-        yesBtn.addEventListener('click', function () { submittingWithFewer = true; renderStep(); });
-
-        var noBtn = document.createElement('button');
-        noBtn.className = 'btn btn-ghost';
-        noBtn.textContent = 'Add more players';
-        noBtn.addEventListener('click', renderStep);
-
-        confirmRow.appendChild(yesBtn);
-        confirmRow.appendChild(noBtn);
-        actions.appendChild(confirmRow);
-      });
-      actions.appendChild(fewerBtn);
-
-      root.appendChild(actions);
-    }
+    showNewTeamScreen(root);
   }
 
-  function showBulkRegistrationForm(root) {
+  /* ── Popup: drop code already in use ── */
+  function showCodeInUsePopup() {
+    JORD.modal({
+      title: 'Code already in use',
+      body: '<p style="font-size:14px;line-height:1.6;margin:0">'
+          + 'This code is already in use. Please talk to admin.'
+          + '</p>',
+    });
+  }
+
+  /* ── New-team screen — player 1 sets the team name + their own details ── */
+  function showNewTeamScreen(root) {
     root.innerHTML = '';
 
     /* Header */
     var evHead = document.createElement('div');
-    evHead.style.cssText = 'margin-bottom:var(--s-5)';
+    evHead.style.cssText = 'margin-bottom:var(--s-4)';
+    var preNote = (eventInfo.status === 'setup')
+      ? '<div style="background:rgba(184,136,77,0.12);border:1px solid rgba(184,136,77,0.4);border-radius:var(--r-md);padding:10px 14px;font-size:13px;margin-bottom:var(--s-3);color:var(--ink)">📋 <strong>Pre-registration is open.</strong> Register your team now — you\'ll be ready to submit shots once the tournament starts.</div>'
+      : '';
     evHead.innerHTML = '<div class="hero-eyebrow">' + (eventInfo.venue || 'JORD Golf Tournament') + '</div>'
       + '<h2 class="mt-1">' + eventInfo.name + '</h2>'
-      + '<p class="text-muted" style="margin-top:4px;font-size:14px">Register your team — 1 to 4 players, each with at least one drop code.</p>';
+      + preNote
+      + '<p class="text-muted" style="margin-top:4px;font-size:14px">Start your team below — you\'ll get a QR code to share with your teammates.</p>';
     root.appendChild(evHead);
 
-    var card = document.createElement('div');
-    card.className = 'card';
+    var form = document.createElement('div');
+    form.className = 'card';
 
-    var title = document.createElement('h3');
-    title.className = 'card-title';
-    title.textContent = 'Team Registration';
-    card.appendChild(title);
-
-    var sub = document.createElement('p');
-    sub.className = 'card-sub';
-    sub.textContent = 'Add 1-4 players. Each player needs at least one drop code (up to 4 codes per team total).';
-    card.appendChild(sub);
-
-    /* Player entries container */
-    var playersContainer = document.createElement('div');
-    playersContainer.id = 'bulk-players';
-    playersContainer.style.cssText = 'display:flex;flex-direction:column;gap:var(--s-3);margin-bottom:var(--s-4)';
-
-    /* Add first player form */
-    addBulkPlayerRow(playersContainer, 1);
-
-    card.appendChild(playersContainer);
-
-    /* Add more button */
-    var addMoreBtn = document.createElement('button');
-    addMoreBtn.className = 'btn btn-ghost btn-block';
-    addMoreBtn.textContent = '＋ Add Another Player';
-    addMoreBtn.addEventListener('click', function() {
-      var count = playersContainer.querySelectorAll('.bulk-player-row').length + 1;
-      if (count <= 4) {
-        addBulkPlayerRow(playersContainer, count);
-      } else {
-        JORD.warn('Maximum 4 players per team');
-      }
-    });
-    card.appendChild(addMoreBtn);
-
-    /* Code count info */
-    var codeInfo = document.createElement('div');
-    codeInfo.style.cssText = 'background:var(--surface-2);border-radius:var(--r-md);padding:10px 14px;margin-top:var(--s-3);font-size:13px;color:var(--ink-2)';
-    codeInfo.innerHTML = '<span id="code-count">0</span> drop code(s) entered (1-4 allowed)';
-    card.appendChild(codeInfo);
-
-    root.appendChild(card);
-
-    /* Team name */
-    var teamCard = document.createElement('div');
-    teamCard.className = 'card mt-4';
-    var teamTitle = document.createElement('h3');
-    teamTitle.className = 'card-title';
-    teamTitle.textContent = 'Team Name';
-    teamCard.appendChild(teamTitle);
+    /* Team name — FIRST, set right away */
     var teamField = document.createElement('div');
     teamField.className = 'field';
-    teamField.innerHTML = '<label>What should we call your team?</label>';
+    teamField.innerHTML = '<label>Team Name</label>'
+      + '<p style="font-size:12px;color:var(--ink-2);margin-bottom:8px">Your teammates will see this when they scan your QR code.</p>';
     var teamInput = document.createElement('input');
-    teamInput.id = 'bulk-team-name';
     teamInput.className = 'input input-lg';
     teamInput.placeholder = 'e.g. The Bogeymen';
+    teamInput.maxLength = 60;
     teamField.appendChild(teamInput);
-    teamCard.appendChild(teamField);
-    root.appendChild(teamCard);
+    form.appendChild(teamField);
 
-    /* Submit button */
-    var submitBtn = document.createElement('button');
-    submitBtn.className = 'btn btn-primary btn-block btn-lg mt-4';
-    submitBtn.textContent = 'Complete Registration →';
-    submitBtn.addEventListener('click', function() {
-      submitBulkRegistration(playersContainer);
+    var divider = document.createElement('div');
+    divider.className = 'divider mt-3 mb-3';
+    form.appendChild(divider);
+
+    var badge = document.createElement('div');
+    badge.className = 'player-badge';
+    badge.textContent = 'Your details';
+    form.appendChild(badge);
+
+    /* Drop code + QR scanner */
+    var codeGroup = document.createElement('div');
+    var codeField = document.createElement('div');
+    codeField.className = 'field';
+    codeField.innerHTML = '<label>Drop Code</label>';
+    var codeInput = document.createElement('input');
+    codeInput.className = 'input input-code';
+    codeInput.placeholder = 'e.g. ABC123';
+    codeInput.maxLength = 12;
+    codeInput.autocomplete = 'off';
+    codeInput.addEventListener('input', function () {
+      codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
     });
-    root.appendChild(submitBtn);
+    codeField.appendChild(codeInput);
+    codeGroup.appendChild(codeField);
 
-    /* Error message */
-    var errEl = document.createElement('div');
-    errEl.style.cssText = 'color:var(--danger);font-size:13px;margin-top:var(--s-2)';
-    errEl.id = 'bulk-error';
-    root.appendChild(errEl);
+    var qrToggle = document.createElement('span');
+    qrToggle.className = 'qr-toggle';
+    qrToggle.textContent = '📷 Scan QR code instead';
+    var qrArea = document.createElement('div');
+    qrArea.className = 'qr-area';
+    var scanner = null;
+    qrToggle.addEventListener('click', function () {
+      qrArea.classList.toggle('is-open');
+      if (qrArea.classList.contains('is-open')) {
+        qrToggle.textContent = '⌨️ Type code instead';
+        if (!scanner) {
+          scanner = new JORD.QRScanner(qrArea, function (raw) {
+            var code = JORD.extractDropCode(raw);
+            if (code) {
+              codeInput.value = code;
+              scanner.stop(); scanner = null;
+              qrArea.classList.remove('is-open');
+              qrToggle.textContent = '📷 Scan QR code instead';
+            }
+          });
+          scanner.start().catch(function (e) { JORD.error(e.message); });
+        }
+      } else {
+        qrToggle.textContent = '📷 Scan QR code instead';
+        if (scanner) { scanner.stop(); scanner = null; }
+      }
+    });
+    codeGroup.appendChild(qrToggle);
+    codeGroup.appendChild(qrArea);
+    form.appendChild(codeGroup);
 
-    updateCodeCount();
-  }
+    /* Names */
+    var nameGrid = document.createElement('div');
+    nameGrid.className = 'field-grid mt-3';
+    var firstField = document.createElement('div');
+    firstField.className = 'field';
+    firstField.innerHTML = '<label>First Name</label>';
+    var firstInput = document.createElement('input');
+    firstInput.className = 'input'; firstInput.placeholder = 'First';
+    firstField.appendChild(firstInput);
+    var lastField = document.createElement('div');
+    lastField.className = 'field';
+    lastField.innerHTML = '<label>Last Name</label>';
+    var lastInput = document.createElement('input');
+    lastInput.className = 'input'; lastInput.placeholder = 'Last';
+    lastField.appendChild(lastInput);
+    nameGrid.appendChild(firstField);
+    nameGrid.appendChild(lastField);
+    form.appendChild(nameGrid);
 
-  function addBulkPlayerRow(container, index) {
-    var row = document.createElement('div');
-    row.className = 'bulk-player-row';
-    row.style.cssText = 'background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-md);padding:var(--s-3)';
-
-    var nameField = document.createElement('div');
-    nameField.className = 'field';
-    nameField.innerHTML = '<label>Player ' + index + ' Name</label>';
-    var nameInput = document.createElement('input');
-    nameInput.className = 'input input-name';
-    nameInput.placeholder = 'First and Last Name';
-    nameField.appendChild(nameInput);
-    row.appendChild(nameField);
-
+    /* Email + phone */
+    var contactGrid = document.createElement('div');
+    contactGrid.className = 'field-grid';
+    var emailField = document.createElement('div');
+    emailField.className = 'field';
+    emailField.innerHTML = '<label>Email <span style="font-weight:400;color:var(--ink-2)">(optional)</span></label>';
+    var emailInput = document.createElement('input');
+    emailInput.className = 'input'; emailInput.type = 'email'; emailInput.placeholder = 'you@example.com';
+    emailField.appendChild(emailInput);
     var phoneField = document.createElement('div');
     phoneField.className = 'field';
-    phoneField.innerHTML = '<label>Phone Number</label>';
+    phoneField.innerHTML = '<label>Phone <span style="font-weight:400;color:var(--ink-2)">(optional)</span></label>';
     var phoneInput = document.createElement('input');
-    phoneInput.className = 'input input-phone';
-    phoneInput.type = 'tel';
-    phoneInput.placeholder = '(555) 123-4567';
+    phoneInput.className = 'input'; phoneInput.type = 'tel'; phoneInput.placeholder = '+1 555 000 0000';
     phoneField.appendChild(phoneInput);
-    row.appendChild(phoneField);
+    contactGrid.appendChild(emailField);
+    contactGrid.appendChild(phoneField);
+    form.appendChild(contactGrid);
 
-    var codesField = document.createElement('div');
-    codesField.className = 'field';
-    codesField.innerHTML = '<label>Drop Code(s) for this player</label>'
-      + '<p style="font-size:12px;color:var(--ink-2);margin-bottom:8px">Enter 1-4 codes, separated by commas</p>';
-    var codesInput = document.createElement('input');
-    codesInput.className = 'input input-codes';
-    codesInput.placeholder = 'e.g., ABC123 or ABC123, DEF456';
-    codesInput.addEventListener('input', updateCodeCount);
-    codesField.appendChild(codesInput);
-    row.appendChild(codesField);
+    /* Marketing opt-ins */
+    var optInBox = document.createElement('div');
+    optInBox.className = 'opt-in-box';
+    optInBox.innerHTML = '<div class="opt-in-title">Stay in the loop</div>';
+    var emailOptLabel = document.createElement('label');
+    emailOptLabel.className = 'opt-in-row';
+    var emailOptCheck = document.createElement('input');
+    emailOptCheck.type = 'checkbox';
+    emailOptLabel.appendChild(emailOptCheck);
+    var emailOptText = document.createElement('span');
+    emailOptText.className = 'opt-in-label';
+    emailOptText.innerHTML = 'Email me results, future events, and offers from JORD Golf.'
+      + '<span class="opt-in-fine">We\'ll never share your email or spam you. Unsubscribe anytime.</span>';
+    emailOptLabel.appendChild(emailOptText);
+    optInBox.appendChild(emailOptLabel);
+    var smsOptLabel = document.createElement('label');
+    smsOptLabel.className = 'opt-in-row';
+    var smsOptCheck = document.createElement('input');
+    smsOptCheck.type = 'checkbox';
+    smsOptLabel.appendChild(smsOptCheck);
+    var smsOptText = document.createElement('span');
+    smsOptText.className = 'opt-in-label';
+    smsOptText.innerHTML = 'Text me live updates and results from JORD Golf tournaments.'
+      + '<span class="opt-in-fine">Message &amp; data rates may apply. Reply STOP to opt out anytime.</span>';
+    smsOptLabel.appendChild(smsOptText);
+    optInBox.appendChild(smsOptLabel);
+    form.appendChild(optInBox);
 
-    /* Remove button (only if more than 1 player) */
-    if (container.querySelectorAll('.bulk-player-row').length > 0) {
-      var removeBtn = document.createElement('button');
-      removeBtn.className = 'btn btn-ghost';
-      removeBtn.style.width = '100%';
-      removeBtn.textContent = '✕ Remove';
-      removeBtn.addEventListener('click', function() {
-        row.remove();
-        updateCodeCount();
+    /* Tee box */
+    if (eventInfo.tee_boxes && eventInfo.tee_boxes.length > 0) {
+      var teeField = document.createElement('div');
+      teeField.className = 'field';
+      teeField.innerHTML = '<label>Tee Box</label>';
+      var teeSelect = document.createElement('select');
+      teeSelect.className = 'select';
+      eventInfo.tee_boxes.forEach(function (tb) {
+        var opt = document.createElement('option');
+        opt.value = tb.id;
+        opt.textContent = tb.name + (tb.hole_type === 'closest_pin' ? ' (Closest to Pin)' : ' (Longest Drive)');
+        teeSelect.appendChild(opt);
       });
-      row.appendChild(removeBtn);
+      teeField.appendChild(teeSelect);
+      form.appendChild(teeField);
     }
 
-    container.appendChild(row);
-  }
+    /* Submit */
+    var submitBtn = document.createElement('button');
+    submitBtn.className = 'btn btn-primary btn-block btn-lg mt-3';
+    submitBtn.textContent = 'Create Team →';
+    var errEl = document.createElement('div');
+    errEl.className = 'text-danger mt-2 small';
 
-  function updateCodeCount() {
-    var count = 0;
-    document.querySelectorAll('.input-codes').forEach(function(input) {
-      var codes = input.value.trim().split(',').filter(function(c) { return c.trim().length > 0; });
-      count += codes.length;
-    });
-    var countEl = document.getElementById('code-count');
-    if (countEl) countEl.textContent = count;
-  }
+    submitBtn.addEventListener('click', function () {
+      var teamName = teamInput.value.trim();
+      var code  = codeInput.value.trim().toUpperCase();
+      var first = firstInput.value.trim();
+      var last  = lastInput.value.trim();
+      if (!teamName) { errEl.textContent = 'Enter a team name first.'; teamInput.focus(); return; }
+      if (!code || code.length < 4) { errEl.textContent = 'Enter a valid drop code (at least 4 characters).'; return; }
+      if (!first || !last) { errEl.textContent = 'First and last name are required.'; return; }
 
-  function submitBulkRegistration(playersContainer) {
-    var errEl = document.getElementById('bulk-error');
-    errEl.textContent = '';
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creating team…';
+      errEl.textContent = '';
+      if (scanner) { scanner.stop(); scanner = null; }
 
-    var playerRows = playersContainer.querySelectorAll('.bulk-player-row');
-    if (playerRows.length < 1 || playerRows.length > 4) {
-      errEl.textContent = 'Please add 1-4 players';
-      return;
-    }
+      var shareCode = generateTeamCode();
+      var teeBoxId = (eventInfo.tee_boxes && eventInfo.tee_boxes.length)
+        ? (form.querySelector('select') ? form.querySelector('select').value : null) : null;
 
-    var bulkPlayers = [];
-    var totalCodes = 0;
-
-    playerRows.forEach(function(row) {
-      var name = row.querySelector('.input-name').value.trim();
-      var phone = row.querySelector('.input-phone').value.trim();
-      var codesStr = row.querySelector('.input-codes').value.trim();
-      var codes = codesStr.split(',').map(function(c) { return c.trim().toUpperCase(); }).filter(function(c) { return c.length > 0; });
-
-      if (!name) {
-        errEl.textContent = 'All players need a name';
-        return;
-      }
-
-      bulkPlayers.push({ name: name, phone: phone, codes: codes });
-      totalCodes += codes.length;
-    });
-
-    if (totalCodes < 1 || totalCodes > 4) {
-      errEl.textContent = 'Enter between 1 and 4 drop codes total (currently ' + totalCodes + ')';
-      return;
-    }
-
-    /* Read team name from the inline field */
-    var teamInput = document.getElementById('bulk-team-name');
-    var teamName = teamInput ? teamInput.value.trim() : '';
-    if (!teamName) {
-      errEl.textContent = 'Please enter a team name';
-      if (teamInput) teamInput.focus();
-      return;
-    }
-
-    registerBulkTeam(bulkPlayers, teamName);
-  }
-
-  function registerBulkTeam(bulkPlayers, teamName) {
-    var errEl = document.getElementById('bulk-error');
-    errEl.textContent = '';
-
-    /* Build a list of register-player calls (one per drop code) so player names are saved.
-       If a player has multiple codes, the same name is applied to each. */
-    var registerCalls = [];
-    var allCodes = [];
-    bulkPlayers.forEach(function (p, playerIdx) {
-      var nameParts = p.name.split(/\s+/);
-      var firstName = nameParts.shift() || p.name;
-      var lastName  = nameParts.join(' ') || '';
-      p.codes.forEach(function (code) {
-        allCodes.push(code);
-        registerCalls.push(
-          fetch('/api/events/' + eid + '/register-player', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              drop_code:    code,
-              first_name:   firstName,
-              last_name:    lastName,
-              phone:        p.phone || null,
-              player_index: playerIdx + 1
-            })
-          }).then(function (r) { return r.json(); })
-        );
-      });
-    });
-
-    Promise.all(registerCalls)
-      .then(function (results) {
-        var failed = results.find(function (r) { return r && r.error; });
-        if (failed) { errEl.textContent = failed.error; return null; }
+      /* Step 1 — register player 1's ball */
+      fetch('/api/events/' + eid + '/register-player', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          drop_code: code, first_name: first, last_name: last,
+          email: emailInput.value.trim() || null,
+          phone: phoneInput.value.trim() || null,
+          tee_box_id: teeBoxId, player_index: 1,
+          email_opt_in: emailOptCheck.checked, sms_opt_in: smsOptCheck.checked
+        })
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          /* Duplicate / already-used code → friendly popup, not just inline text */
+          if (/already registered/i.test(data.error)) { showCodeInUsePopup(); }
+          else { errEl.textContent = data.error; }
+          submitBtn.disabled = false; submitBtn.textContent = 'Create Team →';
+          return null;
+        }
+        /* Step 2 — finalize the team immediately so it exists in the DB
+           (teammates can now find it by QR or the dropdown) */
         return fetch('/api/events/' + eid + '/finalize-team', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ team_name: teamName, drop_codes: allCodes, share_code: teamCode })
+          body: JSON.stringify({ team_name: teamName, drop_codes: [code], share_code: shareCode })
         }).then(function (r) { return r.json(); });
       })
       .then(function (data) {
         if (!data) return;
-        if (data.error) { errEl.textContent = data.error; return; }
-        if (bulkPlayers[0] && bulkPlayers[0].phone && bulkPlayers[0].codes[0]) {
-          localStorage.setItem('jord_player_phone', bulkPlayers[0].phone);
-          localStorage.setItem('jord_drop_code', bulkPlayers[0].codes[0]);
-        }
-        /* Populate `players` so renderSuccess can show the codes */
-        players = [];
-        bulkPlayers.forEach(function (p) {
-          var nameParts = p.name.split(/\s+/);
-          var first = nameParts.shift() || p.name;
-          var last  = nameParts.join(' ') || '';
-          p.codes.forEach(function (code) {
-            players.push({ code: code, first: first, last: last, phone: p.phone });
-          });
-        });
-        renderSuccess(teamName, data);
+        if (data.error) { errEl.textContent = data.error; submitBtn.disabled = false; submitBtn.textContent = 'Create Team →'; return; }
+        var phone = phoneInput.value.trim();
+        if (phone) localStorage.setItem('jord_player_phone', phone);
+        localStorage.setItem('jord_drop_code', code);
+        renderNewTeamSuccess(teamName, data.share_code || shareCode, code, first + ' ' + last);
       })
       .catch(function () {
-        errEl.textContent = 'Network error. Try again.';
+        errEl.textContent = 'Network error. Check your connection and try again.';
+        submitBtn.disabled = false; submitBtn.textContent = 'Create Team →';
       });
+    });
+
+    form.appendChild(submitBtn);
+    form.appendChild(errEl);
+    root.appendChild(form);
+
+    /* ── "Join an existing team" dropdown ── */
+    var joinCard = document.createElement('div');
+    joinCard.className = 'card mt-4';
+    joinCard.innerHTML = '<h3 class="card-title" style="font-size:18px">Joining a team that\'s already registered?</h3>'
+      + '<p class="card-sub">Scan your team\'s QR code, or pick the team below.</p>';
+    var teamSelect = document.createElement('select');
+    teamSelect.className = 'select';
+    teamSelect.innerHTML = '<option value="">— loading teams… —</option>';
+    teamSelect.addEventListener('change', function () {
+      if (!teamSelect.value) return;
+      teamCode = teamSelect.value;
+      loadExistingTeam();
+    });
+    joinCard.appendChild(teamSelect);
+    root.appendChild(joinCard);
+    loadTeamsDropdown(teamSelect);
+  }
+
+  /* Fetch the event's teams and fill the dropdown */
+  function loadTeamsDropdown(selectEl) {
+    fetch('/api/events/' + eid + '/teams')
+      .then(function (r) { return r.ok ? r.json() : []; })
+      .then(function (teams) {
+        if (!teams || !teams.length) {
+          selectEl.innerHTML = '<option value="">No teams registered yet — be the first!</option>';
+          selectEl.disabled = true;
+          return;
+        }
+        selectEl.innerHTML = '<option value="">— pick your team —</option>';
+        teams.forEach(function (t) {
+          var opt = document.createElement('option');
+          opt.value = t.share_code;
+          var full = t.member_count >= MAX;
+          opt.textContent = t.team_name + ' (' + t.member_count + '/' + MAX + ')' + (full ? ' — full' : '');
+          if (full) opt.disabled = true;
+          selectEl.appendChild(opt);
+        });
+      })
+      .catch(function () {
+        selectEl.innerHTML = '<option value="">Could not load teams</option>';
+        selectEl.disabled = true;
+      });
+  }
+
+  /* Resolve the current teamCode to a real team, then re-render into the join flow */
+  function loadExistingTeam() {
+    renderLoading();
+    fetch('/api/events/' + eid + '/teams/by-share-code/' + encodeURIComponent(teamCode))
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (team) {
+        if (team && team.team_id) { existingTeam = team; }
+        else { existingTeam = null; teamCode = ''; }
+        renderStep();
+      })
+      .catch(function () { existingTeam = null; renderStep(); });
   }
 
   /* ── Add-to-existing-team flow ── */
@@ -749,7 +636,9 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data.error) {
-          errEl.textContent = data.error;
+          /* Duplicate / already-used code → friendly popup */
+          if (/already registered/i.test(data.error)) { showCodeInUsePopup(); }
+          else { errEl.textContent = data.error; }
           submitBtn.disabled = false;
           submitBtn.textContent = 'Join the team';
           return;
@@ -787,322 +676,36 @@
     root.appendChild(card);
   }
 
-  function showPlayerForm(root, playerIndex) {
-    var form = document.createElement('div');
-    form.className = 'card mb-4';
-
-    /* Badge */
-    var badge = document.createElement('div');
-    badge.className = 'player-badge';
-    badge.textContent = 'Player ' + playerIndex;
-    form.appendChild(badge);
-
-    /* Drop code row */
-    var codeGroup = document.createElement('div');
-    var codeField = document.createElement('div');
-    codeField.className = 'field';
-    codeField.innerHTML = '<label>Drop Code</label>';
-    var codeInput = document.createElement('input');
-    codeInput.className = 'input input-code';
-    codeInput.placeholder = 'e.g. ABC123';
-    codeInput.maxLength = 12;
-    codeInput.autocomplete = 'off';
-    codeInput.addEventListener('input', function () {
-      codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    });
-    codeField.appendChild(codeInput);
-    codeGroup.appendChild(codeField);
-
-    /* QR toggle */
-    var qrToggle = document.createElement('span');
-    qrToggle.className = 'qr-toggle';
-    qrToggle.textContent = '📷 Scan QR code instead';
-    var qrArea = document.createElement('div');
-    qrArea.className = 'qr-area';
-    var scanner = null;
-    qrToggle.addEventListener('click', function () {
-      qrArea.classList.toggle('is-open');
-      if (qrArea.classList.contains('is-open')) {
-        qrToggle.textContent = '⌨️ Type code instead';
-        if (!scanner) {
-          scanner = new JORD.QRScanner(qrArea, function (raw) {
-            var code = JORD.extractDropCode(raw);
-            if (code) {
-              codeInput.value = code;
-              scanner.stop(); scanner = null;
-              qrArea.classList.remove('is-open');
-              qrToggle.textContent = '📷 Scan QR code instead';
-            }
-          });
-          scanner.start().catch(function (e) { JORD.error(e.message); });
-        }
-      } else {
-        qrToggle.textContent = '📷 Scan QR code instead';
-        if (scanner) { scanner.stop(); scanner = null; }
-      }
-    });
-    codeGroup.appendChild(qrToggle);
-    codeGroup.appendChild(qrArea);
-    form.appendChild(codeGroup);
-
-    /* Name fields */
-    var nameGrid = document.createElement('div');
-    nameGrid.className = 'field-grid mt-3';
-    var firstField = document.createElement('div');
-    firstField.className = 'field';
-    firstField.innerHTML = '<label>First Name</label>';
-    var firstInput = document.createElement('input');
-    firstInput.className = 'input'; firstInput.placeholder = 'First';
-    firstField.appendChild(firstInput);
-    var lastField = document.createElement('div');
-    lastField.className = 'field';
-    lastField.innerHTML = '<label>Last Name</label>';
-    var lastInput = document.createElement('input');
-    lastInput.className = 'input'; lastInput.placeholder = 'Last';
-    lastField.appendChild(lastInput);
-    nameGrid.appendChild(firstField);
-    nameGrid.appendChild(lastField);
-    form.appendChild(nameGrid);
-
-    /* Email + phone */
-    var contactGrid = document.createElement('div');
-    contactGrid.className = 'field-grid';
-    var emailField = document.createElement('div');
-    emailField.className = 'field';
-    emailField.innerHTML = '<label>Email <span style="font-weight:400;color:var(--ink-2)">(optional)</span></label>';
-    var emailInput = document.createElement('input');
-    emailInput.className = 'input'; emailInput.type = 'email'; emailInput.placeholder = 'you@example.com';
-    emailField.appendChild(emailInput);
-    var phoneField = document.createElement('div');
-    phoneField.className = 'field';
-    phoneField.innerHTML = '<label>Phone <span style="font-weight:400;color:var(--ink-2)">(optional)</span></label>';
-    var phoneInput = document.createElement('input');
-    phoneInput.className = 'input'; phoneInput.type = 'tel'; phoneInput.placeholder = '+1 555 000 0000';
-    phoneField.appendChild(phoneInput);
-    contactGrid.appendChild(emailField);
-    contactGrid.appendChild(phoneField);
-    form.appendChild(contactGrid);
-
-    /* Marketing opt-ins */
-    var optInBox = document.createElement('div');
-    optInBox.className = 'opt-in-box';
-    optInBox.innerHTML = '<div class="opt-in-title">Stay in the loop</div>';
-
-    var emailOptLabel = document.createElement('label');
-    emailOptLabel.className = 'opt-in-row';
-    var emailOptCheck = document.createElement('input');
-    emailOptCheck.type = 'checkbox';
-    emailOptLabel.appendChild(emailOptCheck);
-    var emailOptText = document.createElement('span');
-    emailOptText.className = 'opt-in-label';
-    emailOptText.innerHTML = 'Email me results, future events, and offers from JORD Golf.'
-      + '<span class="opt-in-fine">We\'ll never share your email or spam you. Unsubscribe anytime.</span>';
-    emailOptLabel.appendChild(emailOptText);
-    optInBox.appendChild(emailOptLabel);
-
-    var smsOptLabel = document.createElement('label');
-    smsOptLabel.className = 'opt-in-row';
-    var smsOptCheck = document.createElement('input');
-    smsOptCheck.type = 'checkbox';
-    smsOptLabel.appendChild(smsOptCheck);
-    var smsOptText = document.createElement('span');
-    smsOptText.className = 'opt-in-label';
-    smsOptText.innerHTML = 'Text me live updates and results from JORD Golf tournaments.'
-      + '<span class="opt-in-fine">Message &amp; data rates may apply. Reply STOP to opt out anytime.</span>';
-    smsOptLabel.appendChild(smsOptText);
-    optInBox.appendChild(smsOptLabel);
-
-    form.appendChild(optInBox);
-
-    /* Tee box */
-    if (eventInfo.tee_boxes && eventInfo.tee_boxes.length > 0) {
-      var teeField = document.createElement('div');
-      teeField.className = 'field';
-      teeField.innerHTML = '<label>Tee Box</label>';
-      var teeSelect = document.createElement('select');
-      teeSelect.className = 'select';
-      eventInfo.tee_boxes.forEach(function (tb) {
-        var opt = document.createElement('option');
-        opt.value = tb.id;
-        opt.textContent = tb.name + (tb.hole_type === 'closest_pin' ? ' (Closest to Pin)' : ' (Longest Drive)');
-        teeSelect.appendChild(opt);
-      });
-      teeField.appendChild(teeSelect);
-      form.appendChild(teeField);
-    }
-
-    /* Submit button */
-    var submitBtn = document.createElement('button');
-    submitBtn.className = 'btn btn-primary btn-block mt-3';
-    submitBtn.textContent = 'Save Player ' + playerIndex;
-    var errEl = document.createElement('div');
-    errEl.className = 'text-danger mt-2 small';
-
-    submitBtn.addEventListener('click', function () {
-      var code = codeInput.value.trim().toUpperCase();
-      var first = firstInput.value.trim();
-      var last  = lastInput.value.trim();
-      if (!code || code.length < 4) { errEl.textContent = 'Enter a valid drop code (at least 4 characters).'; return; }
-      if (!first || !last) { errEl.textContent = 'First and last name are required.'; return; }
-      if (players.find(function (p) { return p.code === code; })) { errEl.textContent = 'That code is already added.'; return; }
-
-      submitBtn.disabled = true;
-      submitBtn.textContent = 'Saving…';
-      errEl.textContent = '';
-
-      fetch('/api/events/' + eid + '/register-player', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          drop_code: code,
-          first_name: first,
-          last_name: last,
-          email: emailInput.value.trim() || null,
-          phone: phoneInput.value.trim() || null,
-          tee_box_id: (eventInfo.tee_boxes && eventInfo.tee_boxes.length) ? (form.querySelector('select') ? form.querySelector('select').value : null) : null,
-          player_index: playerIndex,
-          email_opt_in: emailOptCheck.checked,
-          sms_opt_in: smsOptCheck.checked
-        })
-      })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (data.error) { errEl.textContent = data.error; submitBtn.disabled = false; submitBtn.textContent = 'Save Player ' + playerIndex; return; }
-        if (scanner) { scanner.stop(); scanner = null; }
-        var phone = phoneInput.value.trim();
-        players.push({ code: code, first: first, last: last, phone: phone });
-        /* Store phone number and drop code for leaderboard "My Team" feature */
-        if (!localStorage.getItem('jord_player_phone') && phone) {
-          localStorage.setItem('jord_player_phone', phone);
-        }
-        if (!localStorage.getItem('jord_drop_code') && code) {
-          localStorage.setItem('jord_drop_code', code);
-        }
-        renderStep();
-      })
-      .catch(function (e) {
-        errEl.textContent = 'Network error. Check server is running.';
-        submitBtn.disabled = false;
-        submitBtn.textContent = 'Save Player ' + playerIndex;
-      });
-    });
-
-    form.appendChild(submitBtn);
-    form.appendChild(errEl);
-    root.appendChild(form);
-
-    /* Player 1 only: offer the bulk-registration shortcut up front */
-    if (playerIndex === 1 && players.length === 0) {
-      var altActions = document.createElement('div');
-      altActions.style.cssText = 'margin-top:var(--s-3)';
-
-      var orDiv = document.createElement('div');
-      orDiv.style.cssText = 'display:flex;align-items:center;gap:12px;margin:var(--s-3) 0;color:var(--ink-3);font-size:13px';
-      orDiv.innerHTML = '<div style="flex:1;height:1px;background:var(--border)"></div>or<div style="flex:1;height:1px;background:var(--border)"></div>';
-      altActions.appendChild(orDiv);
-
-      var bulkBtn = document.createElement('button');
-      bulkBtn.className = 'btn btn-ghost btn-block';
-      bulkBtn.type = 'button';
-      bulkBtn.textContent = 'Don\'t have all 4 players? →';
-      bulkBtn.addEventListener('click', function () {
-        bulkRegistering = true;
-        renderStep();
-      });
-      altActions.appendChild(bulkBtn);
-
-      root.appendChild(altActions);
-    }
-  }
-
-  function showTeamForm(root, withFewer) {
-    var teamCard = document.createElement('div');
-    teamCard.className = 'card';
-    var noteHtml = '';
-    if (withFewer) {
-      if (players.length === 1) {
-        noteHtml = '<div style="background:rgba(190,255,58,0.12);border:1px solid rgba(190,255,58,0.45);border-radius:var(--r-md);padding:10px 14px;font-size:13px;margin-bottom:var(--s-3)">🏌️ Registering as a <strong>solo player</strong>. You can use your own name as the team name if you prefer.</div>';
-      } else {
-        noteHtml = '<div style="background:rgba(234,179,8,0.12);border:1px solid rgba(234,179,8,0.45);border-radius:var(--r-md);padding:10px 14px;font-size:13px;margin-bottom:var(--s-3)">Registering with <strong>' + players.length + '</strong> of 4 players. Additional players can be added by the admin.</div>';
-      }
-    }
-    teamCard.innerHTML = '<h3 class="card-title">Team Name</h3>'
-      + '<p class="card-sub">Last step — give your team a name and complete registration.</p>'
-      + noteHtml;
-
-    var teamField = document.createElement('div');
-    teamField.className = 'field';
-    teamField.innerHTML = '<label>Team Name</label>';
-    var teamInput = document.createElement('input');
-    teamInput.className = 'input input-lg';
-    teamInput.placeholder = 'e.g. The Bogeymen';
-    teamField.appendChild(teamInput);
-    teamCard.appendChild(teamField);
-
-    var row = document.createElement('div');
-    row.className = 'row gap-3 mt-3';
-
-    var doneBtn = document.createElement('button');
-    doneBtn.className = 'btn btn-primary grow';
-    doneBtn.textContent = 'Complete Registration →';
-
-    var errEl = document.createElement('div');
-    errEl.className = 'text-danger mt-2 small';
-
-    doneBtn.addEventListener('click', function () {
-      var name = teamInput.value.trim();
-      if (!name) { errEl.textContent = 'Enter a team name.'; return; }
-
-      doneBtn.disabled = true;
-      doneBtn.textContent = 'Registering team…';
-
-      fetch('/api/events/' + eid + '/finalize-team', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ team_name: name, drop_codes: players.map(function (p) { return p.code; }), share_code: teamCode })
-      })
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (data.error) { errEl.textContent = data.error; doneBtn.disabled = false; doneBtn.textContent = 'Complete Registration →'; return; }
-        renderSuccess(name, data);
-      })
-      .catch(function () { errEl.textContent = 'Network error. Try again.'; doneBtn.disabled = false; doneBtn.textContent = 'Complete Registration →'; });
-    });
-
-    row.appendChild(doneBtn);
-    teamCard.appendChild(row);
-    teamCard.appendChild(errEl);
-    root.appendChild(teamCard);
-  }
-
-  function renderSuccess(teamName, data) {
+  /* ── Success screen for player 1 — team created, show QR for teammates ── */
+  function renderNewTeamSuccess(teamName, shareCode, dropCode, playerName) {
     var root = getRoot();
     root.innerHTML = '';
     var card = document.createElement('div');
     card.className = 'card success-card';
-
-    var submitButtons = players.map(function (p) {
-      var firstName = (p.first || p.name || '').trim();
-      var label = players.length > 1
-        ? '📍 ' + (firstName || 'Player ' + (players.indexOf(p) + 1)) + ' — Submit Shot'
-        : '📍 Get My Ball Location Now';
-      return '<a href="/scan/' + p.code + '" class="btn btn-primary btn-block btn-lg mt-3" style="font-size:16px;padding:16px">' + label + '</a>';
-    }).join('');
-
     card.innerHTML = '<div class="success-icon">🏆</div>'
       + '<h2>' + teamName + '</h2>'
-      + '<p class="text-muted mt-2">You\'re registered for <strong>' + (eventInfo.name || 'the tournament') + '</strong>!</p>'
+      + '<p class="text-muted mt-2">Team created — you\'re registered for <strong>' + (eventInfo.name || 'the tournament') + '</strong>!</p>'
       + '<div class="divider mt-4 mb-4"></div>'
-      + '<div style="background:var(--surface-2);border-radius:var(--r-md);padding:14px 16px;margin-bottom:var(--s-3);border:1px solid var(--primary)">'
-      + '<p style="font-size:14px;font-weight:600;margin:0 0 6px;color:var(--primary)">📱 Keep this tab open</p>'
+      /* Team QR — teammates scan this to join; they will see the team name */
+      + '<div style="font-size:11px;color:var(--ink-2);text-transform:uppercase;font-weight:700;letter-spacing:.06em;margin-bottom:6px">Share with your teammates</div>'
+      + '<div style="font-family:var(--font-mono);font-size:26px;font-weight:700;letter-spacing:2px;margin-bottom:var(--s-2)">' + shareCode + '</div>'
+      + '<div id="qr-container" style="display:flex;justify-content:center;margin:var(--s-2) 0"></div>'
+      + '<p style="font-size:12px;color:var(--ink-2);margin-bottom:var(--s-3)">Teammates scan this QR (or pick <strong>' + teamName + '</strong> from the team list) to join.</p>'
+      + '<div class="divider mt-3 mb-3"></div>'
+      + '<div style="background:var(--surface-2);border-radius:var(--r-md);padding:14px 16px;margin-bottom:var(--s-3);border:1px solid var(--accent)">'
+      + '<p style="font-size:14px;font-weight:600;margin:0 0 6px;color:var(--accent)">📱 Keep this tab open</p>'
       + '<p style="font-size:13px;margin:0;color:var(--ink-2);line-height:1.5">When you reach your ball on course, tap the button below to capture your GPS location.</p>'
       + '</div>'
-      + submitButtons
-      + '<p style="font-size:12px;color:var(--ink-2);text-align:center;margin-top:var(--s-3)">Your drop codes:</p>'
-      + '<div class="code-list">' + players.map(function (p) { return '<div class="code-pill">' + p.code + '</div>'; }).join('') + '</div>'
-      + ((data && data.share_code) ? '<a href="/team/' + eid + '/' + data.share_code + '" class="btn btn-ghost btn-block mt-4" style="font-size:13px">👥 Team Page · invite more players</a>' : '')
+      + '<a href="/scan/' + dropCode + '" class="btn btn-primary btn-block btn-lg mt-2" style="font-size:16px;padding:16px">📍 Get My Ball Location Now</a>'
+      + '<p style="font-size:12px;color:var(--ink-2);text-align:center;margin-top:var(--s-3)">Your drop code:</p>'
+      + '<div class="code-list"><div class="code-pill">' + dropCode + '</div></div>'
+      + '<a href="/team/' + eid + '/' + shareCode + '" class="btn btn-ghost btn-block mt-4" style="font-size:13px">👥 Team Page · invite more players</a>'
       + '<a href="/leaderboard/' + eid + '" class="btn btn-ghost btn-block mt-2" target="_blank" style="font-size:13px">📺 View Live Leaderboard</a>';
     root.appendChild(card);
+
+    /* QR encodes the join URL — teammates land in the join flow and see the team name */
+    var teamUrl = window.location.origin + '/register/' + eid + '?team=' + shareCode;
+    generateQRCode('qr-container', teamUrl);
   }
 })();
 </script>
