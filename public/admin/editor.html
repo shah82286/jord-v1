@@ -27,11 +27,22 @@
     cursor: help; margin-left: 4px; position: relative; flex-shrink: 0; }
   .help-icon:hover { background: var(--accent); color: var(--primary-ink); }
   .tooltip { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
-    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px;
-    font-size: 12px; color: var(--ink); white-space: nowrap; z-index: 1000; margin-bottom: 4px;
-    box-shadow: var(--shadow-md); }
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 9px 11px;
+    font-size: 12px; color: var(--ink); width: 230px; white-space: normal; line-height: 1.45;
+    text-align: left; font-weight: 400; text-transform: none; letter-spacing: 0;
+    z-index: 1000; margin-bottom: 6px; box-shadow: var(--shadow-md); pointer-events: none; }
   .help-icon:hover .tooltip { display: block; }
   .label-with-help { display: flex; align-items: center; gap: 0; }
+  /* Per-game settings containers — shown only when that game is toggled on */
+  .game-settings { border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: var(--s-4); margin-top: var(--s-3); background: var(--surface); }
+  .game-settings.is-hidden { display: none; }
+  .game-settings-head { display: flex; align-items: center; font-weight: 700; font-size: 14px;
+    margin-bottom: var(--s-3); }
+  .toggle-with-help { display: inline-flex; align-items: center; gap: 2px; }
+  .contests-off-note { font-size: 13px; color: var(--ink-3); font-style: italic;
+    margin-top: var(--s-3); }
+  .contests-off-note.is-hidden { display: none; }
   .event-meta { display: flex; gap: var(--s-3); flex-wrap: wrap; align-items: center; margin-top: 6px; color: var(--ink-2); font-size: 13px; }
   .editor-grid { display: grid; grid-template-columns: 320px 1fr; gap: var(--s-5); }
   .editor-nav .nav-item { display: flex; align-items: center; gap: var(--s-2); padding: 12px 14px; border-radius: var(--r-md); color: var(--ink); font-weight: 500; cursor: pointer; }
@@ -44,6 +55,32 @@
   .map-legend { display: flex; flex-wrap: wrap; gap: var(--s-3); font-size: 12px; color: var(--ink-2); margin-top: var(--s-2); }
   .map-legend span { display: inline-flex; align-items: center; gap: 6px; }
   .map-legend span::before { content: ''; display: inline-block; width: 14px; height: 14px; border-radius: 3px; flex-shrink: 0; }
+  /* Full-screen course map — overlay (z-index 80: above topbar 50, below modals 100
+     so confirm dialogs still appear on top). Layout: toolbar across the top, then a
+     tall map filling the screen with the zone/tee/pin settings in a side panel. */
+  .panel[data-panel="map"].is-map-fullscreen {
+    position: fixed; inset: 0; z-index: 80; margin: 0; border-radius: 0;
+    display: flex; flex-direction: column; padding: 8px 12px; overflow: hidden;
+  }
+  .panel[data-panel="map"].is-map-fullscreen .card-title,
+  .panel[data-panel="map"].is-map-fullscreen .card-sub { display: none; }
+  .panel[data-panel="map"].is-map-fullscreen #map-fs-body {
+    display: flex; flex: 1 1 auto; min-height: 0; gap: 14px;
+  }
+  .panel[data-panel="map"].is-map-fullscreen #map-stage {
+    flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column;
+  }
+  .panel[data-panel="map"].is-map-fullscreen #map-stage #map { flex: 1 1 auto; min-height: 0; }
+  .panel[data-panel="map"].is-map-fullscreen #map-side {
+    flex: 0 0 360px; width: 360px; overflow-y: auto; padding-right: 4px;
+  }
+  /* Phone / narrow: stack the map above the settings instead of side-by-side */
+  @media (max-width: 720px) {
+    .panel[data-panel="map"].is-map-fullscreen { overflow-y: auto; }
+    .panel[data-panel="map"].is-map-fullscreen #map-fs-body { flex-direction: column; }
+    .panel[data-panel="map"].is-map-fullscreen #map-side { flex: 0 0 auto; width: 100%; }
+    .panel[data-panel="map"].is-map-fullscreen #map-stage #map { min-height: 58vh; }
+  }
   .legend-tee::before { background: #B8884D; }
   /* Force all map popups to be legible regardless of page theme */
   .mapboxgl-popup-content {
@@ -341,71 +378,91 @@
                   <div id="venue-suggestions" style="position:relative"></div>
                 </div>
                 <div class="field">
-                  <label>Admin phone (players see a "Call Admin" button)</label>
+                  <label class="label-with-help">Admin phone <span class="help-icon">ℹ<span class="tooltip">A contact number for the day. If set, players see a "Call Admin" button on the scan result screen so they can reach you with questions. Optional.</span></span></label>
                   <input class="input" type="tel" name="admin_phone" placeholder="+1 555 000 0000" title="Players can tap this number on the scan result screen if they have a question. Optional.">
                   <div class="hint">Optional. If set, a "Call Admin" button appears after players submit their shot.</div>
                 </div>
                 <div class="field">
-                  <label>Starts</label>
-                  <input class="input" type="datetime-local" name="starts_at" required title="Tournament start date and time">
+                  <label class="label-with-help">Starts <span class="help-icon">ℹ<span class="tooltip">When the tournament begins. This is for your records and scheduling — players still can't register or submit shots until you press "Start tournament".</span></span></label>
+                  <input class="input" type="datetime-local" name="starts_at" required>
                 </div>
                 <div class="field">
-                  <label>Ends</label>
-                  <input class="input" type="datetime-local" name="ends_at" required title="Tournament end date and time">
+                  <label class="label-with-help">Ends <span class="help-icon">ℹ<span class="tooltip">When the tournament is scheduled to wrap up. For your records — scoring closes when you press "End tournament", not automatically at this time.</span></span></label>
+                  <input class="input" type="datetime-local" name="ends_at" required>
                 </div>
               </div>
 
               <hr class="divider">
-              <h4>Contests</h4>
+              <h4 class="label-with-help">Contests <span class="help-icon">ℹ<span class="tooltip">Choose which game(s) you're running. Switch one on to reveal its scoring settings below.</span></span></h4>
               <div class="row gap-4 row-wrap">
-                <label class="switch" title="Track how far each team drives. GPS captures ball landing distance from the tee box."><input type="checkbox" name="has_longest_drive"><span class="switch-track"></span><span class="switch-label">Team Longest Drive</span></label>
-                <label class="switch" title="Track which team lands closest to the flagstick. GPS captures distance from pin."><input type="checkbox" name="has_closest_pin"><span class="switch-track"></span><span class="switch-label">Closest to the Pin</span></label>
-                <label class="switch" title="Add each team's Longest Drive + Closest to Pin scores together for one combined leaderboard."><input type="checkbox" name="combined_scoring"><span class="switch-track"></span><span class="switch-label">Combined scoring</span></label>
+                <span class="toggle-with-help">
+                  <label class="switch"><input type="checkbox" name="has_longest_drive"><span class="switch-track"></span><span class="switch-label">Team Longest Drive</span></label>
+                  <span class="help-icon">ℹ<span class="tooltip">Tracks how far each team drives. Players GPS-capture where their ball lands; distance is measured from the tee box. Switching this on reveals the Longest Drive scoring rules.</span></span>
+                </span>
+                <span class="toggle-with-help">
+                  <label class="switch"><input type="checkbox" name="has_closest_pin"><span class="switch-track"></span><span class="switch-label">Closest to the Pin</span></label>
+                  <span class="help-icon">ℹ<span class="tooltip">Tracks which team lands closest to the flagstick. Distance is measured from the ball to the pin. Switching this on reveals the Closest to Pin scoring rules.</span></span>
+                </span>
+                <span class="toggle-with-help" id="combined-scoring-wrap">
+                  <label class="switch"><input type="checkbox" name="combined_scoring"><span class="switch-track"></span><span class="switch-label">Combined scoring</span></label>
+                  <span class="help-icon">ℹ<span class="tooltip">Adds each team's Longest Drive and Closest to Pin results into one combined leaderboard. Only relevant when both games are switched on.</span></span>
+                </span>
+              </div>
+              <div class="contests-off-note is-hidden" id="no-contest-note">Switch on a contest above to set up its scoring rules.</div>
+
+              <!-- Longest Drive settings — shown only when that contest is on -->
+              <div id="ld-settings" class="game-settings is-hidden">
+                <div class="game-settings-head">⛳ Longest Drive — scoring rules</div>
+                <div class="row gap-4 row-wrap">
+                  <span class="toggle-with-help">
+                    <label class="switch"><input type="checkbox" name="allow_rough"><span class="switch-track"></span><span class="switch-label">Allow rough scoring</span></label>
+                    <span class="help-icon">ℹ<span class="tooltip">On: shots that land in the rough still count, with a yardage deduction (set the penalty below). Off: any shot in the rough scores zero.</span></span>
+                  </span>
+                  <span class="toggle-with-help">
+                    <label class="switch"><input type="checkbox" name="allow_oob"><span class="switch-track"></span><span class="switch-label">Allow OOB / lost</span></label>
+                    <span class="help-icon">ℹ<span class="tooltip">On: out-of-bounds and lost balls still count, with a yardage deduction. Off: an OOB or lost ball scores zero.</span></span>
+                  </span>
+                </div>
+                <div class="field-grid">
+                  <div class="field">
+                    <label class="label-with-help">Rough penalty mode <span class="help-icon">ℹ<span class="tooltip">Perpendicular: the penalty equals the exact distance from the ball to the nearest fairway edge. Fixed: subtract the same set number of yards no matter where the ball sits.</span></span></label>
+                    <select class="select" name="rough_penalty_mode">
+                      <option value="perpendicular">Perpendicular</option>
+                      <option value="fixed">Fixed yards</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label class="label-with-help">Rough fixed yards <span class="help-icon">ℹ<span class="tooltip">Yards subtracted from the raw distance when a ball lands in the rough. Used only when Rough penalty mode is set to "Fixed yards".</span></span></label>
+                    <input class="input" type="number" name="rough_fixed_yards" min="0">
+                  </div>
+                  <div class="field">
+                    <label class="label-with-help">OOB penalty mode <span class="help-icon">ℹ<span class="tooltip">Half hole: the penalty is 50% of the total hole distance (e.g. 150 yds on a 300 yd hole). Fixed: subtract the same set number of yards.</span></span></label>
+                    <select class="select" name="oob_penalty_mode">
+                      <option value="half_hole">Half hole (50%)</option>
+                      <option value="fixed">Fixed yards</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label class="label-with-help">OOB fixed yards <span class="help-icon">ℹ<span class="tooltip">Yards subtracted from the raw distance for an out-of-bounds or lost ball. Used only when OOB penalty mode is set to "Fixed yards".</span></span></label>
+                    <input class="input" type="number" name="oob_fixed_yards" min="0">
+                  </div>
+                  <div class="field">
+                    <label class="label-with-help">Hole distance (yards) <span class="help-icon">ℹ<span class="tooltip">The straight-line distance from the tee box to the pin, in yards. Used to calculate the "half hole" OOB penalty. Walk it off or use a rangefinder on the day.</span></span></label>
+                    <input class="input" type="number" name="hole_distance_yards" min="0" value="300">
+                    <div class="hint">Measure tee-to-pin with a rangefinder. Used for OOB penalty calculation.</div>
+                  </div>
+                </div>
               </div>
 
-              <hr class="divider">
-              <h4>Longest Drive — penalty rules</h4>
-              <div class="row gap-4 row-wrap">
-                <label class="switch" title="If enabled, shots that land in the rough are still counted — but with a yardage deduction. If disabled, rough shots score zero."><input type="checkbox" name="allow_rough"><span class="switch-track"></span><span class="switch-label">Allow rough scoring</span></label>
-                <label class="switch" title="If enabled, out-of-bounds and lost balls are still counted — but with a yardage deduction. If disabled, OOB/lost shots score zero."><input type="checkbox" name="allow_oob"><span class="switch-track"></span><span class="switch-label">Allow OOB / lost</span></label>
-              </div>
-              <div class="field-grid">
-                <div class="field">
-                  <label>Rough penalty mode</label>
-                  <select class="select" name="rough_penalty_mode" title="Perpendicular: penalty = exact distance from ball to the nearest fairway edge. Fixed: subtract a set number of yards regardless of position.">
-                    <option value="perpendicular">Perpendicular</option>
-                    <option value="fixed">Fixed yards</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label>Rough fixed yards</label>
-                  <input class="input" type="number" name="rough_fixed_yards" min="0" title="Yards subtracted from raw distance when ball lands in rough (Fixed mode only). e.g. enter 10 to subtract 10 yards.">
-                </div>
-                <div class="field">
-                  <label>OOB penalty mode</label>
-                  <select class="select" name="oob_penalty_mode" title="Half hole: penalty = 50% of the total hole distance (e.g. 150 yds on a 300 yd hole). Fixed: subtract a set number of yards.">
-                    <option value="half_hole">Half hole (50%)</option>
-                    <option value="fixed">Fixed yards</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label>OOB fixed yards</label>
-                  <input class="input" type="number" name="oob_fixed_yards" min="0" title="Yards subtracted from raw distance for OOB or lost balls (Fixed mode only).">
-                </div>
-                <div class="field">
-                  <label>Hole distance (yards)</label>
-                  <input class="input" type="number" name="hole_distance_yards" min="0" value="300" title="Measure the straight-line distance from the tee box to the pin in yards. Used to calculate the 'half hole' OOB penalty. Walk it off or use a rangefinder on the day.">
-                  <div class="hint">Measure tee-to-pin with a rangefinder. Used for OOB penalty calculation.</div>
-                </div>
-              </div>
-
-              <hr class="divider">
-              <h4>Closest to Pin — penalty rules</h4>
-              <div class="field-grid">
-                <div class="field">
-                  <label>Off-green penalty (feet)</label>
-                  <input class="input" type="number" name="cp_off_green_penalty_ft" min="0" value="0" title="Feet added to a player's pin distance if their ball does not land on the green. 0 = no penalty.">
-                  <div class="hint">Added to distance when ball is off the green. 0 = off-green shots count at their raw distance.</div>
+              <!-- Closest to Pin settings — shown only when that contest is on -->
+              <div id="ctp-settings" class="game-settings is-hidden">
+                <div class="game-settings-head">🎯 Closest to the Pin — scoring rules</div>
+                <div class="field-grid">
+                  <div class="field">
+                    <label class="label-with-help">Off-green penalty (feet) <span class="help-icon">ℹ<span class="tooltip">Feet added to a player's measured pin distance when their ball does not land on the green. Enter 0 for no penalty — off-green shots then count at their raw distance.</span></span></label>
+                    <input class="input" type="number" name="cp_off_green_penalty_ft" min="0" value="0">
+                    <div class="hint">Added to distance when ball is off the green. 0 = off-green shots count at their raw distance.</div>
+                  </div>
                 </div>
               </div>
 
@@ -438,6 +495,8 @@
               <span id="pin-accuracy-badge" style="display:none;font-size:11px;font-family:var(--font-mono);padding:4px 8px;border-radius:var(--r-sm);background:var(--surface-2);border:2px solid #EAB308;color:#EAB308;white-space:nowrap"></span>
               <button class="btn btn-ghost" id="tool-clear" title="Click a zone to select it, then press Clear to remove just that zone. With nothing selected, clears all zones for this hole.">✖ Clear</button>
               <button class="btn btn-ghost" id="tool-edit-nodes" title="Select a zone polygon first, then click to edit its nodes. Drag nodes to move them, click anywhere on the edge to add a new node, or drag midpoints (orange dots). Ctrl+Z undoes one step.">✏️ Edit nodes</button>
+              <button class="btn btn-ghost lock-exempt" id="tool-recenter" title="Snap the map back to this hole — fits the view around the zones, tee boxes, and pin you've set up.">🎯 Recenter</button>
+              <button class="btn btn-ghost lock-exempt" id="tool-fullscreen" title="Expand the map to fill the screen for easier hole mapping.">⛶ Full screen</button>
               <span style="border-left:1px solid var(--border);margin:0 4px;height:28px;align-self:center"></span>
               <select class="select ld-only" id="tool-trace-kind" style="width:auto;font-size:12px;padding:5px 8px" title="Zone to GPS-trace while walking the boundary">
                 <option value="fairway">Fairway</option>
@@ -450,6 +509,8 @@
               <span id="gps-accuracy-badge" style="display:none;font-size:11px;font-family:var(--font-mono);padding:4px 8px;border-radius:var(--r-sm);background:var(--surface-2);border:1px solid var(--border);white-space:nowrap"></span>
               <input class="input" id="search-place" placeholder="Search course…" style="flex:1;min-width:160px" title="Type a course name or address and press Enter to fly the map there.">
             </div>
+            <div id="map-fs-body">
+            <div id="map-stage">
             <div id="map" class="map-container"></div>
             <div class="map-legend">
               <span class="legend-tee">Tee box</span>
@@ -459,6 +520,8 @@
               <span class="legend-green">Green</span>
               <span class="legend-pin">Pin</span>
             </div>
+            </div><!-- /#map-stage -->
+            <div id="map-side">
 
             <div style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:12px 14px;margin-top:var(--s-3)">
               <div style="font-size:11px;color:var(--ink-2);margin-bottom:8px;font-weight:600;text-transform:uppercase;letter-spacing:.04em">Hide zones while editing</div>
@@ -504,6 +567,8 @@
             <div class="row gap-3 mt-4">
               <button class="btn btn-primary" id="btn-save-map">Save map</button>
             </div>
+            </div><!-- /#map-side -->
+            </div><!-- /#map-fs-body -->
           </div>
 
           <!-- Ball pool panel -->
@@ -1846,6 +1911,15 @@
   function showPanel(name, opts = {}) {
     $$('.editor-nav .nav-item').forEach(n => n.classList.toggle('is-active', n.dataset.panel === name));
     $$('.panel').forEach(p => p.classList.toggle('is-active', p.dataset.panel === name));
+    // Leaving the map panel always drops full-screen mode.
+    if (name !== 'map') {
+      const mp = document.querySelector('.panel[data-panel="map"]');
+      if (mp && mp.classList.contains('is-map-fullscreen')) {
+        mp.classList.remove('is-map-fullscreen');
+        const fb = $('#tool-fullscreen');
+        if (fb) fb.textContent = '⛶ Full screen';
+      }
+    }
     if (name === 'map') { requestAnimationFrame(initMap); }
     if (name === 'players') loadTeams();
     if (name === 'alerts') loadAlerts();
@@ -1976,7 +2050,24 @@
     for (const k of ['rough_fixed_yards', 'oob_fixed_yards', 'hole_distance_yards', 'cp_off_green_penalty_ft']) f[k].value = currentEvent[k] || 0;
     /* Admin-only zone view toggles default to all on when opening editor */
     document.querySelectorAll('[data-admin-zone-toggle]').forEach(cb => { cb.checked = true; });
+    syncGameSettings();
   }
+
+  /* Show each game's settings container only while that contest is toggled on.
+     Combined-scoring is only meaningful when both games are on. */
+  function syncGameSettings() {
+    const f = $('#form-settings');
+    const ld = f.has_longest_drive.checked;
+    const ctp = f.has_closest_pin.checked;
+    $('#ld-settings').classList.toggle('is-hidden', !ld);
+    $('#ctp-settings').classList.toggle('is-hidden', !ctp);
+    $('#combined-scoring-wrap').style.display = (ld && ctp) ? '' : 'none';
+    $('#no-contest-note').classList.toggle('is-hidden', ld || ctp);
+  }
+  ['has_longest_drive', 'has_closest_pin'].forEach(n => {
+    $('#form-settings')[n].addEventListener('change', syncGameSettings);
+  });
+
   $('#form-settings').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;
@@ -2189,6 +2280,31 @@
         .then(r => r.json()).then(geo => {
           if (geo.features?.[0]) map.flyTo({ center: geo.features[0].center, zoom: 15 });
         }).catch(() => {});
+    }
+  }
+
+  // Snap the map back to the current hole — fits the view around the zones
+  // drawn, plus this hole's tee boxes and pin. Falls back to the venue.
+  function recenterToHole() {
+    if (!map || !currentEvent) return;
+    const parts = [];
+    if (typeof draw !== 'undefined' && draw) {
+      draw.getAll().features.forEach(f => parts.push(f));
+    }
+    const tab = currentHoleTab;
+    (currentEvent.tee_boxes || []).forEach(t => {
+      const isCtp = t.hole_type === 'closest_pin';
+      if (t.lat && t.lon && (tab === 'ctp') === isCtp) parts.push([t.lon, t.lat]);
+    });
+    if (tab === 'ld' && currentEvent.pin_lat && currentEvent.pin_lon) {
+      parts.push([currentEvent.pin_lon, currentEvent.pin_lat]);
+    }
+    if (tab === 'ctp' && currentEvent.ctp_pin_lat && currentEvent.ctp_pin_lon) {
+      parts.push([currentEvent.ctp_pin_lon, currentEvent.ctp_pin_lat]);
+    }
+    if (!JORD.fitMapToHole(map, parts, { padding: 70 })) {
+      JORD.toast('Nothing mapped for this hole yet — showing the venue', 'warn');
+      flyAdminToVenue();
     }
   }
 
@@ -2679,6 +2795,19 @@
       _nodeEditFeatureId = selected[0];
       draw.changeMode('direct_select', { featureId: selected[0] });
       JORD.toast('Drag nodes to adjust — press Esc or click outside map to finish', 'warn');
+    };
+
+    $('#tool-recenter').onclick = recenterToHole;
+
+    // Full-screen the course map for easier hole mapping. CSS overlay (not native
+    // fullscreen) so confirm dialogs / toasts still surface above the map.
+    $('#tool-fullscreen').onclick = () => {
+      const panel = document.querySelector('.panel[data-panel="map"]');
+      const on = panel.classList.toggle('is-map-fullscreen');
+      const btn = $('#tool-fullscreen');
+      btn.textContent = on ? '✕ Exit full screen' : '⛶ Full screen';
+      btn.title = on ? 'Return to the normal layout.' : 'Expand the map to fill the screen for easier hole mapping.';
+      if (map) setTimeout(() => map.resize(), 60);
     };
 
     $('#tool-pin').onclick = () => {

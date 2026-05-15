@@ -2,6 +2,40 @@
 
 ---
 
+## v3.15.0 — 2026-05-15
+### Session 30 — Course-map setup UX: per-game settings, tooltips, recenter, full-screen
+
+#### What Changed
+
+##### Per-game settings containers (Settings tab)
+- The Longest Drive and Closest to Pin scoring rules now live in their own
+  bordered containers (`#ld-settings`, `#ctp-settings`) that show only while
+  that contest is toggled on. Toggle a game off and its settings disappear.
+- "Combined scoring" appears only when both games are on. A note prompts the
+  admin to switch on a contest when none is selected. Driven by `syncGameSettings()`.
+
+##### Tooltips across the setup form
+- The `ℹ` help-icon pattern is now on every toggle and setting box on the
+  Settings tab (game toggles, rough/OOB rules + modes, hole distance, off-green
+  penalty, admin phone, starts/ends). Plain-language copy for non-technical admins.
+- `.tooltip` CSS fixed — was `white-space: nowrap` (long text ran off-screen);
+  now wraps at a fixed width.
+
+##### Recenter button on all three maps
+- New shared helper `JORD.fitMapToHole(map, parts)` — builds a bounding box from
+  any mix of GeoJSON zone polygons and `[lon,lat]` points (tees, pin) and fits the map.
+- 🎯 Recenter button added to the admin course map, the live leaderboard map,
+  and the rep monitor map. Snaps the view back around the mapped hole.
+
+##### Full-screen course map
+- ⛶ Full screen button on the course-map toolbar. CSS-overlay (z-index 80 — above
+  the topbar, below modals so confirm dialogs still surface).
+- Layout: toolbar across the top, a tall map filling the screen, and the zone/tee/pin
+  settings in a 360px scrollable side panel. Stacks vertically on phones (<720px).
+- Leaving the Course map tab exits full-screen automatically.
+
+---
+
 ## v3.14.0 — 2026-05-15
 ### Session 29 — Charity event branding (logo + color mesh)
 

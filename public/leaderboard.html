@@ -277,7 +277,8 @@
     <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0;font-size:12px">
       <button id="map-btn-all" style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--primary);color:var(--primary-ink);cursor:pointer">All Teams</button>
       <span id="map-filter-label" style="color:var(--ink-2);font-size:11px;display:none">← tap team row to filter</span>
-      <button id="btn-hole-tour" style="margin-left:auto;font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface-2);color:var(--ink);cursor:pointer">🎬 Hole Tour</button>
+      <button id="btn-recenter-map" title="Snap the map back to the hole" style="margin-left:auto;font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface-2);color:var(--ink);cursor:pointer">🎯 Recenter</button>
+      <button id="btn-hole-tour" style="font-size:11px;font-weight:700;padding:4px 10px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface-2);color:var(--ink);cursor:pointer">🎬 Hole Tour</button>
     </div>
     <div class="lb-map-container" id="lb-map">
       <div class="tour-overlay" id="tour-overlay"><span>●</span> Hole Tour</div>
@@ -1153,6 +1154,18 @@
   document.getElementById('btn-hole-tour').addEventListener('click', function () {
     if (!mapLoaded) { JORD.warn('Open the map first.'); return; }
     startHoleTour();
+  });
+
+  /* Recenter — fit the map back around the hole's zones, tees and pin */
+  document.getElementById('btn-recenter-map').addEventListener('click', function () {
+    if (!mapLoaded || !lbMap || !snap || !snap.event) { JORD.warn('Open the map first.'); return; }
+    var ev = snap.event, parts = [];
+    [ev.fairway_polygon, ev.rough_polygon, ev.oob_polygon, ev.green_polygon, ev.ctp_green_polygon]
+      .forEach(function (p) { if (p) parts.push(p); });
+    (ev.tee_boxes || []).forEach(function (t) { if (t.lat && t.lon) parts.push([t.lon, t.lat]); });
+    if (ev.pin_lat && ev.pin_lon) parts.push([ev.pin_lon, ev.pin_lat]);
+    if (ev.ctp_pin_lat && ev.ctp_pin_lon) parts.push([ev.ctp_pin_lon, ev.ctp_pin_lat]);
+    if (!JORD.fitMapToHole(lbMap, parts, { padding: 50 })) JORD.warn('No hole map set up yet.');
   });
 
   /* TV mode — toggles large layout AND native fullscreen together */

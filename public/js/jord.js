@@ -328,6 +328,48 @@
     }
   };
 
+  /* ─── Map: fit to the mapped hole ─────────────────────────────────── */
+  // Recursively pull [lon,lat] pairs out of GeoJSON geometry/feature/FC/arrays.
+  function _walkCoords(node, cb) {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      if (node.length >= 2 && typeof node[0] === 'number' && typeof node[1] === 'number') { cb(node); return; }
+      for (let i = 0; i < node.length; i++) _walkCoords(node[i], cb);
+    } else if (typeof node === 'object') {
+      if (node.coordinates) _walkCoords(node.coordinates, cb);
+      if (node.geometry)    _walkCoords(node.geometry, cb);
+      if (node.features)    node.features.forEach(f => _walkCoords(f, cb));
+      if (node.geometries)  node.geometries.forEach(g => _walkCoords(g, cb));
+    }
+  }
+  /**
+   * Fit a Mapbox map to the mapped hole. `parts` is an array whose items are
+   * GeoJSON (object or JSON string — Polygon/Feature/FeatureCollection) and/or
+   * [lon, lat] points (tee boxes, pin). Returns true if it found geometry to fit.
+   */
+  APP.fitMapToHole = function (map, parts, opts) {
+    opts = opts || {};
+    if (!map || typeof mapboxgl === 'undefined') return false;
+    const bounds = new mapboxgl.LngLatBounds();
+    let n = 0;
+    (parts || []).forEach(p => {
+      if (p == null) return;
+      let obj = p;
+      if (typeof p === 'string') { try { obj = JSON.parse(p); } catch { return; } }
+      _walkCoords(obj, ll => {
+        const lon = +ll[0], lat = +ll[1];
+        if (isFinite(lon) && isFinite(lat)) { bounds.extend([lon, lat]); n++; }
+      });
+    });
+    if (!n) return false;
+    map.fitBounds(bounds, {
+      padding:  opts.padding  != null ? opts.padding  : 60,
+      maxZoom:  opts.maxZoom  != null ? opts.maxZoom  : 18,
+      duration: opts.duration != null ? opts.duration : 800,
+    });
+    return true;
+  };
+
   /* ─── Format helpers ──────────────────────────────────────────────── */
   APP.fmt = {
     date: (d) => d ? new Date(d).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) : '—',

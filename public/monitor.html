@@ -334,6 +334,23 @@
     toggleWrap.appendChild(makeToggleBtn('All Players', 'all'));
     mapHeader.appendChild(toggleWrap);
 
+    /* Recenter — snap the map back to the hole's zones, tees and pin */
+    var recenterBtn = document.createElement('button');
+    recenterBtn.textContent = '🎯 Recenter';
+    recenterBtn.title = 'Snap the map back to the hole';
+    recenterBtn.style.cssText = 'font-size:12px;font-weight:600;padding:6px 12px;border-radius:var(--r-md);border:1px solid var(--border);background:var(--surface-2);color:var(--ink);cursor:pointer;flex-shrink:0;min-height:36px';
+    recenterBtn.addEventListener('click', function () {
+      if (!map || !snap || !snap.event) return;
+      var ev = snap.event, parts = [];
+      [ev.fairway_polygon, ev.rough_polygon, ev.oob_polygon, ev.green_polygon, ev.ctp_green_polygon]
+        .forEach(function (p) { if (p) parts.push(p); });
+      (ev.tee_boxes || []).forEach(function (t) { if (t.lat && t.lon) parts.push([t.lon, t.lat]); });
+      if (ev.pin_lat && ev.pin_lon) parts.push([ev.pin_lon, ev.pin_lat]);
+      if (ev.ctp_pin_lat && ev.ctp_pin_lon) parts.push([ev.ctp_pin_lon, ev.ctp_pin_lat]);
+      if (!JORD.fitMapToHole(map, parts, { padding: 60 })) JORD.warn('No hole map set up yet.');
+    });
+    mapHeader.appendChild(recenterBtn);
+
     /* Team filter indicator */
     var filterInfo = document.createElement('div');
     filterInfo.id = 'map-filter-info';
