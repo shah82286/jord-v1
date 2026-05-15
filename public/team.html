@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Team · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  body { background: var(--bg); }
+  .team-wrap { max-width: 560px; margin: 0 auto; padding: var(--s-4) var(--s-4) var(--s-8); }
+
+  .team-hero {
+    text-align: center; padding: var(--s-5) var(--s-4);
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-lg); margin-bottom: var(--s-4);
+  }
+  .team-eyebrow { font-size: 11px; color: var(--ink-2); letter-spacing: 0.20em; text-transform: uppercase; margin-bottom: 6px; }
+  .team-name { font-family: var(--font-display); font-size: 36px; font-weight: 700; line-height: 1.1; margin: 0 0 8px; }
+  .team-event { font-size: 14px; color: var(--ink-2); }
+
+  .share-card {
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--r-md); padding: var(--s-4); text-align: center;
+    margin-bottom: var(--s-4);
+  }
+  .share-label { font-size: 11px; color: var(--ink-2); text-transform: uppercase; letter-spacing: .06em; font-weight: 700; margin-bottom: 8px; }
+  .share-code { font-family: var(--font-mono); font-size: 32px; font-weight: 700; letter-spacing: 4px; margin-bottom: var(--s-3); }
+  .share-qr { margin: var(--s-3) 0; }
+  .share-help { font-size: 12px; color: var(--ink-2); line-height: 1.5; }
+
+  .members-grid { display: flex; flex-direction: column; gap: var(--s-2); margin-bottom: var(--s-4); }
+  .member-row {
+    display: flex; align-items: center; gap: var(--s-3);
+    padding: 12px 14px; background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--r-md);
+  }
+  .member-row.is-empty { border-style: dashed; color: var(--ink-3); justify-content: center; padding: 14px; font-size: 13px; }
+  .member-avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--primary); color: var(--primary-ink); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+  .member-info { flex: 1; }
+  .member-name { font-weight: 600; font-size: 15px; }
+  .member-code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
+</style>
+</head>
+<body>
+
+<script src="/js/jord.js"></script>
+<script>
+(function () {
+  var parts = window.location.pathname.split('/').filter(Boolean);
+  /* /team/:eid/:share */
+  var eid       = parts[1];
+  var shareCode = (parts[2] || '').toUpperCase();
+
+  document.addEventListener('DOMContentLoaded', function () {
+    JORD.renderTopbar('Team');
+    if (!eid || !shareCode) { renderError('This link is missing the team code.'); return; }
+    loadTeam();
+  });
+
+  function getRoot() {
+    var r = document.getElementById('root');
+    if (!r) { r = document.createElement('div'); r.id = 'root'; r.className = 'team-wrap'; document.body.appendChild(r); }
+    return r;
+  }
+
+  function renderLoading() {
+    getRoot().innerHTML = '<div class="text-center" style="padding:80px 0"><div class="spinner spinner-lg" style="margin:0 auto"></div><p class="mt-4">Loading team…</p></div>';
+  }
+
+  function renderError(msg) {
+    getRoot().innerHTML = '<div class="empty" style="padding:80px 24px"><div class="empty-icon">⚠️</div><div class="empty-title">Oops</div><p>' + msg + '</p><a href="/" class="btn btn-ghost mt-3">← Back home</a></div>';
+  }
+
+  function loadTeam() {
+    renderLoading();
+    /* Fetch event info and team in parallel */
+    Promise.all([
+      fetch('/api/events/' + eid + '/info').then(function (r) { return r.json(); }),
+      fetch('/api/events/' + eid + '/teams/by-share-code/' + encodeURIComponent(shareCode)).then(function (r) { return r.ok ? r.json() : null; })
+    ]).then(function (results) {
+      var info = results[0], team = results[1];
+      if (!info || info.error) { renderError('Tournament not found.'); return; }
+      if (!team) { renderError('Team not found for code ' + shareCode + '.'); return; }
+      renderTeam(info, team);
+    }).catch(function () { renderError('Could not connect to server.'); });
+  }
+
+  function initials(first, last) {
+    var a = (first || '').charAt(0);
+    var b = (last || '').charAt(0);
+    return (a + b).toUpperCase() || '?';
+  }
+
+  function renderTeam(info, team) {
+    var root = getRoot();
+    root.innerHTML = '';
+
+    var members  = team.members || [];
+    var seatsLeft = Math.max(0, 4 - members.length);
+
+    /* Hero */
+    var hero = document.createElement('div');
+    hero.className = 'team-hero';
+    hero.innerHTML = '<div class="team-eyebrow">' + (info.venue || 'JORD Golf Tournament') + '</div>'
+      + '<h1 class="team-name">' + (team.team_name || 'Team') + '</h1>'
+      + '<div class="team-event">' + (info.name || '') + ' · ' + members.length + ' of 4 players</div>';
+    root.appendChild(hero);
+
+    /* Members */
+    var membersGrid = document.createElement('div');
+    membersGrid.className = 'members-grid';
+    members.forEach(function (m) {
+      var row = document.createElement('div');
+      row.className = 'member-row';
+      var name = ((m.first_name || '') + ' ' + (m.last_name || '')).trim() || '(no name yet)';
+      row.innerHTML = '<div class="member-avatar">' + initials(m.first_name, m.last_name) + '</div>'
+        + '<div class="member-info">'
+        + '  <div class="member-name">' + name + '</div>'
+        + '  <div class="member-code">' + m.drop_code + '</div>'
+        + '</div>';
+      membersGrid.appendChild(row);
+    });
+    /* Empty seat placeholders */
+    for (var i = 0; i < seatsLeft; i++) {
+      var empty = document.createElement('div');
+      empty.className = 'member-row is-empty';
+      empty.textContent = '＋ Empty seat — invite someone using the code below';
+      membersGrid.appendChild(empty);
+    }
+    root.appendChild(membersGrid);
+
+    /* Share card (only if team has room) */
+    if (seatsLeft > 0 && info.status === 'active') {
+      var share = document.createElement('div');
+      share.className = 'share-card';
+      share.innerHTML = '<div class="share-label">Invite a player</div>'
+        + '<div class="share-code">' + (team.share_code || shareCode) + '</div>'
+        + '<div id="team-qr" class="share-qr"></div>'
+        + '<p class="share-help">Have your friend scan this QR or open the link below. They\'ll be added straight to <strong>' + team.team_name + '</strong>.</p>';
+      root.appendChild(share);
+
+      var inviteUrl = window.location.origin + '/register/' + eid + '?team=' + encodeURIComponent(team.share_code || shareCode);
+      var qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=' + encodeURIComponent(inviteUrl);
+      document.getElementById('team-qr').innerHTML = '<img src="' + qrUrl + '" style="max-width:220px;border-radius:var(--r-md);border:2px solid var(--border)" alt="Team QR code">';
+
+      var copyBtn = document.createElement('button');
+      copyBtn.className = 'btn btn-ghost btn-block';
+      copyBtn.textContent = '📋 Copy invite link';
+      copyBtn.addEventListener('click', function () {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(inviteUrl).then(function () {
+            copyBtn.textContent = '✓ Link copied';
+            setTimeout(function () { copyBtn.textContent = '📋 Copy invite link'; }, 2000);
+          }).catch(function () { JORD.warn('Copy failed — long-press the link below'); });
+        }
+      });
+      share.appendChild(copyBtn);
+    }
+
+    /* Leaderboard link */
+    var lbLink = document.createElement('a');
+    lbLink.href = '/leaderboard/' + eid;
+    lbLink.target = '_blank';
+    lbLink.className = 'btn btn-primary btn-block btn-lg';
+    lbLink.textContent = '📺 View Live Leaderboard';
+    root.appendChild(lbLink);
+  }
+})();
+</script>
+</body>
+</html>

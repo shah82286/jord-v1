@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Tournament Reps · JORD Admin</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+</head>
+<body>
+  <main class="container" style="padding-top: 24px; padding-bottom: 48px;">
+    <div class="row row-between mb-4" style="align-items:flex-start; flex-wrap: wrap; gap: 12px;">
+      <div>
+        <a href="/admin" class="btn btn-ghost" style="margin-bottom: 12px;">← Back to events</a>
+        <h1 class="mt-2">Tournament Reps</h1>
+        <p class="mt-1" style="color:var(--ink-2);font-size:14px;max-width:640px;">
+          Reps help run your tournaments on the day — they watch the leaderboard and use the monitor.
+          They're <strong>read-only by default</strong>; toggle each permission individually.
+          Reps can never edit the course, end a tournament, or delete events.
+        </p>
+      </div>
+      <button class="btn btn-primary" id="btn-new-rep">＋ New rep</button>
+    </div>
+    <div id="reps-list" class="col gap-2"></div>
+  </main>
+
+  <script src="/js/jord.js"></script>
+  <script src="/admin/_shared/auth.js"></script>
+  <script>
+    const el = JORD.el, $ = JORD.$, $$ = JORD.$$;
+
+    ADMIN.requireAuth({ adminOrSuper: true }).then(async () => {
+      ADMIN.renderTopbar('Reps');
+      await loadReps();
+      wireNewRep();
+    });
+
+    function permChipList(rep) {
+      const perms = [
+        rep.perm_corrections      ? 'Corrections'     : null,
+        rep.perm_resolve_alerts   ? 'Resolve alerts'  : null,
+        rep.perm_reset_scans      ? 'Reset scans'     : null,
+        rep.perm_register_walkups ? 'Walk-up registr.' : null,
+      ].filter(Boolean);
+      return perms.length ? perms.join(' · ') : 'Read-only';
+    }
+
+    async function loadReps() {
+      const list = $('#reps-list');
+      list.innerHTML = '<div style="color:var(--ink-2);font-size:13px;">Loading…</div>';
+      try {
+        const reps = await JORD.api('/api/reps');
+        list.innerHTML = '';
+        if (!reps.length) {
+          list.innerHTML = '<p style="color:var(--ink-2);">No reps yet. Click "New rep" to create one.</p>';
+          return;
+        }
+        for (const r of reps) {
+          const events = (r.assigned_events || []).map(e => e.name || e.event_id).join(', ');
+          const resetInfo = r.pending_reset
+            ? `<div style="font-size:12px;color:var(--accent);margin-top:4px;">⚠ Pending reset — <a href="${window.location.origin}/admin?reset_token=${r.pending_reset.token}" target="_blank" style="color:var(--accent);text-decoration:underline;">copy link</a></div>`
+            : '';
+          const card = el('div', { class: 'card', style: { padding: '14px 18px' } },
+            el('div', { class: 'row row-between', style: { alignItems: 'flex-start', gap: '12px', flexWrap: 'wrap' } },
+              el('div', { class: 'col gap-1' },
+                el('div', { class: 'row gap-2', style: { alignItems: 'center' } },
+                  el('strong', null, r.name),
+                  el('span', { class: 'badge', style: { fontSize: '11px' } }, 'Rep'),
+                  r.active ? null : el('span', { class: 'badge badge-danger', style: { fontSize: '11px' } }, 'Inactive')
+                ),
+                el('div', { style: { fontSize: '13px', color: 'var(--ink-2)' } }, r.email),
+                el('div', { style: { fontSize: '12px', color: 'var(--ink-2)', marginTop: '4px' } },
+                  'Permissions: ' + permChipList(r)),
+                events
+                  ? el('div', { style: { fontSize: '12px', color: 'var(--ink-2)' } }, '📅 Assigned: ' + events)
+                  : el('div', { style: { fontSize: '12px', color: 'var(--ink-3)' } }, '📅 Not assigned to any event yet — assign on the event editor'),
+                el('div', { html: resetInfo })
+              ),
+              el('div', { class: 'row gap-2' },
+                el('button', { class: 'btn btn-ghost', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: () => editRep(r) } }, '✏️ Edit'),
+                el('button', { class: 'btn btn-ghost', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: () => genResetLink(r) } }, '🔑 Reset pwd'),
+                el('button', { class: 'btn btn-danger', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: () => deleteRep(r) } }, 'Remove')
+              )
+            )
+          );
+          list.appendChild(card);
+        }
+      } catch (err) {
+        list.innerHTML = `<p style="color:var(--danger);">${err.message}</p>`;
+      }
+    }
+
+    async function genResetLink(r) {
+      try {
+        const res = await JORD.api(`/api/reps/${r.id}/reset-password`, { method: 'POST' });
+        JORD.modal({
+          title: `Reset link for ${r.name}`,
+          body: `<p style="font-size:13px;margin-bottom:10px;">Share this link with the rep. It expires in 24 hours.</p>
+                 <input class="input" value="${res.reset_url}" readonly onclick="this.select()" style="font-size:12px;">`,
+        });
+        loadReps();
+      } catch (err) { JORD.error(err.message); }
+    }
+
+    async function deleteRep(r) {
+      const ok = await JORD.confirm(`Remove ${r.name} (${r.email})? They will no longer be able to log in or appear on any event.`, { danger: true, okText: 'Remove rep' });
+      if (!ok) return;
+      try { await JORD.api(`/api/reps/${r.id}`, { method: 'DELETE' }); loadReps(); }
+      catch (err) { JORD.error(err.message); }
+    }
+
+    function permCheckboxes(rep) {
+      const PERMS = [
+        { key: 'perm_corrections',      label: 'Run corrections',          hint: 'Edit a player\'s distance, location, or penalty' },
+        { key: 'perm_resolve_alerts',   label: 'Resolve rep alerts',       hint: 'Mark alerts as handled from the monitor' },
+        { key: 'perm_reset_scans',      label: 'Reset a ball\'s scan',     hint: 'Let a player rescan after a mistake' },
+        { key: 'perm_register_walkups', label: 'Register walk-up players', hint: 'Add a missing player to an existing team' },
+      ];
+      const rows = PERMS.map(p => {
+        const cb = el('input', { type: 'checkbox' });
+        cb.checked = !!(rep && rep[p.key]);
+        cb.dataset.perm = p.key;
+        return el('label', { class: 'row gap-2', style: { alignItems: 'flex-start', fontSize: '13px', cursor: 'pointer' } },
+          cb,
+          el('div', null,
+            el('div', null, p.label),
+            el('div', { style: { fontSize: '11px', color: 'var(--ink-3)' } }, p.hint)
+          )
+        );
+      });
+      return { rows, getValues: () => Object.fromEntries(rows.map(l => {
+        const cb = l.querySelector('input[type=checkbox]');
+        return [cb.dataset.perm, cb.checked ? 1 : 0];
+      })) };
+    }
+
+    function editRep(r) {
+      const nameInput  = el('input', { class: 'input', type: 'text', value: r.name, placeholder: 'Full name' });
+      const emailInput = el('input', { class: 'input', type: 'email', value: r.email, placeholder: 'Email' });
+      const activeBox  = el('input', { type: 'checkbox' }); activeBox.checked = !!r.active;
+      const activeLabel = el('label', { class: 'row gap-2', style: { fontSize: '13px', alignItems: 'center' } }, activeBox, 'Account active');
+
+      const perms = permCheckboxes(r);
+      const body = el('div', { class: 'col gap-3' },
+        el('div', { class: 'field' }, el('label', null, 'Name'), nameInput),
+        el('div', { class: 'field' }, el('label', null, 'Email'), emailInput),
+        el('div', { class: 'col gap-2' }, el('label', null, 'Permissions'), ...perms.rows),
+        activeLabel
+      );
+
+      const saveBtn = el('button', { class: 'btn btn-primary', on: { click: async () => {
+        const updates = Object.assign({
+          name: nameInput.value.trim(),
+          email: emailInput.value.trim(),
+          active: activeBox.checked ? 1 : 0,
+        }, perms.getValues());
+        try {
+          await JORD.api(`/api/reps/${r.id}`, { method: 'PATCH', body: updates });
+          m.close(); loadReps(); JORD.success('Rep updated');
+        } catch (err) { JORD.error(err.message); }
+      }}}, 'Save changes');
+      const m = JORD.modal({ title: `Edit ${r.name}`, body, footer: saveBtn, lg: true });
+    }
+
+    function wireNewRep() {
+      $('#btn-new-rep').addEventListener('click', () => {
+        const nameInput  = el('input', { class: 'input', type: 'text', placeholder: 'Full name' });
+        const emailInput = el('input', { class: 'input', type: 'email', placeholder: 'Email address' });
+        const perms = permCheckboxes(null); // all OFF by default
+
+        const body = el('div', { class: 'col gap-3' },
+          el('div', { class: 'field' }, el('label', null, 'Name'), nameInput),
+          el('div', { class: 'field' }, el('label', null, 'Email'), emailInput),
+          el('div', { class: 'col gap-2' }, el('label', null, 'Permissions'),
+            el('div', { style: { fontSize: '11px', color: 'var(--ink-3)' } }, 'Start with everything OFF — the rep can still watch the monitor and leaderboard.'),
+            ...perms.rows
+          ),
+          el('div', { class: 'hint', style: { padding: '10px 12px', background: 'var(--surface-2)', borderRadius: '6px', fontSize: '12px' } },
+            '🔐 A temporary password will be generated. Share it with the rep securely. They can change it from their account menu after signing in.')
+        );
+        const createBtn = el('button', { class: 'btn btn-primary', on: { click: async () => {
+          if (!nameInput.value.trim() || !emailInput.value.trim()) {
+            JORD.warn('Name and email are required'); return;
+          }
+          try {
+            const body = Object.assign({
+              name: nameInput.value.trim(),
+              email: emailInput.value.trim(),
+            }, perms.getValues());
+            const created = await JORD.api('/api/reps', { method: 'POST', body });
+            m.close();
+            loadReps();
+            if (created.temp_password) {
+              const pwdField = el('input', { class: 'input', value: created.temp_password, readonly: true, style: { fontFamily: 'var(--font-mono)', fontSize: '18px', textAlign: 'center', fontWeight: '700' } });
+              pwdField.addEventListener('click', () => pwdField.select());
+              const copyBtn = el('button', { class: 'btn btn-ghost', on: { click: () => navigator.clipboard.writeText(created.temp_password).then(() => JORD.success('Copied')) } }, '📋 Copy');
+              const detail = el('div', { class: 'col gap-3' },
+                el('p', { style: { fontSize: '14px', margin: '0' } }, `Account for ${created.name} (${created.email}) created. Share this temporary password — it won't be shown again.`),
+                el('div', { class: 'row gap-2', style: { alignItems: 'stretch' } }, pwdField, copyBtn),
+                el('p', { style: { fontSize: '12px', color: 'var(--ink-2)', margin: '0' } }, 'Next: open an event and use the Reps tab to assign this rep to it.')
+              );
+              JORD.modal({ title: 'Temporary password', body: detail, lg: false });
+            } else {
+              JORD.success('Rep created');
+            }
+          } catch (err) { JORD.error(err.message); }
+        }}}, 'Create rep');
+        const m = JORD.modal({ title: 'New Tournament Rep', body, footer: createBtn, lg: true });
+        nameInput.focus();
+      });
+    }
+  </script>
+</body>
+</html>

@@ -136,6 +136,14 @@
   var snap = null;
   var mapViewMode = 'active'; /* 'active' = teams still on hole | 'all' = everyone */
   var mapTeamFilter = null;   /* null = all teams; string = team name to focus */
+  var currentUser = null;     /* { id, name, role, perm_* } from /api/auth/me */
+
+  /* Permission helper — super passes everything, otherwise check the perm column. */
+  function canPerm(perm) {
+    if (!currentUser) return false;
+    if (currentUser.role === 'super') return true;
+    return !!currentUser[perm];
+  }
 
   /* Persistent team color palette — assigned on first appearance, kept for session */
   var TEAM_COLORS = ['#E91E63','#2196F3','#FF9800','#9C27B0','#00BCD4','#FF5722','#4CAF50','#CDDC39','#795548','#607D8B','#F44336','#3F51B5'];
@@ -173,6 +181,7 @@
     JORD.api('/api/auth/login', { method: 'POST', body: { email: email, password: pwd } })
       .then(function (res) {
         JORD.setToken(res.token);
+        currentUser = res; /* login response already has role + all perm_* fields */
         return JORD.api('/api/events/' + eid);
       })
       .then(function () { enterMonitor(); })
@@ -187,7 +196,10 @@
 
   /* If a session token is already stored, try silent sign-in */
   if (JORD.getToken()) {
-    JORD.api('/api/events/' + eid).then(function () { enterMonitor(); }).catch(function () { JORD.clearToken(); });
+    JORD.api('/api/auth/me')
+      .then(function (me) { currentUser = me; return JORD.api('/api/events/' + eid); })
+      .then(function () { enterMonitor(); })
+      .catch(function () { JORD.clearToken(); });
   }
 
   function enterMonitor() {
@@ -208,8 +220,14 @@
 
   /* ── UI skeleton ── */
   function buildUI(container) {
-    JORD.renderTopbar('Tournament Monitor',
-      JORD.el('div', { class: 'row gap-2' },
+    var subtitle = 'Tournament Monitor';
+    if (currentUser && currentUser.role === 'rep') subtitle = 'Tournament Monitor · Rep';
+    var userLabel = currentUser
+      ? JORD.el('span', { style: { fontSize: '12px', color: 'var(--ink-2)' } }, currentUser.name)
+      : null;
+    JORD.renderTopbar(subtitle,
+      JORD.el('div', { class: 'row gap-2', style: { alignItems: 'center' } },
+        userLabel,
         JORD.el('div', { class: 'live-pill' }, JORD.el('div', { class: 'live-dot2' }), 'Live'),
         JORD.el('span', { id: 'last-upd', style: { fontSize: '12px', color: 'var(--ink-2)' } }, ''),
         JORD.el('button', { class: 'btn btn-ghost', on: { click: function () { JORD.clearToken(); location.reload(); } } }, 'Sign out')
@@ -367,9 +385,11 @@
     alertCard.innerHTML = '<h3 class="card-title">🚨 Rep Alerts</h3><div id="alert-list"></div>';
     right.appendChild(alertCard);
 
-    /* Admin correction */
-    var corrCard = buildCorrectionCard();
-    right.appendChild(corrCard);
+    /* Admin correction — only render if the user has corrections or reset-scan rights */
+    if (canPerm('perm_corrections') || canPerm('perm_reset_scans')) {
+      var corrCard = buildCorrectionCard();
+      if (corrCard) right.appendChild(corrCard);
+    }
 
     grid.appendChild(right);
     wrap.appendChild(grid);
@@ -713,19 +733,21 @@
         var actRow = document.createElement('div');
         actRow.className = 'mon-player-actions';
 
-        /* Fill correction form */
-        var fillBtn = document.createElement('button');
-        fillBtn.className = 'btn btn-ghost';
-        fillBtn.style.cssText = 'font-size:11px;padding:3px 8px';
-        fillBtn.textContent = 'Correct';
-        fillBtn.addEventListener('click', function () {
-          var c = document.getElementById('corr-code');
-          if (c) { c.value = b.drop_code; c.closest('.card').scrollIntoView({ behavior: 'smooth' }); }
-        });
-        actRow.appendChild(fillBtn);
+        /* Fill correction form — only if the user can run corrections */
+        if (canPerm('perm_corrections')) {
+          var fillBtn = document.createElement('button');
+          fillBtn.className = 'btn btn-ghost';
+          fillBtn.style.cssText = 'font-size:11px;padding:3px 8px';
+          fillBtn.textContent = 'Correct';
+          fillBtn.addEventListener('click', function () {
+            var c = document.getElementById('corr-code');
+            if (c) { c.value = b.drop_code; c.closest('.card').scrollIntoView({ behavior: 'smooth' }); }
+          });
+          actRow.appendChild(fillBtn);
+        }
 
-        /* Reset scan */
-        if (b.scanned) {
+        /* Reset scan — only if the user can reset scans */
+        if (b.scanned && canPerm('perm_reset_scans')) {
           var rstBtn = document.createElement('button');
           rstBtn.className = 'btn btn-ghost';
           rstBtn.style.cssText = 'font-size:11px;padding:3px 8px;color:var(--danger);border-color:var(--danger)';
@@ -772,16 +794,19 @@
         + '<div class="small">' + [a.team_name, a.player_name, a.drop_code].filter(Boolean).join(' · ') + '</div>'
         + '<div class="small">' + JORD.fmt.datetime(a.created_at) + '</div>'
         + '</div>';
-      var resolveBtn = document.createElement('button');
-      resolveBtn.className = 'btn btn-ghost';
-      resolveBtn.style.cssText = 'font-size:12px;padding:6px 10px;flex-shrink:0';
-      resolveBtn.textContent = 'Resolve';
-      resolveBtn.addEventListener('click', function () {
-        JORD.api('/api/alerts/' + a.id + '/resolve', { method: 'PATCH' })
-          .then(function () { JORD.success('Alert resolved'); })
-          .catch(function () { JORD.error('Failed to resolve'); });
-      });
-      item.appendChild(resolveBtn);
+      /* Resolve button — only if the user can resolve alerts */
+      if (canPerm('perm_resolve_alerts')) {
+        var resolveBtn = document.createElement('button');
+        resolveBtn.className = 'btn btn-ghost';
+        resolveBtn.style.cssText = 'font-size:12px;padding:6px 10px;flex-shrink:0';
+        resolveBtn.textContent = 'Resolve';
+        resolveBtn.addEventListener('click', function () {
+          JORD.api('/api/alerts/' + a.id + '/resolve', { method: 'PATCH' })
+            .then(function () { JORD.success('Alert resolved'); })
+            .catch(function () { JORD.error('Failed to resolve'); });
+        });
+        item.appendChild(resolveBtn);
+      }
       list.appendChild(item);
     });
   }
@@ -897,14 +922,27 @@
       });
     });
 
-    card.appendChild(gameField);
-    card.appendChild(codeField);
-    card.appendChild(scoreField);
-    card.appendChild(penField);
-    card.appendChild(locField);
-    card.appendChild(reasonField);
-    card.appendChild(submitBtn);
-    card.appendChild(resetBtn);
+    /* Layout depends on what the user can do.
+       - Both perms: full card (game/code/score/pen/loc/reason + submit, then reset).
+       - perm_corrections only: full form, no reset button.
+       - perm_reset_scans only: just code + reset button (no scoring fields). */
+    var canCorrect = canPerm('perm_corrections');
+    var canReset   = canPerm('perm_reset_scans');
+    if (canCorrect) {
+      card.appendChild(gameField);
+      card.appendChild(codeField);
+      card.appendChild(scoreField);
+      card.appendChild(penField);
+      card.appendChild(locField);
+      card.appendChild(reasonField);
+      card.appendChild(submitBtn);
+    } else if (canReset) {
+      /* Reset-only view: simpler card title + just the code field */
+      card.querySelector('.card-sub').textContent = 'Reset a player\'s scan so they can scan again.';
+      card.appendChild(gameField);
+      card.appendChild(codeField);
+    }
+    if (canReset) card.appendChild(resetBtn);
     card.appendChild(errEl);
     return card;
   }

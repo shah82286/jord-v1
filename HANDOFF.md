@@ -115,11 +115,16 @@ On first run, super admin is auto-seeded from `.env`.
   - **GPS note**: iPhone Safari blocks GPS on plain HTTP (local IP). Always use ngrok URL for full phone GPS testing.
 - **Test tool GPS simulator**: selecting an event loads zone polygons on the simulator map. Clicking the map auto-detects which zone the point falls in and shows a colored dot + label. Map fly-to uses a full fallback chain: zone polygons → tee boxes → venue coordinates.
 
-#### Multi-admin system (v3.0.0)
-- **Super admin** (`role='super'`): sees all events, manages other admins, controls global leaderboard
-- **Tournament admin** (`role='admin'`): sees only their own events; per-permission toggles: `perm_corrections`, `perm_end_tournament`, `perm_manage_players`, `perm_manage_balls`
+#### Multi-role system (v3.0.0 → v3.11.0)
+Three tiers, all stored in `admins` (single table), distinguished by `role`:
+- **Super admin** (`role='super'`): sees all events, manages other admins + reps, controls global leaderboard. Bypasses every permission check.
+- **Tournament admin** (`role='admin'`): sees only their own events; can create/manage **their own reps**. Permission toggles: `perm_corrections`, `perm_end_tournament`, `perm_manage_players`, `perm_manage_balls`, `perm_resolve_alerts`, `perm_reset_scans`, `perm_register_walkups` (last three default 1 for existing admins; bumped to 1 by v3.11.0 backfill).
+- **Tournament rep** (`role='rep'`, v3.11.0): per-event hire. Read-only by default. Assigned to events via the `event_reps` join table. Same four permission toggles as admin's day-of stuff (`perm_corrections`, `perm_resolve_alerts`, `perm_reset_scans`, `perm_register_walkups`) — column defaults to 0, opted in individually by their creator. Reps can **never** edit the course, end tournaments, delete events, manage other accounts, or touch the ball pool — those endpoints require `requireAdminOrSuper`.
+- **Access scoping** — central helper `hasEventAccess(admin, eventId)`: super → all, admin → owned (`events.admin_id`), rep → assigned (`event_reps`). Used by `requireEventAccess` middleware and inline checks on monitor write endpoints.
+- **Login routing** — same `/admin` login form for all three roles. After auth, `/api/auth/me` returns role + perms + `assigned_event_ids`; the client routes reps to `/monitor/:eventId` and admins/super to the events list. Reps trying to open the editor are bounced.
+- **Rep management UI** — `/admin/reps` for CRUD (admins see their own, super sees all); each event editor has a "🎽 Reps" tab to assign reps to that event specifically.
 - **Session tokens**: 32-byte hex, stored in `sessions` table, 7-day expiry. Old raw-password tokens rejected.
-- **Login**: `POST /api/auth/login` → `{ email, password }` → `{ token, role, name, permissions }`
+- **Login**: `POST /api/auth/login` → `{ email, password }` → `{ token, role, name, all perm_*, assigned_event_ids }`
 - **Forgot password**: generates reset link stored in DB; super admin shares link manually. Reset URL: `/admin?reset_token=TOKEN`
 - **Forgot email**: enter name → get masked email hint
 - **First run**: super admin auto-seeded from `.env` (`SUPER_ADMIN_EMAIL` or `shah82286@gmail.com`, password = `ADMIN_PASSWORD`)
@@ -131,7 +136,7 @@ On first run, super admin is auto-seeded from `.env`.
 - **Data rules**: fairway drives only, `global_published = 1` events only, monthly grouping by `ld_scanned_at`
 
 #### Database schema
-Tables: `events`, `tee_boxes`, `balls`, `teams`, `rep_alerts`, `admin_corrections`, `sms_log`, `admins`, `sessions`, `password_reset_tokens`
+Tables: `events`, `tee_boxes`, `balls`, `teams`, `rep_alerts`, `admin_corrections`, `sms_log`, `admins`, `sessions`, `password_reset_tokens`, `event_reps` (v3.11.0)
 
 Key `events` columns (recent additions auto-migrate on startup):
 - `ctp_pin_lat`, `ctp_pin_lon` — CTP hole pin coordinates

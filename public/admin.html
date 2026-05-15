@@ -274,6 +274,7 @@
           <button class="btn btn-ghost hidden" id="btn-manage-requests">📥 Inbound Requests <span id="requests-pending-badge" class="hidden" style="background:var(--primary);color:var(--primary-ink);font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;margin-left:4px"></span></button>
           <button class="btn btn-ghost hidden" id="btn-manage-global">🌍 Global LB</button>
           <button class="btn btn-ghost hidden" id="btn-manage-admins">👤 Manage Admins</button>
+          <button class="btn btn-ghost hidden" id="btn-manage-reps">🎽 Manage Reps</button>
           <button class="btn btn-ghost hidden" id="btn-manage-backups">💾 Backups</button>
           <button class="btn btn-primary" id="btn-new-event">＋ New event</button>
         </div>
@@ -432,7 +433,7 @@
               <button class="btn btn-ghost" id="tool-grab-pin" title="Place your phone at the hole flag, then press this to capture the exact pin location via GPS.">📡 Grab GPS Pin</button>
               <span id="pin-accuracy-badge" style="display:none;font-size:11px;font-family:var(--font-mono);padding:4px 8px;border-radius:var(--r-sm);background:var(--surface-2);border:2px solid #EAB308;color:#EAB308;white-space:nowrap"></span>
               <button class="btn btn-ghost" id="tool-clear" title="Click a zone to select it, then press Clear to remove just that zone. With nothing selected, clears all zones for this hole.">✖ Clear</button>
-              <button class="btn btn-ghost" id="tool-edit-nodes" title="Select a zone polygon first, then click to edit its nodes. Drag midpoints (orange dots) to add new nodes.">✏️ Edit nodes</button>
+              <button class="btn btn-ghost" id="tool-edit-nodes" title="Select a zone polygon first, then click to edit its nodes. Drag green dots to move vertices. Click white midpoint dots to add a new vertex. Ctrl+Z undoes one step.">✏️ Edit nodes</button>
               <span style="border-left:1px solid var(--border);margin:0 4px;height:28px;align-self:center"></span>
               <select class="select ld-only" id="tool-trace-kind" style="width:auto;font-size:12px;padding:5px 8px" title="Zone to GPS-trace while walking the boundary">
                 <option value="fairway">Fairway</option>
@@ -587,6 +588,7 @@
       <div id="admins-list" class="col gap-2"></div>
     </section>
 
+
     <!-- ── Inbound tournament requests view (super only) ── -->
     <section id="view-requests" class="hidden">
       <div class="row row-between mb-4">
@@ -648,6 +650,12 @@
   }
 
   function showApp() {
+    /* Reps don't get an events list — route them to their assigned monitor. */
+    if (currentAdmin && currentAdmin.role === 'rep') {
+      const eid = (currentAdmin.assigned_event_ids || [])[0];
+      window.location.href = eid ? '/monitor/' + eid : '/admin?next=/admin';
+      return;
+    }
     /* If a ?next= URL is set, jump there instead of staying on /admin */
     const next = new URLSearchParams(location.search).get('next');
     if (next && next.startsWith('/admin')) { window.location.href = next; return; }
@@ -769,6 +777,11 @@
       });
       refreshRequestsBadge();
     }
+    // Manage Reps is available to both super AND tournament admins (they can have their own reps)
+    if (currentAdmin?.role === 'super' || currentAdmin?.role === 'admin') {
+      const btn = $('#btn-manage-reps');
+      if (btn) btn.classList.remove('hidden');
+    }
 
     try { const cfg = await JORD.api('/api/config'); mapboxToken = cfg.mapbox_token || ''; } catch {}
     await loadEvents();
@@ -870,6 +883,7 @@
 
   // Super-admin nav buttons → real URLs (separate module pages)
   $('#btn-manage-admins').addEventListener('click',   () => { window.location.href = '/admin/admins'; });
+  $('#btn-manage-reps').addEventListener('click',     () => { window.location.href = '/admin/reps'; });
   $('#btn-manage-global').addEventListener('click',   () => { window.location.href = '/admin/global'; });
   $('#btn-manage-requests').addEventListener('click', () => { window.location.href = '/admin/requests'; });
   $('#btn-manage-backups').addEventListener('click',  () => { window.location.href = '/admin/backups'; });
@@ -1722,6 +1736,10 @@
 
   function clipZones() {
     if (!draw || !window.turf) return;
+    // Lock undo so the delete/add cascade during clipping doesn't
+    // create dozens of redundant undo steps for one user action.
+    if (typeof _undoLocked !== 'undefined') _undoLocked = true;
+    try {
 
     function featuresOfKind(kind) {
       return draw.getAll().features.filter(f =>
@@ -1784,6 +1802,9 @@
     clipKind('oob', playable);
 
     syncZoneLayers();
+    } finally {
+      if (typeof _undoLocked !== 'undefined') _undoLocked = false;
+    }
   }
 
   function updatePinCoordsDisplay() {
@@ -1866,16 +1887,16 @@
         filter: ['all', ['==', 'active', 'true'], ['==', '$type', 'Polygon']],
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: { 'line-color': kindColor, 'line-dasharray': [0.2, 2], 'line-width': 2.5 } },
-      /* Vertex editing handles */
+      /* Vertex editing handles — big bright = drag to move; small dim = click to add */
       { id: 'gl-draw-polygon-midpoint', type: 'circle',
         filter: ['all', ['==', '$type', 'Point'], ['==', 'meta', 'midpoint']],
-        paint: { 'circle-radius': 6, 'circle-color': '#fbb03b', 'circle-stroke-width': 2, 'circle-stroke-color': '#fff' } },
+        paint: { 'circle-radius': 5, 'circle-color': '#fff', 'circle-stroke-width': 1.5, 'circle-stroke-color': '#666', 'circle-opacity': 0.7 } },
       { id: 'gl-draw-polygon-and-line-vertex-halo-active', type: 'circle',
         filter: ['all', ['==', 'meta', 'vertex'], ['==', '$type', 'Point'], ['!=', 'mode', 'static']],
-        paint: { 'circle-radius': 5, 'circle-color': '#FFF' } },
+        paint: { 'circle-radius': 9, 'circle-color': '#fff' } },
       { id: 'gl-draw-polygon-and-line-vertex-active', type: 'circle',
         filter: ['all', ['==', 'meta', 'vertex'], ['==', '$type', 'Point'], ['!=', 'mode', 'static']],
-        paint: { 'circle-radius': 3, 'circle-color': '#fbb03b' } }
+        paint: { 'circle-radius': 6, 'circle-color': '#BEFF3A', 'circle-stroke-width': 2, 'circle-stroke-color': '#0C2010' } }
     ];
 
     map = new mapboxgl.Map({
@@ -1915,13 +1936,20 @@
     }
 
     // ── Undo stack ──
+    // Snapshot is captured BEFORE each mutation so Ctrl+Z restores the
+    // exact pre-mutation state. Captures happen on selection, on mousedown
+    // in direct_select (before vertex drag starts), and explicitly before
+    // freehand / trace / clear operations.
     const _undoStack = [];
     let _undoLocked = false;
     function pushUndo() {
       if (_undoLocked || !draw) return;
       const snap = JSON.parse(JSON.stringify(draw.getAll()));
+      // Skip if identical to most recent snapshot (avoids no-op clicks)
+      const top = _undoStack[_undoStack.length - 1];
+      if (top && JSON.stringify(top) === JSON.stringify(snap)) return;
       _undoStack.push(snap);
-      if (_undoStack.length > 20) _undoStack.shift();
+      if (_undoStack.length > 30) _undoStack.shift();
     }
     function performUndo() {
       if (!_undoStack.length || !draw) { JORD.warn('Nothing to undo'); return; }
@@ -1980,12 +2008,17 @@
       loadPolygon(currentEvent.ctp_green_polygon, 'ctp_green');
       syncZoneLayers();
 
-      // Keep zone layers in sync; clip overlapping zones after any edit
+      // Keep zone layers in sync; clip overlapping zones after any edit.
       map.on('draw.create', () => { syncZoneLayers(); scheduleClipZones(); });
       map.on('draw.update', () => { syncZoneLayers(); scheduleClipZones(); });
-      map.on('draw.delete', syncZoneLayers);
-      // Save undo snapshot when the user selects a feature (captures state before they edit it)
+      map.on('draw.delete', () => { syncZoneLayers(); });
+      // Snapshot pre-selection state (so undo can revert any edits made next)
       map.on('draw.selectionchange', (e) => { if (e.features && e.features.length > 0 && !_undoLocked) pushUndo(); });
+      // Snapshot before each vertex/midpoint drag in direct_select mode —
+      // makes Ctrl+Z roll back ONE node edit instead of all edits since selection.
+      map.getCanvas().addEventListener('mousedown', () => {
+        if (draw && draw.getMode() === 'direct_select' && !_undoLocked) pushUndo();
+      });
       // Keep node edit mode active after vertex drag — MapboxDraw exits direct_select on its own
       map.on('draw.modechange', (e) => {
         if (_nodeEditActive && e.mode === 'simple_select' && _nodeEditFeatureId) {
@@ -2097,7 +2130,7 @@
       let feat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closed] }, properties: { kind: currentDrawKind } };
       /* Simplify — reduces freehand noise from hundreds of points to ~10-30 clean vertices */
       if (window.turf) {
-        try { feat = turf.simplify(feat, { tolerance: 0.000015, highQuality: true }); } catch {}
+        try { feat = turf.simplify(feat, { tolerance: 0.00005, highQuality: true }); } catch {}
       }
       feat.properties = { kind: currentDrawKind };
       pushUndo();
@@ -2295,7 +2328,7 @@
       _nodeEditActive = true;
       _nodeEditFeatureId = selected[0];
       draw.changeMode('direct_select', { featureId: selected[0] });
-      JORD.toast('Drag nodes to adjust — press Esc or click outside map to finish', 'warn');
+      JORD.toast('Drag green dots to move • Click white dots to add a vertex • Ctrl+Z to undo', 'warn');
     };
 
     $('#tool-pin').onclick = () => {
@@ -2586,7 +2619,7 @@
       const closedPts = [...smoothedTrace, smoothedTrace[0]];
       let traceFeat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closedPts] }, properties: { kind } };
       if (window.turf) {
-        try { traceFeat = turf.simplify(traceFeat, { tolerance: 0.000015, highQuality: true }); } catch {}
+        try { traceFeat = turf.simplify(traceFeat, { tolerance: 0.00005, highQuality: true }); } catch {}
       }
       traceFeat.properties = { kind };
       pushUndo();

@@ -17,7 +17,7 @@
 (function () {
   const ADMIN = window.ADMIN = window.ADMIN || {};
 
-  ADMIN.requireAuth = async function ({ super: needSuper = false } = {}) {
+  ADMIN.requireAuth = async function ({ super: needSuper = false, adminOrSuper = false } = {}) {
     const token = JORD.getToken();
     const back  = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
 
@@ -44,6 +44,13 @@
       throw new Error('super admin required');
     }
 
+    if (adminOrSuper && admin.role !== 'super' && admin.role !== 'admin') {
+      // Reps can't see admin module pages — route them to their monitor.
+      const eid = admin.assigned_event_ids && admin.assigned_event_ids[0];
+      window.location.href = eid ? '/monitor/' + eid : '/admin';
+      throw new Error('admin access required');
+    }
+
     ADMIN.currentAdmin = admin;
     return admin;
   };
@@ -53,9 +60,12 @@
    * Returns the bar element.
    */
   ADMIN.renderTopbar = function (subtitle = '') {
-    const userLabel = ADMIN.currentAdmin
-      ? ADMIN.currentAdmin.name + (ADMIN.currentAdmin.role === 'super' ? ' · Super' : '')
+    const roleSuffix = ADMIN.currentAdmin
+      ? (ADMIN.currentAdmin.role === 'super' ? ' · Super'
+       : ADMIN.currentAdmin.role === 'rep'   ? ' · Rep'
+       : '')
       : '';
+    const userLabel = ADMIN.currentAdmin ? ADMIN.currentAdmin.name + roleSuffix : '';
     const signOutBtn = JORD.el('button', {
       class: 'btn btn-ghost',
       style: { fontSize: '13px', padding: '6px 12px' },

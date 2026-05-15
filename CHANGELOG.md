@@ -2,6 +2,90 @@
 
 ---
 
+## v3.11.0 — 2026-05-12
+### Session 26 — Tournament Rep role
+
+#### What Changed
+
+##### New `rep` role — third tier below super/admin
+- Reps log in at the same `/admin` page; after auth, the client checks role and routes them to `/monitor/:eventId` for the event they're assigned to. They never see the admin events list.
+- Reps are **per-event** — created in `Manage Reps`, then explicitly assigned to one or more events via a new "Reps" tab on the event editor. Reps with no assignments can't see any event.
+- Reps are **read-only by default**. Four new permission toggles (column default `0`):
+  - `perm_corrections` — apply corrections from the monitor
+  - `perm_resolve_alerts` — clear rep alerts
+  - `perm_reset_scans` — let a player rescan after a mistake
+  - `perm_register_walkups` — register a missing player to an existing team
+- Reps can **never** edit the course map, end/re-open the tournament, delete events, manage other accounts, or touch the ball pool — those endpoints now require `requireAdminOrSuper`.
+
+##### Backend (`server.js`)
+- New columns on `admins` (auto-migrated): `perm_resolve_alerts`, `perm_reset_scans`, `perm_register_walkups`, `parent_admin_id`. Existing super/admin rows backfilled to `1` so pre-v3.11.0 admins keep the access they already had.
+- New join table `event_reps (event_id, rep_id, assigned_by, assigned_at)` with FK cascades + index on `rep_id`.
+- New auth helpers:
+  - `requireAdminOrSuper` — blocks reps from admin-tier endpoints
+  - `requireEventAccess` + `hasEventAccess(admin, eventId)` — single source of truth for "can this user see this event?" (super → all, admin → owned, rep → assigned via `event_reps`)
+- `requirePerm(perm)` now gates admins **and** reps (super still short-circuits).
+- New endpoints (all auth + adminOrSuper):
+  - `GET /api/reps` — admins see their own reps, super sees all; each rep returns its `assigned_events` + any pending password reset link
+  - `POST /api/reps` — create rep with `parent_admin_id` auto-set from creator; returns a generated temp password if none supplied
+  - `PATCH /api/reps/:id` — edit name/email/active + the four rep perms
+  - `DELETE /api/reps/:id` — cascades through `event_reps` + `sessions`
+  - `POST /api/reps/:id/reset-password` — 24-hour reset link
+  - `GET /api/events/:eventId/reps` — list reps assigned to event
+  - `POST /api/events/:eventId/reps` — assign rep
+  - `DELETE /api/events/:eventId/reps/:repId` — unassign
+- Hardened existing endpoints with `requireAdminOrSuper`: create/patch/delete events; end/reopen; tee box CRUD; ball pool CRUD; team delete; player edit; ball unassign.
+- Hardened monitor endpoints:
+  - `POST /api/admin/correct` & `/api/admin/null-ball` → `requirePerm('perm_corrections')` + `hasEventAccess`
+  - `PATCH /api/events/:eventId/balls/:code/reset-scan` → `requirePerm('perm_reset_scans')` + `requireEventAccess`
+  - `PATCH /api/alerts/:id/resolve` → `requirePerm('perm_resolve_alerts')` + `hasEventAccess`
+- `GET /api/events` returns the rep's assigned events when `role='rep'`. `/api/auth/login` and `/api/auth/me` surface all four new perms + `parent_admin_id` + `assigned_event_ids`.
+
+##### Frontend
+- `public/admin/reps.html` (new page at `/admin/reps`) — rep list with permission chips, per-rep assigned-events display, create/edit modals with four perm checkboxes, reset-password flow. Admins see only their own reps; super sees all.
+- `public/admin/editor.html` — new "🎽 Reps" tab on every event editor. Picks unassigned reps from a dropdown to add; renders assigned reps with their permission summary + an Unassign button. Reps trying to open the editor are bounced to their monitor.
+- `public/admin.html` — `🎽 Manage Reps` topbar button (visible to super and admin). Post-login, reps auto-redirect to `/monitor/:eventId`.
+- `public/admin/_shared/auth.js` — new `requireAuth({ adminOrSuper: true })` mode bounces reps to their monitor; topbar shows " · Rep" suffix for the rep role.
+- `public/monitor.html` — silent sign-in calls `/api/auth/me` and stashes `currentUser`; new `canPerm()` helper. Hides Correct/Reset buttons per-player, hides Resolve buttons on alerts, conditionally renders the correction card (or simplifies it to a reset-only card) based on perms. Topbar shows rep's name + " · Rep" suffix when applicable.
+
+##### Tests
+- `tests/regression-tests.js` +12 tests covering `hasEventAccess` / `repIsManageable` / `canPerm` across super/admin-A/admin-B/rep1/rep2 combinations. 87/87 passing.
+
+#### Why
+Tournament reps are the bodies on the ground during a tournament — running carts, helping players whose scan won't go through, watching the leaderboard for issues. The founder needs to delegate that work without handing over admin keys that could end a tournament, delete an event, or repaint the course map. Per-event assignment plus opt-in permissions means the admin chooses exactly how much trust each rep gets, and a rep is locked to the one tournament they're working that day.
+
+#### Files Changed
+| File | What changed |
+|------|-------------|
+| `server.js` | New perm columns + event_reps table migration; `requireAdminOrSuper` + `requireEventAccess` + `hasEventAccess` helpers; rep CRUD + assignment endpoints; existing endpoints hardened; auth responses surface new perms + assignments |
+| `public/admin/reps.html` | New page — rep list, create/edit/reset modals, four-perm toggle UI |
+| `public/admin/editor.html` | New "Reps" tab — assign/unassign reps on the event; bounces reps to monitor |
+| `public/admin/_shared/auth.js` | `adminOrSuper` auth mode; " · Rep" role label |
+| `public/admin.html` | "Manage Reps" topbar button; post-login rep redirect |
+| `public/monitor.html` | `currentUser` + `canPerm()`; per-button gating; correction card conditional layout |
+| `tests/regression-tests.js` | +12 tests for rep access/permission helpers |
+
+#### Database Changes (auto-migrated)
+```sql
+ALTER TABLE admins ADD COLUMN perm_resolve_alerts   INTEGER DEFAULT 0;
+ALTER TABLE admins ADD COLUMN perm_reset_scans      INTEGER DEFAULT 0;
+ALTER TABLE admins ADD COLUMN perm_register_walkups INTEGER DEFAULT 0;
+ALTER TABLE admins ADD COLUMN parent_admin_id TEXT;
+UPDATE admins SET perm_resolve_alerts=1, perm_reset_scans=1, perm_register_walkups=1
+  WHERE role IN ('super','admin');
+CREATE TABLE event_reps (
+  event_id    TEXT NOT NULL,
+  rep_id      TEXT NOT NULL,
+  assigned_by TEXT,
+  assigned_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (event_id, rep_id),
+  FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+  FOREIGN KEY (rep_id)   REFERENCES admins(id)  ON DELETE CASCADE
+);
+CREATE INDEX idx_event_reps_rep ON event_reps(rep_id);
+```
+
+---
+
 ## v3.10.0 — 2026-05-13
 ### Session 23 (cont.) — Admin modular split: every view is its own URL, back button works
 

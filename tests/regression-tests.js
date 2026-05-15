@@ -754,6 +754,128 @@ test('generated passwords are not all the same', () => {
   assert(seen.size === 20, 'every password should be unique with 20 samples');
 });
 
+/* ─────────────────────────────────────────────────────────────────────
+ * Tournament Rep role (v3.9.0)
+ *
+ * Pure-logic checks for the helpers that drive rep access — independent
+ * of server.js so they run without booting Express or hitting SQLite.
+ * Mirrors the production implementation in server.js:
+ *   - hasEventAccess(admin, eventId)
+ *   - repIsManageable(admin, repRow)
+ *   - canPerm(user, perm)
+ * ─────────────────────────────────────────────────────────────────── */
+
+console.log('\nTournament Rep role — access + permission helpers');
+
+// Mini in-memory "DB" — what hasEventAccess would normally consult.
+const fakeEvents = {
+  EVT1: { admin_id: 'ADM_A' },
+  EVT2: { admin_id: 'ADM_B' },
+};
+const fakeEventReps = [
+  { event_id: 'EVT1', rep_id: 'REP_R1' },
+];
+
+function hasEventAccess(admin, eventId) {
+  if (!admin || !eventId) return false;
+  if (admin.role === 'super') return true;
+  if (admin.role === 'admin') {
+    const ev = fakeEvents[eventId];
+    return !!ev && ev.admin_id === admin.id;
+  }
+  if (admin.role === 'rep') {
+    return fakeEventReps.some(r => r.event_id === eventId && r.rep_id === admin.id);
+  }
+  return false;
+}
+
+function repIsManageable(admin, repRow) {
+  if (!repRow || repRow.role !== 'rep') return false;
+  if (admin.role === 'super') return true;
+  if (admin.role === 'admin' && repRow.parent_admin_id === admin.id) return true;
+  return false;
+}
+
+function canPerm(user, perm) {
+  if (!user) return false;
+  if (user.role === 'super') return true;
+  return !!user[perm];
+}
+
+const adminA = { id: 'ADM_A', role: 'admin' };
+const adminB = { id: 'ADM_B', role: 'admin' };
+const superU = { id: 'SUP', role: 'super' };
+const rep1   = { id: 'REP_R1', role: 'rep', parent_admin_id: 'ADM_A',
+                 perm_corrections: 1, perm_resolve_alerts: 0, perm_reset_scans: 0, perm_register_walkups: 0 };
+const rep2   = { id: 'REP_R2', role: 'rep', parent_admin_id: 'ADM_B',
+                 perm_corrections: 0, perm_resolve_alerts: 0, perm_reset_scans: 0, perm_register_walkups: 0 };
+
+test('super has access to any event', () => {
+  assert(hasEventAccess(superU, 'EVT1'));
+  assert(hasEventAccess(superU, 'EVT2'));
+});
+
+test('admin only accesses events they own', () => {
+  assert(hasEventAccess(adminA, 'EVT1'));
+  assert(!hasEventAccess(adminA, 'EVT2'));
+  assert(hasEventAccess(adminB, 'EVT2'));
+  assert(!hasEventAccess(adminB, 'EVT1'));
+});
+
+test('rep accesses only events they are assigned to', () => {
+  assert(hasEventAccess(rep1, 'EVT1'));   // assigned
+  assert(!hasEventAccess(rep1, 'EVT2'));  // not assigned
+});
+
+test('rep with no assignments has no access', () => {
+  assert(!hasEventAccess(rep2, 'EVT1'));
+  assert(!hasEventAccess(rep2, 'EVT2'));
+});
+
+test('unknown role / null admin denied', () => {
+  assert(!hasEventAccess(null, 'EVT1'));
+  assert(!hasEventAccess({ role: 'mystery' }, 'EVT1'));
+});
+
+test('super can manage any rep', () => {
+  assert(repIsManageable(superU, rep1));
+  assert(repIsManageable(superU, rep2));
+});
+
+test('admin can manage only reps whose parent is themselves', () => {
+  assert(repIsManageable(adminA, rep1));   // rep1.parent_admin_id === ADM_A
+  assert(!repIsManageable(adminA, rep2));  // rep2 belongs to admin B
+});
+
+test('repIsManageable rejects non-rep targets', () => {
+  assert(!repIsManageable(superU, adminA));   // adminA is not role=rep
+  assert(!repIsManageable(superU, null));
+});
+
+test('canPerm: super always passes regardless of perm column', () => {
+  assert(canPerm(superU, 'perm_corrections'));
+  assert(canPerm(superU, 'perm_reset_scans'));
+  assert(canPerm(superU, 'perm_anything'));
+});
+
+test('canPerm: rep is gated by the column value', () => {
+  assert(canPerm(rep1, 'perm_corrections'));        // = 1
+  assert(!canPerm(rep1, 'perm_reset_scans'));       // = 0
+  assert(!canPerm(rep1, 'perm_resolve_alerts'));    // = 0
+  assert(!canPerm(rep1, 'perm_register_walkups')); // = 0
+});
+
+test('canPerm: rep with all perms 0 cannot do anything', () => {
+  assert(!canPerm(rep2, 'perm_corrections'));
+  assert(!canPerm(rep2, 'perm_reset_scans'));
+  assert(!canPerm(rep2, 'perm_resolve_alerts'));
+  assert(!canPerm(rep2, 'perm_register_walkups'));
+});
+
+test('canPerm: null user denied', () => {
+  assert(!canPerm(null, 'perm_corrections'));
+});
+
 /* ─── Summary ─────────────────────────────────────────────────────── */
 
 console.log(`\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);

@@ -32,17 +32,60 @@ When super admin creates a new admin account, send a welcome email with temp pas
 
 ## In Progress
 
-*(nothing yet)*
+**#DROP-INTEGRATION — JORD Tournament → The Drop data handoff**
+*Started 2026-05-14. Paused waiting on Drop dev team answers.*
+
+**Goal:** After a tournament ends, registered players' ball codes + contact info auto-transfer to The Drop (drop.jordgolf.com) so the same balls become Drop balls people can pay-it-forward leave on courses.
+
+**Decisions locked in:**
+- **Scope:** All registered players transfer (scanned or not). Unused codes stay in JORD pool.
+- **Trigger:** Auto-fire 24h after `events.status='ended'`. Admin can "Send now" to skip grace, or "Skip transfer" to disable.
+- **Data sent per player:** name, email, phone, ball_code, venue_name, venue_lat, venue_lon, event_name, event_date, registered_at, scanned_at, marketing opt-in flags.
+- **Home course in Drop:** Free-text venue name; Drop's UI handles match-or-create.
+- **Existing Drop users:** Match by email, add ball to existing account.
+- **Editable fields after registration:** name, email, phone (already shipped — see "Already done" below).
+- **Welcome email:** JORD sends from JORD Klaviyo. Transactional, fires regardless of marketing opt-in.
+  - Two templates: "Played" (lists all their ball codes) and "Sorry you missed it — registered but didn't scan"
+  - Single email per player listing all codes (not one per code).
+- **Sync visibility:** Per-event status panel in admin (pending / sent / failed / disabled), with retry buttons.
+
+**Already done (pre-existing):**
+- Edit registered player (name/email/phone) in admin Players tab → already built, shipped commit `dbe1d2e`. `PATCH /api/events/:eventId/balls/:code/player` at [server.js:1352](server.js#L1352); inline edit form at [admin.html:2984-3014](public/admin.html#L2984-L3014).
+
+**Phase A — to build (no Drop API needed):**
+1. Data model: `events.drop_transfer_status` (pending/sent/failed/disabled), `events.drop_transfer_at`, per-ball `drop_transferred_at`, new `drop_transfer_log` table for retry history.
+2. Export endpoint `GET /api/admin/drop-export/:eventId` returning JSON array of `{ ball_code, first_name, last_name, email, phone, venue_name, venue_lat, venue_lon, event_name, event_date, registered_at, scanned_at, email_opt_in, sms_opt_in }`.
+3. Manual CSV export button (lets Shaheen do CSV import to Drop today, before API).
+4. 24h delayed scheduler (hourly job: find `status='ended' AND ended_at < NOW()-24h AND drop_transferred=0`).
+5. Per-event sync status panel in admin (status + retry/skip/send-now buttons).
+6. Two welcome email templates in JORD Klaviyo ("Played" + "Sorry you missed it") fired on transfer success.
+
+**Phase B — after Drop team conversation:**
+- Wire actual push to Drop (REST API call / shared DB / keep CSV-only).
+
+**Open questions for Drop dev team:**
+1. Does Drop have a REST API? Endpoint URL + auth scheme (API key / JWT / bearer)?
+2. Drop's data model: how to add a ball to an existing user-by-email? Required ball record fields?
+3. Home course: free-text string accepted, or do we need to match against Drop's course ID database?
+4. Webhook back to JORD when a ball gets found/dropped? (Not required, but would let JORD show "this ball is in the wild" status.)
+
+**Also pending from Shaheen:** Drop 6-digit code so I can walk through register-a-ball flow on drop.jordgolf.com to understand their UX before final design.
 
 ---
 
 ## Done
+
+**#REP-ROLE — Tournament Rep role with per-event assignment + permission toggles** ✓
+Completed 2026-05-12 (v3.11.0). New `role='rep'` joins super/admin. Reps are read-only by default and explicitly assigned to events via a new `event_reps` join table. Four opt-in permission toggles: `perm_corrections`, `perm_resolve_alerts`, `perm_reset_scans`, `perm_register_walkups`. Reps can never edit the course map, end tournaments, manage other accounts, or touch the ball pool. New page `/admin/reps` for rep CRUD (admins see their own, super sees all). New "🎽 Reps" tab on each event editor for per-event assignment. Monitor UI hides controls reps can't use. Same login form — server routes by role. 12 new regression tests, 87/87 passing.
 
 **#THEME-V3.8 — Platform-wide cream editorial re-skin** ✓
 Completed 2026-05-11 (v3.8.0). Swapped `public/css/jord.css` `:root` variables from Rumble dark-green to the Vessel/Malbon cream editorial palette. Re-skinned all 11 functional pages (admin, leaderboard, scan, register, monitor, dashboard, global, qr, test, system-summary, mapdiag) plus polished marketing pages already on cream. `JORD.renderTopbar` now references local `/img/logos/*` — no external CDN dependencies anywhere. 55/55 regression tests pass, 14/14 mobile visual tests pass with 0 layout issues. See CHANGELOG v3.8.0 for full per-file breakdown.
 
 **#HANDOFF-UPDATE — Refresh HANDOFF.md to v3.8.0** ✓
 Completed 2026-05-11. HANDOFF.md now reflects current state: v3.8.0 cream editorial theme as the source of truth, palette documented, legacy v1.5.0 lime palette retired.
+
+**#TEAM-LATE-JOIN — Late arrivals can join a team via QR/share code** ✓
+Completed 2026-05-10. Added `share_code` column on `teams` table. `finalize-team` saves the 6-char team code, ensuring uniqueness per event. New endpoints: `GET /api/events/:eid/teams/by-share-code/:code` (lookup) and `POST .../add-player` (join). `register.html` now detects when a `?team=XXXXXX` URL matches an already-finalized team and switches into "Add yourself to [Team Name]" mode (shows existing members, single-player form, posts to add-player). Server validates team isn't full (4 max), event is active, drop code is unused. New `/team/:eid/:share` page (`team.html`) shows team name, member list with empty-seat placeholders, QR code + copy-link button to invite more, and a leaderboard link. Linked from the registration success screen.
 
 **#PRE-3 — Upgrade monitor page to session auth** ✓
 Completed 2026-05-10. Monitor `/monitor/:eventId` login replaced with email+password form (was: shared admin password). POSTs to `/api/auth/login` for a real session token. All monitor API calls (`/api/events/:id`, `/api/admin/correct`, `/api/alerts/:id/resolve`, ball reset) now use the session token. Audit trail upgrade: `admin_corrections.corrected_by` column now records `Name <email>` of the logged-in admin instead of generic `'admin'` — full per-rep attribution. Old localStorage password tokens are rejected by `requireAuth`, so the shared-password system is fully retired.

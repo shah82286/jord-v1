@@ -264,6 +264,10 @@ try { db.exec("ALTER TABLE balls ADD COLUMN cp_penalty_ft REAL DEFAULT 0"); } ca
 // Venue coordinates (set when admin selects course from autocomplete)
 try { db.exec("ALTER TABLE events ADD COLUMN venue_lat REAL"); } catch {}
 try { db.exec("ALTER TABLE events ADD COLUMN venue_lon REAL"); } catch {}
+
+// Team share code (6-char code from registration; lets players join via QR after team is finalized)
+try { db.exec("ALTER TABLE teams ADD COLUMN share_code TEXT"); } catch {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_teams_share_code ON teams(share_code)"); } catch {}
 try { db.exec("ALTER TABLE events ADD COLUMN zone_visibility TEXT"); } catch {}
 
 // Multi-admin: link events to the admin who created them
@@ -280,6 +284,32 @@ try { db.exec("ALTER TABLE balls ADD COLUMN sms_opt_in INTEGER DEFAULT 0"); } ca
 try { db.exec("ALTER TABLE tournament_requests ADD COLUMN event_url TEXT"); } catch {}
 try { db.exec("ALTER TABLE tournament_requests ADD COLUMN venue_lat REAL"); } catch {}
 try { db.exec("ALTER TABLE tournament_requests ADD COLUMN venue_lon REAL"); } catch {}
+
+// ─── Tournament Rep role (v3.9.0) ────────────────────────────────────────────
+// New permission columns gate actions a rep can perform from /monitor.
+// Column default 0 (OFF) so a freshly-INSERTed rep is read-only.
+// We then bump existing admin/super rows to 1 so the new gates don't lock
+// pre-v3.9.0 admins out of actions they already had.
+try { db.exec("ALTER TABLE admins ADD COLUMN perm_resolve_alerts INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE admins ADD COLUMN perm_reset_scans INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE admins ADD COLUMN perm_register_walkups INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE admins ADD COLUMN parent_admin_id TEXT"); } catch {}
+// Backfill: existing super/admin rows opt-in to all three new perms.
+// (Idempotent — a rerun on already-1 rows is a no-op.)
+db.prepare("UPDATE admins SET perm_resolve_alerts=1, perm_reset_scans=1, perm_register_walkups=1 WHERE role IN ('super','admin')").run();
+// Per-event rep assignments (many-to-many)
+db.exec(`
+  CREATE TABLE IF NOT EXISTS event_reps (
+    event_id      TEXT NOT NULL,
+    rep_id        TEXT NOT NULL,
+    assigned_by   TEXT,
+    assigned_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (event_id, rep_id),
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+    FOREIGN KEY (rep_id) REFERENCES admins(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_event_reps_rep ON event_reps(rep_id);
+`);
 
 // ─── AUTH HELPERS ────────────────────────────────────────────────────────────
 
@@ -415,6 +445,16 @@ function requireSuper(req, res, next) {
   next();
 }
 
+// Tournament reps can NEVER perform admin-tier actions (course map edits,
+// ending tournaments, deleting events, managing other accounts).
+function requireAdminOrSuper(req, res, next) {
+  if (!req.admin) return res.status(401).json({ error: 'Unauthorized' });
+  if (req.admin.role !== 'super' && req.admin.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+}
+
 function requirePerm(perm) {
   return (req, res, next) => {
     if (!req.admin) return res.status(401).json({ error: 'Unauthorized' });
@@ -422,6 +462,33 @@ function requirePerm(perm) {
     if (!req.admin[perm]) return res.status(403).json({ error: 'Permission denied' });
     next();
   };
+}
+
+// Is `req.admin` allowed to access event `:eventId`?
+//   super → always
+//   admin → if they own it
+//   rep   → if they're assigned to it via event_reps
+// Resolves :eventId / :id / :eid path params, or accepts eventId arg.
+function hasEventAccess(admin, eventId) {
+  if (!admin || !eventId) return false;
+  if (admin.role === 'super') return true;
+  if (admin.role === 'admin') {
+    const ev = db.prepare('SELECT admin_id FROM events WHERE id=?').get(eventId);
+    return !!ev && ev.admin_id === admin.id;
+  }
+  if (admin.role === 'rep') {
+    const row = db.prepare('SELECT 1 FROM event_reps WHERE event_id=? AND rep_id=?').get(eventId, admin.id);
+    return !!row;
+  }
+  return false;
+}
+
+function requireEventAccess(req, res, next) {
+  const eventId = req.params.eventId || req.params.id || req.params.eid;
+  if (!hasEventAccess(req.admin, eventId)) {
+    return res.status(403).json({ error: 'You do not have access to this event' });
+  }
+  next();
 }
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
@@ -955,10 +1022,18 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
     name: admin.name,
     email: admin.email,
     role: admin.role,
-    perm_corrections:    admin.perm_corrections,
-    perm_end_tournament: admin.perm_end_tournament,
-    perm_manage_players: admin.perm_manage_players,
-    perm_manage_balls:   admin.perm_manage_balls,
+    perm_corrections:      admin.perm_corrections,
+    perm_end_tournament:   admin.perm_end_tournament,
+    perm_manage_players:   admin.perm_manage_players,
+    perm_manage_balls:     admin.perm_manage_balls,
+    perm_resolve_alerts:   admin.perm_resolve_alerts,
+    perm_reset_scans:      admin.perm_reset_scans,
+    perm_register_walkups: admin.perm_register_walkups,
+    parent_admin_id:       admin.parent_admin_id || null,
+    // For reps: list of event IDs they're assigned to (lets the frontend route them on login)
+    assigned_event_ids: admin.role === 'rep'
+      ? db.prepare('SELECT event_id FROM event_reps WHERE rep_id=?').all(admin.id).map(r => r.event_id)
+      : null,
   });
 });
 
@@ -969,8 +1044,21 @@ app.post('/api/auth/logout', requireAuth, (req, res) => {
 });
 
 app.get('/api/auth/me', requireAuth, (req, res) => {
-  const { id, name, email, role, perm_corrections, perm_end_tournament, perm_manage_players, perm_manage_balls } = req.admin;
-  res.json({ id, name, email, role, perm_corrections, perm_end_tournament, perm_manage_players, perm_manage_balls });
+  const a = req.admin;
+  res.json({
+    id: a.id, name: a.name, email: a.email, role: a.role,
+    perm_corrections:      a.perm_corrections,
+    perm_end_tournament:   a.perm_end_tournament,
+    perm_manage_players:   a.perm_manage_players,
+    perm_manage_balls:     a.perm_manage_balls,
+    perm_resolve_alerts:   a.perm_resolve_alerts,
+    perm_reset_scans:      a.perm_reset_scans,
+    perm_register_walkups: a.perm_register_walkups,
+    parent_admin_id:       a.parent_admin_id || null,
+    assigned_event_ids: a.role === 'rep'
+      ? db.prepare('SELECT event_id FROM event_reps WHERE rep_id=?').all(a.id).map(r => r.event_id)
+      : null,
+  });
 });
 
 app.post('/api/auth/forgot-password', forgotLimiter, (req, res) => {
@@ -1026,9 +1114,12 @@ app.post('/api/auth/reset-password', resetLimiter, (req, res) => {
 
 // ─── ADMIN MANAGEMENT (super only) ───────────────────────────────────────────
 
+// Column sets used in admin/rep SELECTs and PATCH validators
+const ADMIN_COLS = 'id,name,email,role,active,perm_corrections,perm_end_tournament,perm_manage_players,perm_manage_balls,perm_resolve_alerts,perm_reset_scans,perm_register_walkups,parent_admin_id,created_at';
+
 app.get('/api/admins', requireAuth, requireSuper, (req, res) => {
-  const admins = db.prepare('SELECT id,name,email,role,active,perm_corrections,perm_end_tournament,perm_manage_players,perm_manage_balls,created_at FROM admins ORDER BY created_at ASC').all();
-  // Attach pending reset tokens for display
+  // Super-admin view: super + admin rows only. Reps are managed under /api/reps.
+  const admins = db.prepare(`SELECT ${ADMIN_COLS} FROM admins WHERE role IN ('super','admin') ORDER BY created_at ASC`).all();
   const resets = db.prepare("SELECT * FROM password_reset_tokens WHERE used=0 AND expires_at > datetime('now') ORDER BY created_at DESC").all();
   const resetMap = {};
   for (const r of resets) resetMap[r.admin_id] = r;
@@ -1050,15 +1141,16 @@ app.post('/api/admins', requireAuth, requireSuper, (req, res) => {
   const existing = db.prepare('SELECT id FROM admins WHERE email=?').get(email.toLowerCase().trim());
   if (existing) return res.status(400).json({ error: 'An admin with that email already exists' });
   const id = uid('ADM');
+  // This endpoint is super-only and creates super/admin. Rep creation goes through /api/reps.
   db.prepare('INSERT INTO admins (id,name,email,password_hash,role) VALUES (?,?,?,?,?)')
     .run(id, name.trim(), email.toLowerCase().trim(), hashPassword(finalPassword), role === 'super' ? 'super' : 'admin');
-  const created = db.prepare('SELECT id,name,email,role,active,perm_corrections,perm_end_tournament,perm_manage_players,perm_manage_balls,created_at FROM admins WHERE id=?').get(id);
+  const created = db.prepare(`SELECT ${ADMIN_COLS} FROM admins WHERE id=?`).get(id);
   // Only echo the password when we generated it — never echo back a password the caller supplied.
   res.json({ ...created, ...(generated ? { temp_password: finalPassword } : {}) });
 });
 
 app.patch('/api/admins/:id', requireAuth, requireSuper, (req, res) => {
-  const allowed = ['name','email','role','active','perm_corrections','perm_end_tournament','perm_manage_players','perm_manage_balls'];
+  const allowed = ['name','email','role','active','perm_corrections','perm_end_tournament','perm_manage_players','perm_manage_balls','perm_resolve_alerts','perm_reset_scans','perm_register_walkups'];
   const updates = Object.entries(req.body).filter(([k]) => allowed.includes(k));
   if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
   const target = db.prepare('SELECT * FROM admins WHERE id=?').get(req.params.id);
@@ -1080,7 +1172,7 @@ app.patch('/api/admins/:id', requireAuth, requireSuper, (req, res) => {
 
   db.prepare(`UPDATE admins SET ${updates.map(([k]) => `${k}=?`).join(',')} WHERE id=?`)
     .run(...updates.map(([,v]) => v), req.params.id);
-  res.json(db.prepare('SELECT id,name,email,role,active,perm_corrections,perm_end_tournament,perm_manage_players,perm_manage_balls FROM admins WHERE id=?').get(req.params.id));
+  res.json(db.prepare(`SELECT ${ADMIN_COLS} FROM admins WHERE id=?`).get(req.params.id));
 });
 
 app.delete('/api/admins/:id', requireAuth, requireSuper, (req, res) => {
@@ -1127,6 +1219,145 @@ app.patch('/api/admins/:id/password', requireAuth, requireSuper, (req, res) => {
   res.json({ success: true });
 });
 
+// ─── TOURNAMENT REPS (admin or super) ────────────────────────────────────────
+// Admins can manage reps they created (parent_admin_id = self).
+// Supers can manage all reps.
+
+// Scope helper — reps `req.admin` is allowed to see/edit.
+function repIsManageable(admin, repRow) {
+  if (!repRow || repRow.role !== 'rep') return false;
+  if (admin.role === 'super') return true;
+  if (admin.role === 'admin' && repRow.parent_admin_id === admin.id) return true;
+  return false;
+}
+
+// List reps (admins see only their own; super sees all)
+app.get('/api/reps', requireAuth, requireAdminOrSuper, (req, res) => {
+  const isSuper = req.admin.role === 'super';
+  const reps = isSuper
+    ? db.prepare(`SELECT ${ADMIN_COLS} FROM admins WHERE role='rep' ORDER BY created_at ASC`).all()
+    : db.prepare(`SELECT ${ADMIN_COLS} FROM admins WHERE role='rep' AND parent_admin_id=? ORDER BY created_at ASC`).all(req.admin.id);
+  // For each rep, attach the events they're assigned to (names + ids)
+  const assignStmt = db.prepare('SELECT er.event_id, e.name FROM event_reps er LEFT JOIN events e ON e.id=er.event_id WHERE er.rep_id=?');
+  const resetStmt  = db.prepare("SELECT * FROM password_reset_tokens WHERE admin_id=? AND used=0 AND expires_at > datetime('now') ORDER BY created_at DESC LIMIT 1");
+  res.json(reps.map(r => ({
+    ...r,
+    assigned_events: assignStmt.all(r.id),
+    pending_reset:   resetStmt.get(r.id) || null,
+  })));
+});
+
+// Create a rep
+app.post('/api/reps', requireAuth, requireAdminOrSuper, (req, res) => {
+  const { name, email, password,
+          perm_corrections, perm_resolve_alerts, perm_reset_scans, perm_register_walkups } = req.body;
+  if (!name || !email) return res.status(400).json({ error: 'name and email required' });
+
+  let finalPassword = password;
+  let generated = false;
+  if (!finalPassword) {
+    finalPassword = generateAdminPassword();
+    generated = true;
+  } else if (finalPassword.length < 6) {
+    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  }
+
+  const existing = db.prepare('SELECT id FROM admins WHERE email=?').get(email.toLowerCase().trim());
+  if (existing) return res.status(400).json({ error: 'An account with that email already exists' });
+
+  const id = uid('REP');
+  // parent_admin_id: if super created the rep, parent stays null (or could be specified later).
+  // If admin created, parent = self.
+  const parent = req.admin.role === 'admin' ? req.admin.id : (req.body.parent_admin_id || null);
+  db.prepare(`INSERT INTO admins
+    (id, name, email, password_hash, role, parent_admin_id,
+     perm_corrections, perm_end_tournament, perm_manage_players, perm_manage_balls,
+     perm_resolve_alerts, perm_reset_scans, perm_register_walkups)
+    VALUES (?,?,?,?, 'rep', ?, ?, 0, 0, 0, ?, ?, ?)`)
+    .run(
+      id,
+      name.trim(),
+      email.toLowerCase().trim(),
+      hashPassword(finalPassword),
+      parent,
+      perm_corrections      ? 1 : 0,
+      perm_resolve_alerts   ? 1 : 0,
+      perm_reset_scans      ? 1 : 0,
+      perm_register_walkups ? 1 : 0,
+    );
+
+  const created = db.prepare(`SELECT ${ADMIN_COLS} FROM admins WHERE id=?`).get(id);
+  res.json({ ...created, ...(generated ? { temp_password: finalPassword } : {}) });
+});
+
+// Update rep fields (name, email, active, the four rep perms)
+app.patch('/api/reps/:id', requireAuth, requireAdminOrSuper, (req, res) => {
+  const target = db.prepare('SELECT * FROM admins WHERE id=?').get(req.params.id);
+  if (!repIsManageable(req.admin, target)) return res.status(404).json({ error: 'Rep not found' });
+  const allowed = ['name','email','active','perm_corrections','perm_resolve_alerts','perm_reset_scans','perm_register_walkups'];
+  const updates = Object.entries(req.body).filter(([k]) => allowed.includes(k));
+  if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
+  db.prepare(`UPDATE admins SET ${updates.map(([k]) => `${k}=?`).join(',')} WHERE id=?`)
+    .run(...updates.map(([,v]) => (typeof v === 'boolean' ? (v ? 1 : 0) : v)), req.params.id);
+  res.json(db.prepare(`SELECT ${ADMIN_COLS} FROM admins WHERE id=?`).get(req.params.id));
+});
+
+// Delete a rep
+app.delete('/api/reps/:id', requireAuth, requireAdminOrSuper, (req, res) => {
+  const target = db.prepare('SELECT * FROM admins WHERE id=?').get(req.params.id);
+  if (!repIsManageable(req.admin, target)) return res.status(404).json({ error: 'Rep not found' });
+  db.prepare('DELETE FROM event_reps WHERE rep_id=?').run(req.params.id);
+  db.prepare('DELETE FROM sessions WHERE admin_id=?').run(req.params.id);
+  db.prepare('DELETE FROM admins WHERE id=?').run(req.params.id);
+  res.json({ success: true });
+});
+
+// Reset rep password (generates a reset link / temp pwd, same pattern as admin reset)
+app.post('/api/reps/:id/reset-password', requireAuth, requireAdminOrSuper, (req, res) => {
+  const target = db.prepare('SELECT * FROM admins WHERE id=?').get(req.params.id);
+  if (!repIsManageable(req.admin, target)) return res.status(404).json({ error: 'Rep not found' });
+  const token = require('crypto').randomBytes(24).toString('hex');
+  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  db.prepare('INSERT INTO password_reset_tokens (token, admin_id, expires_at) VALUES (?,?,?)')
+    .run(token, req.params.id, expires);
+  res.json({ token, reset_url: `${APP_URL}/admin?reset_token=${token}`, expires_at: expires });
+});
+
+// ─── PER-EVENT REP ASSIGNMENTS ───────────────────────────────────────────────
+// List reps assigned to an event (admins see if they own event; super sees all)
+app.get('/api/events/:eventId/reps', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const reps = db.prepare(`
+    SELECT a.id, a.name, a.email, a.role, a.active,
+           a.perm_corrections, a.perm_resolve_alerts, a.perm_reset_scans, a.perm_register_walkups,
+           a.parent_admin_id, a.created_at,
+           er.assigned_at, er.assigned_by
+    FROM event_reps er
+    JOIN admins a ON a.id = er.rep_id
+    WHERE er.event_id = ?
+    ORDER BY a.name ASC
+  `).all(req.params.eventId);
+  res.json(reps);
+});
+
+// Assign a rep to an event
+app.post('/api/events/:eventId/reps', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const { rep_id } = req.body;
+  if (!rep_id) return res.status(400).json({ error: 'rep_id required' });
+  const rep = db.prepare('SELECT * FROM admins WHERE id=? AND role=\'rep\'').get(rep_id);
+  if (!repIsManageable(req.admin, rep)) return res.status(403).json({ error: 'You cannot assign that rep' });
+  db.prepare('INSERT OR IGNORE INTO event_reps (event_id, rep_id, assigned_by) VALUES (?,?,?)')
+    .run(req.params.eventId, rep_id, req.admin.id);
+  res.json({ success: true });
+});
+
+// Unassign a rep from an event
+app.delete('/api/events/:eventId/reps/:repId', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const rep = db.prepare('SELECT * FROM admins WHERE id=? AND role=\'rep\'').get(req.params.repId);
+  if (!repIsManageable(req.admin, rep)) return res.status(403).json({ error: 'You cannot manage that rep' });
+  db.prepare('DELETE FROM event_reps WHERE event_id=? AND rep_id=?').run(req.params.eventId, req.params.repId);
+  res.json({ success: true });
+});
+
 // ─── API: BACKUPS (super admin) ──────────────────────────────────────────────
 app.get('/api/admin/backup/status', requireAuth, requireSuper, (_req, res) => {
   const list   = backup.listBackups(DB_PATH);
@@ -1164,39 +1395,37 @@ app.get('/api/admin/backup/download', requireAuth, requireSuper, async (_req, re
 
 // ─── API: EVENTS ─────────────────────────────────────────────────────────────
 app.get('/api/events', requireAuth, (req, res) => {
-  const isSuper = req.admin.role === 'super';
-  const events = isSuper
-    ? db.prepare(`
-        SELECT e.*,
-          a.name  AS creator_name,
-          a.email AS creator_email,
-          a.role  AS creator_role,
-          COUNT(DISTINCT t.id)        AS team_count,
-          COUNT(DISTINCT b.drop_code) AS ball_count
-        FROM events e
-        LEFT JOIN admins a ON a.id=e.admin_id
-        LEFT JOIN teams t ON t.event_id=e.id
-        LEFT JOIN balls b ON b.event_id=e.id
-        GROUP BY e.id ORDER BY e.starts_at DESC
-      `).all()
-    : db.prepare(`
-        SELECT e.*,
-          a.name  AS creator_name,
-          a.email AS creator_email,
-          a.role  AS creator_role,
-          COUNT(DISTINCT t.id)        AS team_count,
-          COUNT(DISTINCT b.drop_code) AS ball_count
-        FROM events e
-        LEFT JOIN admins a ON a.id=e.admin_id
-        LEFT JOIN teams t ON t.event_id=e.id
-        LEFT JOIN balls b ON b.event_id=e.id
-        WHERE e.admin_id=?
-        GROUP BY e.id ORDER BY e.starts_at DESC
-      `).all(req.admin.id);
+  const role = req.admin.role;
+  const baseSelect = `
+    SELECT e.*,
+      a.name  AS creator_name,
+      a.email AS creator_email,
+      a.role  AS creator_role,
+      COUNT(DISTINCT t.id)        AS team_count,
+      COUNT(DISTINCT b.drop_code) AS ball_count
+    FROM events e
+    LEFT JOIN admins a ON a.id=e.admin_id
+    LEFT JOIN teams t ON t.event_id=e.id
+    LEFT JOIN balls b ON b.event_id=e.id
+  `;
+  let events;
+  if (role === 'super') {
+    events = db.prepare(`${baseSelect} GROUP BY e.id ORDER BY e.starts_at DESC`).all();
+  } else if (role === 'admin') {
+    events = db.prepare(`${baseSelect} WHERE e.admin_id=? GROUP BY e.id ORDER BY e.starts_at DESC`).all(req.admin.id);
+  } else if (role === 'rep') {
+    // Reps see only the events they're explicitly assigned to via event_reps
+    events = db.prepare(`${baseSelect}
+      INNER JOIN event_reps er ON er.event_id=e.id AND er.rep_id=?
+      GROUP BY e.id ORDER BY e.starts_at DESC`).all(req.admin.id);
+  } else {
+    events = [];
+  }
   res.json(events);
 });
 
 app.get('/api/events/:id', requireAuth, (req, res) => {
+  if (!hasEventAccess(req.admin, req.params.id)) return res.status(403).json({ error: 'You do not have access to this event' });
   const ev = db.prepare(`
     SELECT e.*, a.name AS creator_name, a.email AS creator_email, a.role AS creator_role
     FROM events e
@@ -1232,7 +1461,7 @@ app.get('/api/events/:id/public', (req, res) => {
              admin_phone: admin_phone || null, tee_boxes });
 });
 
-app.post('/api/events', requireAuth, (req, res) => {
+app.post('/api/events', requireAuth, requireAdminOrSuper, (req, res) => {
   const { name, venue, starts_at, ends_at, has_longest_drive, has_closest_pin,
           combined_scoring, allow_rough, rough_penalty_mode, rough_fixed_yards,
           allow_oob, oob_penalty_mode, oob_fixed_yards, hole_distance_yards } = req.body;
@@ -1250,7 +1479,7 @@ app.post('/api/events', requireAuth, (req, res) => {
   res.json(db.prepare('SELECT * FROM events WHERE id=?').get(id));
 });
 
-app.patch('/api/events/:id', requireAuth, (req, res) => {
+app.patch('/api/events/:id', requireAuth, requireAdminOrSuper, (req, res) => {
   const allowed = ['name','venue','starts_at','ends_at','status','has_longest_drive','has_closest_pin',
     'combined_scoring','allow_rough','rough_penalty_mode','rough_fixed_yards','allow_oob',
     'oob_penalty_mode','oob_fixed_yards','hole_distance_yards',
@@ -1267,7 +1496,7 @@ app.patch('/api/events/:id', requireAuth, (req, res) => {
 });
 
 // Delete event (cascade)
-app.delete('/api/events/:id', requireAuth, (req, res) => {
+app.delete('/api/events/:id', requireAuth, requireAdminOrSuper, (req, res) => {
   const id = req.params.id;
   db.prepare('DELETE FROM admin_corrections WHERE event_id=?').run(id);
   db.prepare('DELETE FROM rep_alerts WHERE event_id=?').run(id);
@@ -1280,14 +1509,14 @@ app.delete('/api/events/:id', requireAuth, (req, res) => {
 });
 
 // Reopen an ended tournament
-app.post('/api/events/:id/reopen', requireAuth, (req, res) => {
+app.post('/api/events/:id/reopen', requireAuth, requireAdminOrSuper, (req, res) => {
   db.prepare("UPDATE events SET status='active' WHERE id=?").run(req.params.id);
   broadcast(req.params.id);
   res.json(db.prepare('SELECT * FROM events WHERE id=?').get(req.params.id));
 });
 
 // End tournament
-app.post('/api/events/:id/end', requireAuth, async (req, res) => {
+app.post('/api/events/:id/end', requireAuth, requireAdminOrSuper, async (req, res) => {
   const event = db.prepare('SELECT * FROM events WHERE id=?').get(req.params.id);
   if (!event) return res.status(404).json({ error: 'Not found' });
 
@@ -1336,7 +1565,7 @@ app.post('/api/events/:id/end', requireAuth, async (req, res) => {
 });
 
 // ─── TEE BOXES ───────────────────────────────────────────────────────────────
-app.post('/api/events/:eventId/tee-boxes', requireAuth, (req, res) => {
+app.post('/api/events/:eventId/tee-boxes', requireAuth, requireAdminOrSuper, (req, res) => {
   const { name, color, lat, lon, hole_type } = req.body;
   if (!name || !lat || !lon) return res.status(400).json({ error: 'name, lat, lon required' });
   const id = uid('TEE');
@@ -1345,7 +1574,7 @@ app.post('/api/events/:eventId/tee-boxes', requireAuth, (req, res) => {
   res.json(db.prepare('SELECT * FROM tee_boxes WHERE id=?').get(id));
 });
 
-app.patch('/api/tee-boxes/:id', requireAuth, (req, res) => {
+app.patch('/api/tee-boxes/:id', requireAuth, requireAdminOrSuper, (req, res) => {
   const allowed = ['lat', 'lon', 'name', 'color', 'hole_type'];
   const updates = Object.entries(req.body).filter(([k]) => allowed.includes(k));
   if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
@@ -1354,13 +1583,13 @@ app.patch('/api/tee-boxes/:id', requireAuth, (req, res) => {
   res.json(db.prepare('SELECT * FROM tee_boxes WHERE id=?').get(req.params.id));
 });
 
-app.delete('/api/tee-boxes/:id', requireAuth, (req, res) => {
+app.delete('/api/tee-boxes/:id', requireAuth, requireAdminOrSuper, (req, res) => {
   db.prepare('DELETE FROM tee_boxes WHERE id=?').run(req.params.id);
   res.json({ success: true });
 });
 
 // ─── BALL POOL ────────────────────────────────────────────────────────────────
-app.post('/api/events/:eventId/balls', requireAuth, (req, res) => {
+app.post('/api/events/:eventId/balls', requireAuth, requireAdminOrSuper, (req, res) => {
   const { codes } = req.body;
   if (!Array.isArray(codes) || !codes.length) return res.status(400).json({ error: 'codes array required' });
   const event = db.prepare('SELECT * FROM events WHERE id=?').get(req.params.eventId);
@@ -1383,7 +1612,7 @@ app.post('/api/events/:eventId/balls', requireAuth, (req, res) => {
 });
 
 // Remove a ball from the pool. Add ?force=1 to also remove assigned balls.
-app.delete('/api/events/:eventId/balls/:code', requireAuth, (req, res) => {
+app.delete('/api/events/:eventId/balls/:code', requireAuth, requireAdminOrSuper, (req, res) => {
   const code  = req.params.code.toUpperCase();
   const force = req.query.force === '1' || req.query.force === 'true';
   const ball  = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(code, req.params.eventId);
@@ -1396,7 +1625,7 @@ app.delete('/api/events/:eventId/balls/:code', requireAuth, (req, res) => {
 
 // Unassign a ball from its team — clears player info + team_id, keeps ball in pool
 // Auto-deletes the team record if no balls remain on it
-app.patch('/api/events/:eventId/balls/:code/unassign', requireAuth, (req, res) => {
+app.patch('/api/events/:eventId/balls/:code/unassign', requireAuth, requireAdminOrSuper, (req, res) => {
   const code = req.params.code.toUpperCase();
   const ball = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(code, req.params.eventId);
   if (!ball) return res.status(404).json({ error: 'Ball not found' });
@@ -1412,7 +1641,7 @@ app.patch('/api/events/:eventId/balls/:code/unassign', requireAuth, (req, res) =
 });
 
 // Delete an entire team — unassigns all its balls, then removes the team record
-app.delete('/api/events/:eventId/teams/:teamId', requireAuth, (req, res) => {
+app.delete('/api/events/:eventId/teams/:teamId', requireAuth, requireAdminOrSuper, (req, res) => {
   const { eventId, teamId } = req.params;
   const team = db.prepare('SELECT * FROM teams WHERE id=? AND event_id=?').get(teamId, eventId);
   if (!team) return res.status(404).json({ error: 'Team not found' });
@@ -1424,7 +1653,7 @@ app.delete('/api/events/:eventId/teams/:teamId', requireAuth, (req, res) => {
 });
 
 // Edit player info on a ball (name, email, phone)
-app.patch('/api/events/:eventId/balls/:code/player', requireAuth, (req, res) => {
+app.patch('/api/events/:eventId/balls/:code/player', requireAuth, requireAdminOrSuper, (req, res) => {
   const code = req.params.code.toUpperCase();
   const { first_name, last_name, email, phone } = req.body;
   const ball = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(code, req.params.eventId);
@@ -1514,7 +1743,7 @@ app.post('/api/events/:eventId/register-player', registerLimiter, async (req, re
 // Finalize team (set team name after all players registered)
 // No auth required — drop_codes must already exist in pool for this event.
 app.post('/api/events/:eventId/finalize-team', (req, res) => {
-  const { team_name, drop_codes } = req.body;
+  const { team_name, drop_codes, share_code } = req.body;
   const { eventId } = req.params;
 
   if (!team_name || !drop_codes?.length) return res.status(400).json({ error: 'team_name and drop_codes required' });
@@ -1523,13 +1752,22 @@ app.post('/api/events/:eventId/finalize-team', (req, res) => {
   if (!event) return res.status(404).json({ error: 'Event not found' });
   if (event.status !== 'active') return res.status(403).json({ error: event.status === 'setup' ? 'Tournament has not started yet' : 'Tournament has ended' });
 
+  // Normalize share code; ensure uniqueness within event (regenerate if conflict)
+  let normalizedShare = (share_code || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+  if (!normalizedShare || normalizedShare.length !== 6) {
+    normalizedShare = crypto.randomBytes(3).toString('hex').toUpperCase();
+  }
+  while (db.prepare('SELECT id FROM teams WHERE event_id=? AND share_code=?').get(eventId, normalizedShare)) {
+    normalizedShare = crypto.randomBytes(3).toString('hex').toUpperCase();
+  }
+
   const teamId = uid('TEAM');
-  db.prepare('INSERT INTO teams (id,event_id,team_name) VALUES (?,?,?)').run(teamId, eventId, team_name.trim());
+  db.prepare('INSERT INTO teams (id,event_id,team_name,share_code) VALUES (?,?,?,?)').run(teamId, eventId, team_name.trim(), normalizedShare);
   db.prepare(`UPDATE balls SET team_id=? WHERE drop_code IN (${drop_codes.map(()=>'?').join(',')}) AND event_id=?`)
     .run(teamId, ...drop_codes.map(c => c.toUpperCase()), eventId);
 
   broadcast(eventId);
-  res.json({ team_id: teamId, team_name: team_name.trim(), drop_codes });
+  res.json({ team_id: teamId, team_name: team_name.trim(), share_code: normalizedShare, drop_codes });
 
   // Fire registration confirmation for each player (non-blocking)
   setImmediate(async () => {
@@ -1556,6 +1794,56 @@ app.post('/api/events/:eventId/finalize-team', (req, res) => {
       }
     } catch (e) { console.error('[Klaviyo] registration notification error:', e.message); }
   });
+});
+
+// Look up a team by its 6-char share code so a new player can confirm + join it.
+// Returns team info + member list. No auth — share code is the access token.
+app.get('/api/events/:eventId/teams/by-share-code/:code', (req, res) => {
+  const { eventId } = req.params;
+  const code = (req.params.code || '').toUpperCase();
+  const team = db.prepare('SELECT id, team_name, share_code FROM teams WHERE event_id=? AND share_code=?').get(eventId, code);
+  if (!team) return res.status(404).json({ error: 'Team not found for this code' });
+  const members = db.prepare(`
+    SELECT drop_code, first_name, last_name, player_index
+    FROM balls WHERE team_id=? ORDER BY player_index ASC, added_at ASC
+  `).all(team.id);
+  res.json({ team_id: team.id, team_name: team.team_name, share_code: team.share_code, member_count: members.length, members });
+});
+
+// Add a new player to an already-finalized team (via share code).
+// Validates: event is active, team exists, drop code is in this event's pool and unassigned, team has < 4 members.
+app.post('/api/events/:eventId/teams/by-share-code/:code/add-player', registerLimiter, (req, res) => {
+  const { eventId } = req.params;
+  const code = (req.params.code || '').toUpperCase();
+  const { drop_code, first_name, last_name, email, phone, tee_box_id, email_opt_in, sms_opt_in } = req.body;
+
+  if (!drop_code || !first_name || !last_name) return res.status(400).json({ error: 'drop_code, first_name, last_name required' });
+  if (typeof first_name !== 'string' || first_name.trim().length < 1 || first_name.trim().length > 100) return res.status(400).json({ error: 'First name must be 1-100 characters' });
+  if (typeof last_name !== 'string' || last_name.trim().length < 1 || last_name.trim().length > 100) return res.status(400).json({ error: 'Last name must be 1-100 characters' });
+
+  const event = db.prepare('SELECT status FROM events WHERE id=?').get(eventId);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+  if (event.status !== 'active') return res.status(403).json({ error: event.status === 'setup' ? 'Tournament has not started yet' : 'Tournament has ended' });
+
+  const team = db.prepare('SELECT id, team_name FROM teams WHERE event_id=? AND share_code=?').get(eventId, code);
+  if (!team) return res.status(404).json({ error: 'Team not found for this code' });
+
+  const memberCount = db.prepare('SELECT COUNT(*) AS n FROM balls WHERE team_id=?').get(team.id).n;
+  if (memberCount >= 4) return res.status(400).json({ error: 'This team already has 4 players (the max).' });
+
+  const ballCode = drop_code.trim().toUpperCase();
+  const ball = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(ballCode, eventId);
+  if (!ball) return res.status(404).json({ error: `Code ${ballCode} not found in this tournament's ball pool` });
+  if (ball.team_id) return res.status(400).json({ error: `Code ${ballCode} is already registered to a player` });
+
+  const emailIn = email_opt_in ? 1 : 0;
+  const smsIn   = sms_opt_in   ? 1 : 0;
+
+  db.prepare(`UPDATE balls SET first_name=?,last_name=?,email=?,phone=?,tee_box_id=?,player_index=?,team_id=?,email_opt_in=?,sms_opt_in=? WHERE drop_code=? AND event_id=?`)
+    .run(first_name.trim(), last_name.trim(), email||null, phone||null, tee_box_id||null, memberCount + 1, team.id, emailIn, smsIn, ballCode, eventId);
+
+  broadcast(eventId);
+  res.json({ success: true, team_id: team.id, team_name: team.team_name, drop_code: ballCode, player: `${first_name} ${last_name}` });
 });
 
 // ─── BALL LOOKUP ─────────────────────────────────────────────────────────────
@@ -1791,8 +2079,9 @@ app.post('/api/scan/cp/:code', scanLimiter, (req, res) => {
 });
 
 // ─── ADMIN CORRECTIONS ────────────────────────────────────────────────────────
-app.post('/api/admin/correct', requireAuth, (req, res) => {
+app.post('/api/admin/correct', requireAuth, requirePerm('perm_corrections'), (req, res) => {
   const { drop_code, event_id, lat, lon, final_yards, penalty_yards, location_type, reason, game } = req.body;
+  if (!hasEventAccess(req.admin, event_id)) return res.status(403).json({ error: 'You do not have access to this event' });
   const code = drop_code.toUpperCase();
 
   const oldBall = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(code, event_id);
@@ -1823,8 +2112,9 @@ app.post('/api/admin/correct', requireAuth, (req, res) => {
 });
 
 // Null a ball (rep marks invalid)
-app.post('/api/admin/null-ball', requireAuth, (req, res) => {
+app.post('/api/admin/null-ball', requireAuth, requirePerm('perm_corrections'), (req, res) => {
   const { drop_code, event_id, game, reason } = req.body;
+  if (!hasEventAccess(req.admin, event_id)) return res.status(403).json({ error: 'You do not have access to this event' });
   const code = drop_code.toUpperCase();
   if (game === 'ld') {
     db.prepare(`UPDATE balls SET ld_final_yards=0, ld_penalty_yards=0, ld_location_type='lost', ld_manual_entry=1, ld_scanned_at=CURRENT_TIMESTAMP WHERE drop_code=? AND event_id=?`)
@@ -1838,7 +2128,7 @@ app.post('/api/admin/null-ball', requireAuth, (req, res) => {
 });
 
 // Reset a ball's scan data so the player can scan again fresh
-app.patch('/api/events/:eventId/balls/:code/reset-scan', requireAuth, (req, res) => {
+app.patch('/api/events/:eventId/balls/:code/reset-scan', requireAuth, requirePerm('perm_reset_scans'), requireEventAccess, (req, res) => {
   const code = req.params.code.toUpperCase();
   const ball = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(code, req.params.eventId);
   if (!ball) return res.status(404).json({ error: 'Ball not found' });
@@ -1867,10 +2157,13 @@ app.post('/api/alerts', alertLimiter, (req, res) => {
   res.json({ success: true, alert_id: id });
 });
 
-app.patch('/api/alerts/:id/resolve', requireAuth, (req, res) => {
-  db.prepare('UPDATE rep_alerts SET resolved=1 WHERE id=?').run(req.params.id);
+app.patch('/api/alerts/:id/resolve', requireAuth, requirePerm('perm_resolve_alerts'), (req, res) => {
+  // Look up the alert's event so we can check access and broadcast.
   const alert = db.prepare('SELECT * FROM rep_alerts WHERE id=?').get(req.params.id);
-  if (alert) broadcast(alert.event_id);
+  if (!alert) return res.status(404).json({ error: 'Alert not found' });
+  if (!hasEventAccess(req.admin, alert.event_id)) return res.status(403).json({ error: 'You do not have access to this event' });
+  db.prepare('UPDATE rep_alerts SET resolved=1 WHERE id=?').run(req.params.id);
+  broadcast(alert.event_id);
   res.json({ success: true });
 });
 
@@ -2519,12 +2812,14 @@ app.post('/api/test/registration-email', requireAuth, requireSuper, async (req, 
 const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'about.html', '/signup': 'signup.html',
   '/admin': 'admin.html',
   '/admin/admins':   'admin/admins.html',
+  '/admin/reps':     'admin/reps.html',
   '/admin/backups':  'admin/backups.html',
   '/admin/global':   'admin/global.html',
   '/admin/requests': 'admin/requests.html',
   '/admin/events/:id':       'admin/editor.html',
   '/admin/events/:id/:tab':  'admin/editor.html',
   '/register/:id': 'register.html',
+  '/team/:eid/:share': 'team.html',
   '/scan': 'scan.html', '/scan/:code': 'scan.html', '/leaderboard/:id': 'leaderboard.html',
   '/dashboard/:eid/:code': 'dashboard.html', '/monitor/:id': 'monitor.html',
   '/global': 'global.html', '/test': 'test.html', '/system-summary': 'system-summary.html' };

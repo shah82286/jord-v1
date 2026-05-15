@@ -314,6 +314,7 @@
           <div class="nav-item" data-panel="map"><span class="nav-icon">🗺</span> Course map</div>
           <div class="nav-item" data-panel="balls"><span class="nav-icon">🏐</span> Ball Codes</div>
           <div class="nav-item" data-panel="players"><span class="nav-icon">👥</span> Players & teams</div>
+          <div class="nav-item" data-panel="reps"><span class="nav-icon">🎽</span> Reps</div>
           <div class="nav-item" data-panel="alerts"><span class="nav-icon">🚨</span> Alerts</div>
         </nav>
 
@@ -432,7 +433,7 @@
               <button class="btn btn-ghost" id="tool-grab-pin" title="Place your phone at the hole flag, then press this to capture the exact pin location via GPS.">📡 Grab GPS Pin</button>
               <span id="pin-accuracy-badge" style="display:none;font-size:11px;font-family:var(--font-mono);padding:4px 8px;border-radius:var(--r-sm);background:var(--surface-2);border:2px solid #EAB308;color:#EAB308;white-space:nowrap"></span>
               <button class="btn btn-ghost" id="tool-clear" title="Click a zone to select it, then press Clear to remove just that zone. With nothing selected, clears all zones for this hole.">✖ Clear</button>
-              <button class="btn btn-ghost" id="tool-edit-nodes" title="Select a zone polygon first, then click to edit its nodes. Drag midpoints (orange dots) to add new nodes.">✏️ Edit nodes</button>
+              <button class="btn btn-ghost" id="tool-edit-nodes" title="Select a zone polygon first, then click to edit its nodes. Drag nodes to move them, click anywhere on the edge to add a new node, or drag midpoints (orange dots). Ctrl+Z undoes one step.">✏️ Edit nodes</button>
               <span style="border-left:1px solid var(--border);margin:0 4px;height:28px;align-self:center"></span>
               <select class="select ld-only" id="tool-trace-kind" style="width:auto;font-size:12px;padding:5px 8px" title="Zone to GPS-trace while walking the boundary">
                 <option value="fairway">Fairway</option>
@@ -551,6 +552,23 @@
             <div id="teams-list"></div>
           </div>
 
+          <!-- Reps panel -->
+          <div class="panel card" data-panel="reps">
+            <h3 class="card-title">Tournament reps for this event</h3>
+            <p class="card-sub">
+              Assign reps who'll be on-site running this tournament. They can watch the leaderboard and use the monitor.
+              Create new reps from <a href="/admin/reps" style="color:var(--accent);border-bottom:1px solid rgba(184,136,77,0.3)">Manage Reps</a> first.
+            </p>
+            <div class="row gap-2 mb-3" style="flex-wrap:wrap;align-items:flex-end">
+              <div class="field" style="flex:1;min-width:240px;margin-bottom:0">
+                <label>Add a rep to this event</label>
+                <select id="rep-add-select" class="input"><option value="">— pick a rep —</option></select>
+              </div>
+              <button id="btn-assign-rep" class="btn btn-primary" type="button">＋ Assign</button>
+            </div>
+            <div id="event-reps-list" class="col gap-2"></div>
+          </div>
+
           <!-- Alerts panel -->
           <div class="panel card" data-panel="alerts">
             <h3 class="card-title">Open alerts</h3>
@@ -650,7 +668,16 @@
   const resetToken = new URLSearchParams(location.search).get('reset_token');
   if (resetToken) { showGate('reset-pwd-form'); }
   else if (JORD.getToken()) {
-    try { currentAdmin = await JORD.api('/api/auth/me'); showApp(); }
+    try {
+      currentAdmin = await JORD.api('/api/auth/me');
+      // Reps cannot edit events — bounce them to their assigned monitor.
+      if (currentAdmin.role === 'rep') {
+        const eid = (currentAdmin.assigned_event_ids || [])[0];
+        window.location.href = eid ? '/monitor/' + eid : '/admin';
+        return;
+      }
+      showApp();
+    }
     catch { JORD.clearToken(); showGate(); }
   } else { showGate(); }
 
@@ -1523,6 +1550,7 @@
     if (name === 'players') loadTeams();
     if (name === 'alerts') loadAlerts();
     if (name === 'balls') loadBalls();
+    if (name === 'reps') loadEventReps();
     /* Phase 2: sub-tabs become real URL paths /admin/events/:id/:panel.
        Push history ONLY when the user actively clicks a tab — not on
        initial load or popstate, otherwise back springs forward again. */
@@ -1957,14 +1985,22 @@
     }
 
     // ── Undo stack ──
+    // Per-step undo: every draw operation (create / update / delete) pushes the
+    // PREVIOUS state onto the stack so Ctrl+Z rewinds one operation at a time.
     const _undoStack = [];
     let _undoLocked = false;
-    function pushUndo() {
+    let _lastSnapshot = null;
+    function snapshotNow() { return draw ? JSON.parse(JSON.stringify(draw.getAll())) : null; }
+    function captureForUndo() {
       if (_undoLocked || !draw) return;
-      const snap = JSON.parse(JSON.stringify(draw.getAll()));
-      _undoStack.push(snap);
-      if (_undoStack.length > 20) _undoStack.shift();
+      if (_lastSnapshot) {
+        _undoStack.push(_lastSnapshot);
+        if (_undoStack.length > 20) _undoStack.shift();
+      }
+      _lastSnapshot = snapshotNow();
     }
+    /* Legacy alias — older code still calls pushUndo() for compat */
+    function pushUndo() { captureForUndo(); }
     function performUndo() {
       if (!_undoStack.length || !draw) { JORD.warn('Nothing to undo'); return; }
       _undoLocked = true;
@@ -1973,6 +2009,7 @@
       const ids = draw.getAll().features.map(f => f.id);
       if (ids.length) draw.delete(ids);
       for (const f of snap.features) draw.add(f);
+      _lastSnapshot = snap;   /* reset baseline so the next edit is captured correctly */
       syncZoneLayers();
       _undoLocked = false;
     }
@@ -2022,12 +2059,14 @@
       loadPolygon(currentEvent.ctp_green_polygon, 'ctp_green');
       syncZoneLayers();
 
-      // Keep zone layers in sync; clip overlapping zones after any edit
-      map.on('draw.create', () => { syncZoneLayers(); scheduleClipZones(); });
-      map.on('draw.update', () => { syncZoneLayers(); scheduleClipZones(); });
-      map.on('draw.delete', syncZoneLayers);
-      // Save undo snapshot when the user selects a feature (captures state before they edit it)
-      map.on('draw.selectionchange', (e) => { if (e.features && e.features.length > 0 && !_undoLocked) pushUndo(); });
+      /* Initialize undo baseline once polygons load */
+      _lastSnapshot = snapshotNow();
+
+      /* Per-step undo: push the PRE-edit state on every change. captureForUndo
+         pushes _lastSnapshot then refreshes _lastSnapshot to the new state. */
+      map.on('draw.create', () => { captureForUndo(); syncZoneLayers(); scheduleClipZones(); });
+      map.on('draw.update', () => { captureForUndo(); syncZoneLayers(); scheduleClipZones(); });
+      map.on('draw.delete', () => { captureForUndo(); syncZoneLayers(); });
       // Keep node edit mode active after vertex drag — MapboxDraw exits direct_select on its own
       map.on('draw.modechange', (e) => {
         if (_nodeEditActive && e.mode === 'simple_select' && _nodeEditFeatureId) {
@@ -2137,13 +2176,14 @@
       const smoothed = freehandPoints.length >= 4 ? chaikinSmooth(freehandPoints, 2) : freehandPoints;
       const closed = [...smoothed, smoothed[0]];
       let feat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closed] }, properties: { kind: currentDrawKind } };
-      /* Simplify — reduces freehand noise from hundreds of points to ~10-30 clean vertices */
+      /* Simplify — reduces freehand noise to a small set of clean vertices.
+         Tolerance ≈ 0.00005° (~5.5m) — coarser than before, fewer crowded nodes. */
       if (window.turf) {
-        try { feat = turf.simplify(feat, { tolerance: 0.000015, highQuality: true }); } catch {}
+        try { feat = turf.simplify(feat, { tolerance: 0.00005, highQuality: true }); } catch {}
       }
       feat.properties = { kind: currentDrawKind };
-      pushUndo();
       draw.add(feat);
+      captureForUndo();   /* programmatic add doesn't fire draw.create — capture manually */
       freehandPoints = [];
       syncZoneLayers();
       scheduleClipZones();
@@ -2485,8 +2525,7 @@
     $('#tool-clear').onclick = async () => {
       const selected = draw.getSelectedIds();
       if (selected.length) {
-        pushUndo();
-        draw.delete(selected);
+        draw.delete(selected);   /* draw.delete event fires captureForUndo automatically */
         syncZoneLayers();
         JORD.success('Selected zone removed — Save map to confirm');
         return;
@@ -2494,7 +2533,6 @@
       const ldKinds = new Set(['fairway','rough','oob','green']);
       const holeName = currentHoleTab === 'ld' ? 'Longest Drive' : 'Closest to Pin';
       if (!await JORD.confirm(`Clear all zones for the ${holeName} hole? Select a specific zone first to remove just that one.`, { okText: 'Clear all', danger: true })) return;
-      pushUndo();
       const features = draw.getAll().features;
       if (currentHoleTab === 'ld') {
         features.filter(f => ldKinds.has(f.properties.kind || f.properties.user_kind || '')).forEach(f => draw.delete(f.id));
@@ -2516,6 +2554,50 @@
         updateHoleDistanceDisplay(); updatePinCoordsDisplay();
         JORD.success('CTP Pin placed — Save map to confirm');
       }
+    });
+
+    /* In node-edit mode, clicking on the polygon edge (not on an existing vertex
+       or midpoint) inserts a new vertex at the click point. */
+    map.on('click', (e) => {
+      if (!_nodeEditActive || !_nodeEditFeatureId || !window.turf) return;
+      if (pinPickerActive || ctpPinPickerActive || freehandActive) return;
+
+      /* Skip if Mapbox Draw is handling this click (vertex or midpoint handle) */
+      const hits = map.queryRenderedFeatures(e.point);
+      const onHandle = hits.some(f => {
+        const id = f.layer && f.layer.id;
+        return id && id.startsWith('gl-draw') && (id.includes('vertex') || id.includes('midpoint'));
+      });
+      if (onHandle) return;
+
+      const feat = draw.get(_nodeEditFeatureId);
+      if (!feat || feat.geometry.type !== 'Polygon') return;
+
+      const clickPt = [e.lngLat.lng, e.lngLat.lat];
+      const ring = feat.geometry.coordinates[0];
+      let snapped;
+      try { snapped = turf.nearestPointOnLine(turf.lineString(ring), turf.point(clickPt)); }
+      catch { return; }
+
+      /* Only insert if the click is within ~18px of the polygon edge */
+      const snappedPx = map.project(snapped.geometry.coordinates);
+      const dx = snappedPx.x - e.point.x, dy = snappedPx.y - e.point.y;
+      if (Math.sqrt(dx*dx + dy*dy) > 18) return;
+
+      const insertIdx = (snapped.properties.index || 0) + 1;
+      const newRing = [
+        ...ring.slice(0, insertIdx),
+        snapped.geometry.coordinates,
+        ...ring.slice(insertIdx),
+      ];
+      const newFeat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [newRing] }, properties: feat.properties };
+      draw.delete(_nodeEditFeatureId);
+      const [newId] = draw.add(newFeat);
+      _nodeEditFeatureId = newId;
+      captureForUndo();
+      /* Re-enter node edit so the user can immediately drag the new node */
+      setTimeout(() => { try { draw.changeMode('direct_select', { featureId: newId }); } catch {} }, 0);
+      syncZoneLayers();
     });
 
     // ── Save map ──
@@ -2628,11 +2710,12 @@
       const closedPts = [...smoothedTrace, smoothedTrace[0]];
       let traceFeat = { type: 'Feature', geometry: { type: 'Polygon', coordinates: [closedPts] }, properties: { kind } };
       if (window.turf) {
-        try { traceFeat = turf.simplify(traceFeat, { tolerance: 0.000015, highQuality: true }); } catch {}
+        /* Coarser simplification — fewer crowded nodes; matches freehand tolerance */
+        try { traceFeat = turf.simplify(traceFeat, { tolerance: 0.00005, highQuality: true }); } catch {}
       }
       traceFeat.properties = { kind };
-      pushUndo();
       draw.add(traceFeat);
+      captureForUndo();   /* programmatic add doesn't fire draw.create — capture manually */
       syncZoneLayers();
       scheduleClipZones();
       map.getSource('gps-trace').setData({ type: 'Feature', geometry: { type: 'LineString', coordinates: [] } });
@@ -3150,6 +3233,73 @@
   }
 
   // ── Alerts ──
+  // ── Per-event Reps ──
+  async function loadEventReps() {
+    if (!currentEvent) return;
+    const list = $('#event-reps-list');
+    const sel  = $('#rep-add-select');
+    list.innerHTML = '<div style="color:var(--ink-2);font-size:13px;">Loading…</div>';
+    try {
+      const [assigned, allReps] = await Promise.all([
+        JORD.api('/api/events/' + currentEvent.id + '/reps'),
+        JORD.api('/api/reps'),
+      ]);
+      // Refresh the "add a rep" dropdown — exclude already-assigned
+      const assignedIds = new Set(assigned.map(r => r.id));
+      sel.innerHTML = '<option value="">— pick a rep —</option>';
+      const candidates = allReps.filter(r => !assignedIds.has(r.id) && r.active);
+      for (const r of candidates) {
+        sel.appendChild(el('option', { value: r.id }, r.name + ' (' + r.email + ')'));
+      }
+      if (!candidates.length) {
+        sel.appendChild(el('option', { value: '', disabled: true }, allReps.length ? 'All reps already assigned' : 'No reps yet — create one in Manage Reps'));
+      }
+      // Render the assigned list
+      list.innerHTML = '';
+      if (!assigned.length) {
+        list.innerHTML = '<div class="empty" style="padding:32px 16px"><div class="empty-icon">🎽</div><div class="empty-title">No reps assigned</div><p>Assign a rep above so they can monitor this tournament.</p></div>';
+        return;
+      }
+      for (const r of assigned) {
+        const perms = [
+          r.perm_corrections      ? 'Corrections' : null,
+          r.perm_resolve_alerts   ? 'Resolve alerts' : null,
+          r.perm_reset_scans      ? 'Reset scans' : null,
+          r.perm_register_walkups ? 'Walk-ups' : null,
+        ].filter(Boolean).join(' · ') || 'Read-only';
+        const card = el('div', { class: 'card card-tight' },
+          el('div', { class: 'row row-between', style: { alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
+            el('div', { class: 'col gap-1' },
+              el('strong', null, r.name),
+              el('div', { class: 'small' }, r.email),
+              el('div', { class: 'small', style: { color: 'var(--ink-3)' } }, '🔓 ' + perms)
+            ),
+            el('button', { class: 'btn btn-danger', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: async () => {
+              const ok = await JORD.confirm(`Remove ${r.name} from this event? Their access to this monitor will be revoked.`, { danger: true, okText: 'Unassign' });
+              if (!ok) return;
+              try {
+                await JORD.api('/api/events/' + currentEvent.id + '/reps/' + r.id, { method: 'DELETE' });
+                loadEventReps();
+              } catch (err) { JORD.error(err.message); }
+            }}}, 'Unassign')
+          )
+        );
+        list.appendChild(card);
+      }
+    } catch (err) {
+      list.innerHTML = '<div class="text-danger small">' + err.message + '</div>';
+    }
+  }
+  $('#btn-assign-rep')?.addEventListener('click', async () => {
+    const sel = $('#rep-add-select');
+    const repId = sel.value;
+    if (!repId) { JORD.warn('Pick a rep first'); return; }
+    try {
+      await JORD.api('/api/events/' + currentEvent.id + '/reps', { method: 'POST', body: { rep_id: repId } });
+      JORD.success('Rep assigned'); loadEventReps();
+    } catch (err) { JORD.error(err.message); }
+  });
+
   async function loadAlerts() {
     const lb = await JORD.api('/api/leaderboard/' + currentEvent.id);
     const list = $('#alerts-list');
