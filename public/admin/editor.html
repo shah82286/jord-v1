@@ -193,7 +193,10 @@
 <body>
 
 <!-- ─── LOGIN GATE ─── -->
-<section id="gate" class="gate-wrap">
+<!-- Hidden by default: editor.html never shows its own login — showGate() redirects
+     to /admin. Keeping this visible caused a login-screen flash during the async
+     /api/auth/me check on page load. -->
+<section id="gate" class="gate-wrap hidden">
   <div class="card">
     <div class="text-center mb-4">
       <img src="/img/logos/logo-script-black.png"
@@ -315,6 +318,7 @@
           <div class="nav-item" data-panel="balls"><span class="nav-icon">🏐</span> Ball Codes</div>
           <div class="nav-item" data-panel="players"><span class="nav-icon">👥</span> Players & teams</div>
           <div class="nav-item" data-panel="reps"><span class="nav-icon">🎽</span> Reps</div>
+          <div class="nav-item hidden" id="nav-admins" data-panel="admins"><span class="nav-icon">👤</span> Admins</div>
           <div class="nav-item" data-panel="alerts"><span class="nav-icon">🚨</span> Alerts</div>
         </nav>
 
@@ -589,6 +593,57 @@
             <div id="event-reps-list" class="col gap-2"></div>
           </div>
 
+          <!-- Admins panel (super only) -->
+          <div class="panel card" data-panel="admins">
+            <h3 class="card-title">Admins for this event</h3>
+            <p class="card-sub">
+              Admins can fully manage this tournament — course map, players, scoring.
+              Add an existing JORD admin, or create a brand-new account: they'll get an
+              email with their login and a temporary password.
+            </p>
+
+            <div class="row gap-2 mb-2" style="flex-wrap:wrap">
+              <button type="button" class="btn btn-primary" id="admin-mode-existing" style="font-size:13px;padding:7px 14px">Existing admin</button>
+              <button type="button" class="btn btn-ghost" id="admin-mode-new" style="font-size:13px;padding:7px 14px">New admin</button>
+            </div>
+
+            <!-- Existing admin -->
+            <div id="admin-add-existing" class="row gap-2 mb-3" style="flex-wrap:wrap;align-items:flex-end">
+              <div class="field" style="flex:1;min-width:240px;margin-bottom:0">
+                <label>Pick an admin</label>
+                <select id="admin-add-select" class="input"><option value="">— pick an admin —</option></select>
+              </div>
+              <button id="btn-assign-admin-existing" class="btn btn-primary" type="button">＋ Add</button>
+            </div>
+
+            <!-- New admin -->
+            <div id="admin-add-new" class="hidden mb-3">
+              <div class="row gap-2" style="flex-wrap:wrap;align-items:flex-end">
+                <div class="field" style="flex:1;min-width:160px;margin-bottom:0">
+                  <label>Full name</label>
+                  <input id="admin-new-name" class="input" type="text" placeholder="First Last">
+                </div>
+                <div class="field" style="flex:1;min-width:200px;margin-bottom:0">
+                  <label>Email</label>
+                  <input id="admin-new-email" class="input" type="email" placeholder="them@example.com">
+                </div>
+                <button id="btn-assign-admin-new" class="btn btn-primary" type="button">＋ Create &amp; add</button>
+              </div>
+            </div>
+
+            <!-- Temp-password reveal after a new account is created -->
+            <div id="admin-temp-pw" class="hidden card card-tight mb-3" style="background:var(--surface-2);border-color:var(--accent)">
+              <div class="small" style="color:var(--ink-2)">New account created — share these credentials (the email was also sent):</div>
+              <div class="mt-1"><strong id="admin-temp-pw-email"></strong></div>
+              <div class="row gap-2" style="align-items:center;margin-top:4px">
+                <code id="admin-temp-pw-val" style="font-size:16px;font-weight:700;letter-spacing:1px"></code>
+                <button type="button" class="btn btn-ghost" id="btn-copy-temp-pw" style="font-size:12px;padding:6px 10px">Copy</button>
+              </div>
+            </div>
+
+            <div id="event-admins-list" class="col gap-2"></div>
+          </div>
+
           <!-- Alerts panel -->
           <div class="panel card" data-panel="alerts">
             <h3 class="card-title">Open alerts</h3>
@@ -806,6 +861,8 @@
         const btn = $(sel);
         if (btn) btn.classList.remove('hidden');
       });
+      // Reveal the per-event Admins tab (assigning admins is super-only)
+      $('#nav-admins')?.classList.remove('hidden');
       refreshRequestsBadge();
     }
 
@@ -903,6 +960,10 @@
   // ── Open event editor ──
   async function openEvent(id) {
     currentEvent = await JORD.api('/api/events/' + id);
+    // Charity branding: mesh their logo + accent into this event's admin look.
+    if (currentEvent.brand_enabled) {
+      JORD.applyBranding({ logo: currentEvent.brand_logo, accent: currentEvent.brand_accent });
+    }
     currentHoleTab = (currentEvent.has_closest_pin && !currentEvent.has_longest_drive) ? 'ctp' : 'ld';
     $('#view-list').classList.add('hidden');
     $('#view-editor').classList.remove('hidden');
@@ -1276,7 +1337,8 @@
             el('div', { class: 'col gap-1', style: { flex: '1 1 auto', minWidth: '0' } },
               el('div', { class: 'row gap-2', style: { alignItems: 'center', flexWrap: 'wrap' } },
                 el('strong', null, r.tournament_name),
-                statusBadge(r.status)
+                statusBadge(r.status),
+                r.is_charity ? el('span', { style: { background: 'var(--accent)', color: '#fff', fontSize: '10px', fontWeight: '700', padding: '2px 8px', borderRadius: '9px' } }, '🎗 Charity') : null
               ),
               el('div', { style: { fontSize: '13px', color: 'var(--ink-2)' } }, (r.venue || '—') + ' · ' + r.location + ' · ' + r.event_date),
               el('div', { style: { fontSize: '12px', color: 'var(--ink-2)' } }, contestLabel + ' · ' + r.expected_players + ' players · from ' + r.admin_name + ' (' + r.admin_email + ')'),
@@ -1318,6 +1380,20 @@
     f.admin_phone      = el('input', { class: 'input', type: 'tel', value: r.admin_phone });
     f.event_url        = el('input', { class: 'input', type: 'url', value: r.event_url || '', placeholder: 'https://...' });
     f.notes            = el('textarea', { class: 'input', rows: '3' }); f.notes.value = r.notes || '';
+
+    // ── Charity branding state — chosen via the "Mock their admin look" studio ──
+    const branding = { enabled: false, logo: r.logo_data || null, accent: null };
+    const brandStatusEl = el('span', { class: 'small' });
+    function refreshBrandStatus() {
+      brandStatusEl.textContent = branding.enabled
+        ? '✓ Custom branding will be applied on accept'
+        : 'Standard JORD look';
+      brandStatusEl.style.color = branding.enabled ? '#166534' : 'var(--ink-3)';
+    }
+    refreshBrandStatus();
+    const mockBtn = el('button', { class: 'btn btn-ghost', type: 'button', on: { click: () => {
+      openBrandingStudio(r, branding, refreshBrandStatus);
+    } } }, '🎨 Mock their admin look');
 
     // Email reply section
     const templateSelect = el('select', { class: 'input' },
@@ -1386,6 +1462,24 @@
         el('div', { class: 'field' }, el('label', null, 'Notes'), f.notes)
       ),
       el('div', { class: 'col gap-3', style: { borderTop: '1px solid var(--border)', paddingTop: '16px' } },
+        el('h3', { style: { margin: '0', fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ink-2)' } }, 'Charity & branding'),
+        el('div', { class: 'row gap-2', style: { alignItems: 'center', flexWrap: 'wrap' } },
+          r.is_charity
+            ? el('span', { style: { background: 'var(--accent)', color: '#fff', fontSize: '11px', fontWeight: '700', padding: '3px 10px', borderRadius: '10px' } }, '🎗 Charity event')
+            : el('span', { class: 'small', style: { color: 'var(--ink-3)' } }, 'Not marked as a charity event')
+        ),
+        (r.charity_url || r.event_url)
+          ? el('div', { class: 'small' }, 'Website: ',
+              el('a', { href: r.charity_url || r.event_url, target: '_blank', style: { color: 'var(--primary)' } }, r.charity_url || r.event_url))
+          : el('div', { class: 'small', style: { color: 'var(--ink-3)' } }, 'No website provided — you can still upload a logo in the studio.'),
+        r.logo_data
+          ? el('div', { class: 'row gap-2', style: { alignItems: 'center' } },
+              el('span', { class: 'small' }, 'Uploaded logo:'),
+              el('img', { src: r.logo_data, alt: 'Uploaded logo', style: { maxHeight: '40px', maxWidth: '150px' } }))
+          : null,
+        el('div', { class: 'row gap-2', style: { alignItems: 'center', flexWrap: 'wrap' } }, mockBtn, brandStatusEl)
+      ),
+      el('div', { class: 'col gap-3', style: { borderTop: '1px solid var(--border)', paddingTop: '16px' } },
         el('h3', { style: { margin: '0', fontSize: '14px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ink-2)' } }, 'Reply by email'),
         el('div', { class: 'field' }, el('label', null, 'Template starter'), templateSelect),
         el('div', { class: 'field' }, el('label', null, 'Subject'), emailSubject),
@@ -1419,13 +1513,35 @@
     } } }, '📧 Send email');
 
     const acceptBtn = el('button', { class: 'btn btn-primary', style: { background: '#166534', borderColor: '#166534' }, on: { click: async () => {
-      if (!await JORD.confirm('Accept this request? An event will be created from these details.', { okText: 'Accept & create event' })) return;
+      const brandNote = branding.enabled ? ' Their custom branding will be applied.' : '';
+      if (!await JORD.confirm('Accept this request? An event will be created from these details.' + brandNote, { okText: 'Accept & create event' })) return;
       try {
-        const result = await JORD.api('/api/admin/tournament-requests/' + id + '/accept', { method: 'POST' });
-        JORD.success('Event created');
+        const result = await JORD.api('/api/admin/tournament-requests/' + id + '/accept', {
+          method: 'POST',
+          body: { branding: branding.enabled ? { enabled: true, logo: branding.logo, accent: branding.accent } : null },
+        });
         m.close();
-        if (result.event_id) openEvent(result.event_id);
         loadRequests($('#requests-status-filter').value); refreshRequestsBadge();
+        if (result.warning) JORD.warn(result.warning);
+        if (result.temp_password) {
+          // A new admin account was created — show credentials before navigating.
+          const reqRow = r || {};
+          const body = el('div', { class: 'col gap-2' },
+            el('p', null, 'Event created. A new admin account was set up for the requester and a welcome email was sent. Their credentials:'),
+            el('div', { class: 'card card-tight', style: { background: 'var(--surface-2)' } },
+              el('div', null, el('strong', null, reqRow.admin_email || 'their email')),
+              el('div', { class: 'row gap-2', style: { alignItems: 'center', marginTop: '4px' } },
+                el('code', { style: { fontSize: '16px', fontWeight: '700', letterSpacing: '1px' } }, result.temp_password)
+              )
+            )
+          );
+          const okBtn = el('button', { class: 'btn btn-primary' }, 'Open event');
+          const cm = JORD.modal({ title: 'Account created', body, footer: okBtn });
+          okBtn.addEventListener('click', () => { cm.close(); if (result.event_id) openEvent(result.event_id); });
+        } else {
+          JORD.success('Event created');
+          if (result.event_id) openEvent(result.event_id);
+        }
       } catch (err) { JORD.error(err.message); }
     } } }, '✓ Accept (create event)');
 
@@ -1458,6 +1574,155 @@
     );
 
     const m = JORD.modal({ title: 'Tournament Request', body, footer, lg: true });
+  }
+
+  // ── "Mock their admin look" — branding studio ──────────────────────────────
+  // Lets the super admin fetch/upload a logo + pick an accent, preview the
+  // meshed admin look live, and save it onto `branding` for the accept call.
+  function openBrandingStudio(r, branding, onSave) {
+    const work = { enabled: branding.enabled, logo: branding.logo, accent: branding.accent };
+    const logoCandidates = [];
+    if (r.logo_data) logoCandidates.push(r.logo_data);
+    if (branding.logo && !logoCandidates.includes(branding.logo)) logoCandidates.push(branding.logo);
+    let colorCandidates = [];
+    const swatchEls = [];
+    const h4 = (t) => el('h4', { style: { margin: '0', fontSize: '12px', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.5px', color: 'var(--ink-2)' } }, t);
+
+    const urlInput = el('input', { class: 'input', type: 'url', value: r.charity_url || r.event_url || '', placeholder: 'https://theircharity.org' });
+    const fetchBtn = el('button', { class: 'btn btn-ghost', type: 'button', style: { whiteSpace: 'nowrap' } }, '🔎 Fetch from site');
+    const fetchStatus = el('div', { class: 'small', style: { color: 'var(--ink-3)' } });
+    const logoGrid = el('div', { class: 'row gap-2', style: { flexWrap: 'wrap' } });
+    const colorGrid = el('div', { class: 'row gap-2', style: { flexWrap: 'wrap', alignItems: 'center' } });
+    const preview = el('div', { style: { border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' } });
+    const accentPicker = el('input', { type: 'color', value: work.accent || '#B8884D',
+      style: { width: '46px', height: '32px', padding: '0', border: '1px solid var(--border)', cursor: 'pointer' } });
+    const enableToggle = el('input', { type: 'checkbox' });
+    enableToggle.checked = work.enabled;
+    const uploadInput = el('input', { type: 'file', accept: 'image/png,image/jpeg,image/svg+xml,image/webp', style: { display: 'none' } });
+    const uploadBtn = el('button', { class: 'btn btn-ghost', type: 'button' }, '⬆ Upload a logo');
+
+    function renderLogos() {
+      logoGrid.innerHTML = '';
+      if (!logoCandidates.length) {
+        logoGrid.appendChild(el('div', { class: 'small', style: { color: 'var(--ink-3)' } }, 'No logos yet — fetch from their site or upload one.'));
+      }
+      logoCandidates.forEach(src => {
+        const sel = work.logo === src;
+        const thumb = el('div', { style: {
+            border: sel ? '2px solid var(--accent)' : '1px solid var(--border)',
+            borderRadius: '8px', padding: '6px', cursor: 'pointer', background: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', width: '92px', height: '64px',
+          }, on: { click: () => { work.logo = sel ? null : src; renderLogos(); renderPreview(); } } },
+          el('img', { src, alt: 'logo option', style: { maxWidth: '100%', maxHeight: '100%' } }));
+        logoGrid.appendChild(thumb);
+      });
+    }
+    function markColorSelected() {
+      const cur = (work.accent || '').toLowerCase();
+      swatchEls.forEach(s => { s.el.style.outline = s.hex.toLowerCase() === cur ? '3px solid var(--ink)' : 'none'; });
+    }
+    function renderColors() {
+      colorGrid.innerHTML = ''; swatchEls.length = 0;
+      colorCandidates.forEach(hex => {
+        const sw = el('div', { title: hex, style: {
+            width: '34px', height: '34px', borderRadius: '6px', background: hex,
+            border: '1px solid var(--border)', cursor: 'pointer', outlineOffset: '2px',
+          }, on: { click: () => { work.accent = hex; accentPicker.value = hex; markColorSelected(); renderPreview(); } } });
+        swatchEls.push({ el: sw, hex });
+        colorGrid.appendChild(sw);
+      });
+      colorGrid.appendChild(el('span', { class: 'small', style: { marginLeft: '2px' } }, 'or pick:'));
+      colorGrid.appendChild(accentPicker);
+      markColorSelected();
+    }
+    function renderPreview() {
+      ['--accent','--accent-2','--bg','--surface','--surface-2','--jord-saffron','--jord-saffron-2','--jord-gold','--jord-gold-2']
+        .forEach(p => preview.style.removeProperty(p));
+      preview.innerHTML = '';
+      const logoEl = work.logo
+        ? el('img', { class: 'jord-logo-img', src: work.logo, alt: 'logo', style: { maxHeight: '30px', maxWidth: '150px' } })
+        : el('strong', { style: { fontSize: '17px', letterSpacing: '0.04em' } }, 'JORD');
+      const topbar = el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', padding: '12px 16px', background: 'var(--surface)', borderBottom: '1px solid var(--border)' } },
+        logoEl,
+        el('span', { style: { fontSize: '12px', color: 'var(--ink-2)', borderLeft: '1px solid var(--border)', paddingLeft: '10px' } }, 'Tournament Admin'));
+      const content = el('div', { style: { padding: '16px', background: 'var(--bg)' } },
+        el('div', { class: 'card', style: { padding: '14px' } },
+          el('div', { class: 'eyebrow', style: { color: 'var(--accent)' } }, 'Their Tournament'),
+          el('h3', { style: { margin: '4px 0 12px' } }, r.tournament_name || 'Charity Classic'),
+          el('div', { class: 'row gap-2' },
+            el('button', { class: 'btn', type: 'button', style: { background: 'var(--accent)', color: '#fff', border: 'none' } }, 'Primary action'),
+            el('button', { class: 'btn btn-ghost', type: 'button' }, 'Secondary'))));
+      preview.appendChild(topbar);
+      preview.appendChild(content);
+      if (work.enabled) JORD.applyBranding({ logo: work.logo, accent: work.accent }, { root: preview });
+    }
+
+    fetchBtn.addEventListener('click', async () => {
+      const url = urlInput.value.trim();
+      fetchStatus.textContent = 'Fetching… this can take a few seconds.';
+      fetchStatus.style.color = 'var(--ink-3)';
+      fetchBtn.disabled = true;
+      try {
+        const res = await JORD.api('/api/admin/tournament-requests/' + r.id + '/fetch-branding',
+          { method: 'POST', body: { url: url || undefined } });
+        (res.logos || []).forEach(l => { if (!logoCandidates.includes(l)) logoCandidates.push(l); });
+        if (res.colors && res.colors.length) {
+          colorCandidates = [...new Set([...res.colors, ...colorCandidates])].slice(0, 12);
+        }
+        if (!work.accent && res.theme_color) { work.accent = res.theme_color; accentPicker.value = res.theme_color; }
+        renderLogos(); renderColors(); renderPreview();
+        fetchStatus.textContent = res.error
+          ? ('⚠ ' + res.error + ' — upload a logo or pick a color by hand.')
+          : ('Found ' + (res.logos || []).length + ' logo option(s) and ' + (res.colors || []).length + ' color(s).');
+        fetchStatus.style.color = res.error ? 'var(--danger)' : '#166534';
+      } catch (err) {
+        fetchStatus.textContent = 'Fetch failed: ' + err.message;
+        fetchStatus.style.color = 'var(--danger)';
+      } finally { fetchBtn.disabled = false; }
+    });
+    uploadBtn.addEventListener('click', () => uploadInput.click());
+    uploadInput.addEventListener('change', () => {
+      const file = uploadInput.files[0]; if (!file) return;
+      if (file.size > 2 * 1024 * 1024) { JORD.error('Logo must be under 2 MB.'); uploadInput.value = ''; return; }
+      const reader = new FileReader();
+      reader.onload = () => { logoCandidates.push(reader.result); work.logo = reader.result; renderLogos(); renderPreview(); };
+      reader.onerror = () => JORD.error('Could not read that file.');
+      reader.readAsDataURL(file);
+    });
+    accentPicker.addEventListener('input', () => { work.accent = accentPicker.value; markColorSelected(); renderPreview(); });
+    enableToggle.addEventListener('change', () => { work.enabled = enableToggle.checked; renderPreview(); });
+
+    const body = el('div', { class: 'col gap-4' },
+      el('label', { class: 'row gap-2', style: { alignItems: 'center', cursor: 'pointer' } },
+        enableToggle, el('strong', null, 'Apply custom branding to this event')),
+      el('div', { class: 'small', style: { color: 'var(--ink-2)', marginTop: '-10px' } },
+        'When off, this event uses the standard JORD look.'),
+      el('div', { class: 'col gap-2' }, h4('1 · Pull from their website'),
+        el('div', { class: 'row gap-2', style: { flexWrap: 'wrap', alignItems: 'center' } },
+          el('div', { style: { flex: '1', minWidth: '220px' } }, urlInput), fetchBtn),
+        fetchStatus),
+      el('div', { class: 'col gap-2' }, h4('2 · Logo'), logoGrid,
+        el('div', null, uploadBtn, uploadInput)),
+      el('div', { class: 'col gap-2' }, h4('3 · Accent color'), colorGrid),
+      el('div', { class: 'col gap-2' }, h4('Preview — their admin look'), preview));
+
+    const useBtn = el('button', { class: 'btn btn-primary' }, '✓ Use this look');
+    useBtn.addEventListener('click', () => {
+      branding.enabled = work.enabled;
+      branding.logo = work.logo;
+      branding.accent = work.accent;
+      if (onSave) onSave();
+      sm.close();
+      JORD.success(work.enabled ? 'Branding saved — it applies when you accept.' : 'Branding turned off.');
+    });
+    const cancelBtn = el('button', { class: 'btn btn-ghost' }, 'Cancel');
+    cancelBtn.addEventListener('click', () => sm.close());
+    const sm = JORD.modal({
+      title: '🎨 Mock their admin look', body,
+      footer: el('div', { class: 'row gap-2', style: { justifyContent: 'flex-end' } }, cancelBtn, useBtn),
+      lg: true,
+    });
+    renderLogos(); renderColors(); renderPreview();
   }
 
   function fillHeader() {
@@ -1586,6 +1851,7 @@
     if (name === 'alerts') loadAlerts();
     if (name === 'balls') loadBalls();
     if (name === 'reps') loadEventReps();
+    if (name === 'admins') loadEventAdmins();
     /* Phase 2: sub-tabs become real URL paths /admin/events/:id/:panel.
        Push history ONLY when the user actively clicks a tab — not on
        initial load or popstate, otherwise back springs forward again. */
@@ -3332,6 +3598,111 @@
     try {
       await JORD.api('/api/events/' + currentEvent.id + '/reps', { method: 'POST', body: { rep_id: repId } });
       JORD.success('Rep assigned'); loadEventReps();
+    } catch (err) { JORD.error(err.message); }
+  });
+
+  // ── Per-event Admins (super only) ──
+  async function loadEventAdmins() {
+    if (!currentEvent) return;
+    const list = $('#event-admins-list');
+    const sel  = $('#admin-add-select');
+    list.innerHTML = '<div style="color:var(--ink-2);font-size:13px;">Loading…</div>';
+    try {
+      const [data, allAdmins] = await Promise.all([
+        JORD.api('/api/events/' + currentEvent.id + '/admins'),
+        JORD.api('/api/admins'),
+      ]);
+      const creator  = data.creator;
+      const assigned = data.assigned || [];
+      // Dropdown: active admins, excluding the creator + already-assigned
+      const excludeIds = new Set([creator?.id, ...assigned.map(a => a.id)].filter(Boolean));
+      const candidates = allAdmins.filter(a => a.role !== 'rep' && a.active && !excludeIds.has(a.id));
+      sel.innerHTML = '<option value="">— pick an admin —</option>';
+      for (const a of candidates) {
+        sel.appendChild(el('option', { value: a.id }, a.name + ' (' + a.email + ')'));
+      }
+      if (!candidates.length) {
+        sel.appendChild(el('option', { value: '', disabled: true }, 'No other admins available — use "New admin"'));
+      }
+      // Render: creator row first, then assigned admins
+      list.innerHTML = '';
+      const adminRow = (a, isCreator) => el('div', { class: 'card card-tight' },
+        el('div', { class: 'row row-between', style: { alignItems: 'center', gap: '12px', flexWrap: 'wrap' } },
+          el('div', { class: 'col gap-1' },
+            el('strong', null, a.name + (a.role === 'super' ? ' · Super' : '')),
+            el('div', { class: 'small' }, a.email),
+            el('div', { class: 'small', style: { color: 'var(--ink-3)' } },
+               isCreator ? '⭐ Created this event' : 'Added admin')
+          ),
+          isCreator
+            ? el('span', { class: 'small', style: { color: 'var(--ink-3)' } }, 'Owner')
+            : el('button', { class: 'btn btn-danger', style: { fontSize: '12px', padding: '6px 10px' }, on: { click: async () => {
+                const ok = await JORD.confirm('Remove ' + a.name + ' from this event? They will lose access to it.', { danger: true, okText: 'Remove' });
+                if (!ok) return;
+                try {
+                  await JORD.api('/api/events/' + currentEvent.id + '/admins/' + a.id, { method: 'DELETE' });
+                  loadEventAdmins();
+                } catch (err) { JORD.error(err.message); }
+              }}}, 'Remove')
+        )
+      );
+      if (creator) list.appendChild(adminRow(creator, true));
+      for (const a of assigned) list.appendChild(adminRow(a, false));
+    } catch (err) {
+      list.innerHTML = '<div class="text-danger small">' + err.message + '</div>';
+    }
+  }
+
+  // Existing / New mode toggle
+  function setAdminMode(mode) {
+    const isNew = mode === 'new';
+    const exBtn = $('#admin-mode-existing'), newBtn = $('#admin-mode-new');
+    exBtn.classList.toggle('btn-primary', !isNew);  exBtn.classList.toggle('btn-ghost', isNew);
+    newBtn.classList.toggle('btn-primary', isNew);  newBtn.classList.toggle('btn-ghost', !isNew);
+    $('#admin-add-existing').classList.toggle('hidden', isNew);
+    $('#admin-add-new').classList.toggle('hidden', !isNew);
+  }
+  $('#admin-mode-existing')?.addEventListener('click', () => setAdminMode('existing'));
+  $('#admin-mode-new')?.addEventListener('click', () => setAdminMode('new'));
+
+  function showTempPassword(email, pw) {
+    if (!pw) { $('#admin-temp-pw').classList.add('hidden'); return; }
+    $('#admin-temp-pw-email').textContent = email;
+    $('#admin-temp-pw-val').textContent = pw;
+    $('#admin-temp-pw').classList.remove('hidden');
+  }
+  $('#btn-copy-temp-pw')?.addEventListener('click', () => {
+    const pw = $('#admin-temp-pw-val').textContent;
+    navigator.clipboard?.writeText(pw).then(() => JORD.success('Password copied'),
+                                            () => JORD.warn('Copy failed — select it manually'));
+  });
+
+  $('#btn-assign-admin-existing')?.addEventListener('click', async () => {
+    const adminId = $('#admin-add-select').value;
+    if (!adminId) { JORD.warn('Pick an admin first'); return; }
+    try {
+      await JORD.api('/api/events/' + currentEvent.id + '/admins', { method: 'POST', body: { admin_id: adminId } });
+      JORD.success('Admin added — they have been emailed');
+      showTempPassword(null, null);
+      loadEventAdmins();
+    } catch (err) { JORD.error(err.message); }
+  });
+
+  $('#btn-assign-admin-new')?.addEventListener('click', async () => {
+    const name  = $('#admin-new-name').value.trim();
+    const email = $('#admin-new-email').value.trim();
+    if (!name || !email) { JORD.warn('Enter both a name and an email'); return; }
+    try {
+      const res = await JORD.api('/api/events/' + currentEvent.id + '/admins', { method: 'POST', body: { name, email } });
+      $('#admin-new-name').value = ''; $('#admin-new-email').value = '';
+      if (res.temp_password) {
+        JORD.success('Account created — welcome email sent');
+        showTempPassword(res.admin.email, res.temp_password);
+      } else {
+        JORD.success('Admin added — they have been emailed');
+        showTempPassword(null, null);
+      }
+      loadEventAdmins();
     } catch (err) { JORD.error(err.message); }
   });
 

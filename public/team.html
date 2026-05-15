@@ -123,17 +123,26 @@
         + '</div>';
       membersGrid.appendChild(row);
     });
-    /* Empty seat placeholders */
+    /* Empty seat placeholders — clickable to add a player right here */
+    var canRegister = info.status !== 'ended';
     for (var i = 0; i < seatsLeft; i++) {
       var empty = document.createElement('div');
       empty.className = 'member-row is-empty';
-      empty.textContent = '＋ Empty seat — invite someone using the code below';
+      if (canRegister) {
+        empty.style.cursor = 'pointer';
+        empty.textContent = '＋ Add a player';
+        empty.addEventListener('click', function (ev) {
+          openAddPlayerForm(ev.currentTarget, info, team);
+        });
+      } else {
+        empty.textContent = '＋ Empty seat';
+      }
       membersGrid.appendChild(empty);
     }
     root.appendChild(membersGrid);
 
-    /* Share card (only if team has room) */
-    if (seatsLeft > 0 && info.status === 'active') {
+    /* Share card (team has room and registration isn't closed) */
+    if (seatsLeft > 0 && canRegister) {
       var share = document.createElement('div');
       share.className = 'share-card';
       share.innerHTML = '<div class="share-label">Invite a player</div>'
@@ -167,6 +176,109 @@
     lbLink.className = 'btn btn-primary btn-block btn-lg';
     lbLink.textContent = '📺 View Live Leaderboard';
     root.appendChild(lbLink);
+  }
+
+  /* Turn an empty-seat row into an inline add-player form. */
+  function openAddPlayerForm(seatRow, info, team) {
+    /* Build the inline form card in place of the seat row */
+    var card = document.createElement('div');
+    card.style.cssText = 'background:var(--surface);border:1px solid var(--accent);border-radius:var(--r-md);padding:var(--s-4)';
+
+    function field(labelText, inputEl) {
+      var f = document.createElement('div');
+      f.className = 'field';
+      var l = document.createElement('label');
+      l.textContent = labelText;
+      f.appendChild(l);
+      f.appendChild(inputEl);
+      return f;
+    }
+
+    var firstInput = document.createElement('input');
+    firstInput.className = 'input'; firstInput.placeholder = 'First';
+    var lastInput = document.createElement('input');
+    lastInput.className = 'input'; lastInput.placeholder = 'Last';
+    var phoneInput = document.createElement('input');
+    phoneInput.className = 'input'; phoneInput.type = 'tel'; phoneInput.placeholder = '+1 555 000 0000';
+    var emailInput = document.createElement('input');
+    emailInput.className = 'input'; emailInput.type = 'email'; emailInput.placeholder = 'you@example.com';
+    var codeInput = document.createElement('input');
+    codeInput.className = 'input input-code'; codeInput.placeholder = 'e.g. ABC123';
+    codeInput.maxLength = 12; codeInput.autocomplete = 'off';
+    codeInput.addEventListener('input', function () {
+      codeInput.value = codeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    });
+
+    var title = document.createElement('div');
+    title.style.cssText = 'font-weight:700;font-size:15px;margin-bottom:var(--s-3)';
+    title.textContent = 'Add a player to ' + team.team_name;
+    card.appendChild(title);
+
+    var nameGrid = document.createElement('div');
+    nameGrid.className = 'field-grid';
+    nameGrid.appendChild(field('First Name', firstInput));
+    nameGrid.appendChild(field('Last Name', lastInput));
+    card.appendChild(nameGrid);
+    card.appendChild(field('Phone', phoneInput));
+    card.appendChild(field('Email', emailInput));
+    card.appendChild(field('Drop Code', codeInput));
+
+    var errEl = document.createElement('div');
+    errEl.className = 'text-danger small mt-2';
+
+    var saveBtn = document.createElement('button');
+    saveBtn.className = 'btn btn-primary btn-block mt-3';
+    saveBtn.textContent = 'Save player';
+
+    var cancelBtn = document.createElement('button');
+    cancelBtn.className = 'btn btn-ghost btn-block mt-2';
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.addEventListener('click', function () { loadTeam(); });
+
+    saveBtn.addEventListener('click', function () {
+      var first = firstInput.value.trim();
+      var last  = lastInput.value.trim();
+      var phone = phoneInput.value.trim();
+      var email = emailInput.value.trim();
+      var code  = codeInput.value.trim().toUpperCase();
+      errEl.textContent = '';
+      if (!first || !last) { errEl.textContent = 'First and last name are required.'; return; }
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { errEl.textContent = 'A valid email address is required.'; emailInput.focus(); return; }
+      if (!phone || phone.length < 7) { errEl.textContent = 'A valid phone number is required.'; phoneInput.focus(); return; }
+      if (!code || code.length < 4) { errEl.textContent = 'Enter a valid drop code (at least 4 characters).'; return; }
+
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+      fetch('/api/events/' + eid + '/teams/by-share-code/' + encodeURIComponent(team.share_code || shareCode) + '/add-player', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ drop_code: code, first_name: first, last_name: last, email: email, phone: phone })
+      })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          if (/already registered/i.test(data.error)) {
+            errEl.textContent = 'This code is already in use. Please talk to admin.';
+          } else {
+            errEl.textContent = data.error;
+          }
+          saveBtn.disabled = false; saveBtn.textContent = 'Save player';
+          return;
+        }
+        JORD.success(first + ' added to ' + team.team_name);
+        loadTeam(); /* refresh — the new player now shows as a filled seat */
+      })
+      .catch(function () {
+        errEl.textContent = 'Network error. Try again.';
+        saveBtn.disabled = false; saveBtn.textContent = 'Save player';
+      });
+    });
+
+    card.appendChild(errEl);
+    card.appendChild(saveBtn);
+    card.appendChild(cancelBtn);
+
+    seatRow.replaceWith(card);
+    firstInput.focus();
   }
 })();
 </script>

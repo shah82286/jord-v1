@@ -28,6 +28,27 @@ When super admin creates a new admin account, send a welcome email with temp pas
 **#TEST-COLOR — Fix swapped fairway/green colors on test page**
 `/test` GPS simulator has fairway shown as green (`#22C55E`) and green shown as blue (`#3B82F6`) — opposite of the standard. `test.html:235-245`. Minor visual fix to match main maps.
 
+**#KLAVIYO-FLOWS — Build Klaviyo Flows for the new server events**
+The server now fires Klaviyo metrics that have NO Flow in the Klaviyo dashboard — those events currently go nowhere (no SMS/email delivered via Klaviyo). Need to build Live Flows for: `jord_team_created` (player 1 finalizes a team — has SMS + email), `jord_admin_welcome`, `jord_admin_assigned`. Decide which need SMS vs email-only (admin welcome/assigned probably email-only; team_created should send SMS). Each Flow's email block uses `{{ event.EmailBodyHtml|safe }}` — the server builds the cream HTML, so no Klaviyo template design needed, just the Flow + trigger. Existing 4 Flows still need NOTHING — the re-skin is automatic since the server builds the HTML.
+
+**#EMAIL-DELIVERABILITY — SMTP setup for support@jordgolf.com**
+The new transactional emails (password reset, rep/admin welcome, /signup auto-reply) send via SMTP (`sendEmailDirect`), NOT Klaviyo. If `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS` aren't set in Railway env vars, these emails silently don't send (server just mock-logs). Action: (1) configure SMTP creds for support@jordgolf.com in Railway, (2) set SPF + DKIM + DMARC DNS records so the emails don't land in spam. Without this, password resets never reach admins/reps.
+
+**#REG-EMAIL-DEDUPE — Registration confirmation may send twice**
+`finalize-team` and `add-player` both call `sendKlaviyo('registered')` AND `sendEmailDirect()` for the same player. If the Klaviyo `jord_registered` Flow also delivers an email, the player gets the registration email twice (once Klaviyo, once SMTP). Decide one channel per message: e.g. Klaviyo Flow = SMS only, SMTP = email — then remove the duplicate. Low urgency, but confusing for players.
+
+**#REG-SIM-TEST — Run the 20-player registration simulation**
+`scripts/test-registration-flow.js` was built (spins up a sandboxed server on a temp DB, registers ~20 players across 5 teams, exercises duplicate-code / full-team / pre-tournament edge cases) but never run end-to-end. Run it, fix anything it surfaces, before the next real tournament.
+
+**#HELP-BUBBLES — Info tooltips across tournament setup screens**
+Add clickable `ℹ`/`!` info bubbles next to every setting, input, and toggle on the admin Settings + Course Map tabs so a non-technical tournament director can self-serve. The `.help-icon`/`.tooltip` CSS already exists in the editor — extend it comprehensively and make it tap-friendly on mobile (hover doesn't work on touch).
+
+**#RAILWAY-AUTODEPLOY — Wire Railway auto-deploy from GitHub**
+Every deploy is currently a manual "Deploy" click in the Railway dashboard. The GitHub App integration / webhook isn't connected (repo Settings → Webhooks is empty). Connect Railway's GitHub App so a push to `main` auto-deploys. ~5 min in Railway service Settings → Source.
+
+**#DOCS-REFRESH — Update CHANGELOG + HANDOFF**
+Several shipped features aren't fully in the docs: v3.11.0 tournament rep role, the registration flow rewrite (team name first, dropdown, dup-code popup), pre-tournament registration, the platform-wide cream email re-skin + 4 new emails, and the rep view-permission levels (`perm_view_leaderboard` etc.). Refresh both files so the next session starts with accurate context.
+
 ---
 
 ## In Progress

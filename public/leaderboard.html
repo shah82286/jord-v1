@@ -405,6 +405,11 @@
     mapboxToken = cfg.mapbox_token || '';
   }).catch(function(){});
 
+  /* Charity branding — fetched once on load (logo + accent mesh the page look) */
+  fetch('/api/events/' + eid + '/public').then(function(r){return r.json();}).then(function(ev){
+    if (ev && ev.branding) JORD.applyBranding(ev.branding);
+  }).catch(function(){});
+
   JORD.subscribe(eid, function (d) {
     snap = d;
     var ev = d.event || {};

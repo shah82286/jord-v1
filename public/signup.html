@@ -139,6 +139,25 @@
     color: var(--mk-saffron);
   }
 
+  .seg-toggle { display: inline-flex; border: 1px solid var(--mk-rule-2); }
+  .seg-toggle label {
+    padding: 11px 28px; cursor: pointer; font-size: 14px; font-weight: 600;
+    color: var(--mk-ink-2); transition: background 0.15s, color 0.15s; user-select: none;
+  }
+  .seg-toggle label + label { border-left: 1px solid var(--mk-rule-2); }
+  .seg-toggle label input { position: absolute; opacity: 0; pointer-events: none; }
+  .seg-toggle label:has(input:checked) { background: var(--mk-ink); color: var(--mk-paper); }
+  .fg-hint { font-size: 12px; color: var(--mk-ink-3); margin-top: 6px; line-height: 1.5; }
+  .logo-preview-box {
+    margin-top: 10px; padding: 12px; border: 1px dashed var(--mk-rule-2);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .logo-preview-box img { max-height: 56px; max-width: 160px; }
+  .logo-preview-box button {
+    background: none; border: none; color: var(--mk-saffron); cursor: pointer;
+    font-size: 12px; text-decoration: underline;
+  }
+
   .form-actions { margin-top: 32px; display: flex; gap: 12px; align-items: center; }
   .btn-primary {
     flex: 1; padding: 16px 24px; background: var(--mk-ink); color: var(--mk-bg);
@@ -274,6 +293,31 @@
           </div>
 
           <div class="section-divider">
+            <span class="section-eye">Charity &amp; branding</span>
+          </div>
+
+          <div class="fg">
+            <label>Is this a charity event?</label>
+            <div class="seg-toggle" id="charity-toggle">
+              <label><input type="radio" name="is_charity" value="1"> Yes</label>
+              <label><input type="radio" name="is_charity" value="0" checked> No</label>
+            </div>
+          </div>
+
+          <div class="fg">
+            <label for="charity-url">Charity / event website</label>
+            <input type="url" id="charity-url" name="charity_url" placeholder="https://yourcharity.org">
+            <p class="fg-hint">If you share your website, we can pull your logo and colors so your tournament pages match your brand.</p>
+          </div>
+
+          <div class="fg">
+            <label for="logo-file">Upload your logo (optional)</label>
+            <input type="file" id="logo-file" accept="image/png,image/jpeg,image/svg+xml,image/webp">
+            <p class="fg-hint">PNG or JPG, ideally on a transparent or white background. Max 2&nbsp;MB.</p>
+            <div id="logo-preview" class="logo-preview-box" style="display:none"></div>
+          </div>
+
+          <div class="section-divider">
             <span class="section-eye">Your contact</span>
           </div>
 
@@ -325,10 +369,34 @@
   const formView = document.getElementById('form-view');
   const successMsg = document.getElementById('success-message');
 
+  // Logo upload → base64 data URL, kept in memory until submit.
+  let logoDataUrl = null;
+  const logoFile = document.getElementById('logo-file');
+  const logoPreview = document.getElementById('logo-preview');
+  function clearLogo() { logoDataUrl = null; logoFile.value = ''; logoPreview.style.display = 'none'; logoPreview.innerHTML = ''; }
+  logoFile.addEventListener('change', () => {
+    const f = logoFile.files[0];
+    if (!f) { clearLogo(); return; }
+    if (f.size > 2 * 1024 * 1024) { JORD.error('That logo is over 2 MB — please pick a smaller file.'); clearLogo(); return; }
+    const reader = new FileReader();
+    reader.onload = () => {
+      logoDataUrl = reader.result;
+      logoPreview.innerHTML = '';
+      const img = document.createElement('img'); img.src = logoDataUrl; img.alt = 'Logo preview';
+      const rm = document.createElement('button'); rm.type = 'button'; rm.textContent = 'Remove';
+      rm.addEventListener('click', clearLogo);
+      logoPreview.appendChild(img); logoPreview.appendChild(rm);
+      logoPreview.style.display = 'flex';
+    };
+    reader.onerror = () => { JORD.error('Could not read that file.'); clearLogo(); };
+    reader.readAsDataURL(f);
+  });
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const formData = new FormData(form);
     const data = Object.fromEntries(formData.entries());
+    if (logoDataUrl) data.logo_data = logoDataUrl;
     try {
       const res = await fetch('/api/tournament-signup', {
         method: 'POST',

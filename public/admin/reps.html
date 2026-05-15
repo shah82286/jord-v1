@@ -44,6 +44,16 @@
       return perms.length ? perms.join(' · ') : 'Read-only';
     }
 
+    function viewChipList(rep) {
+      const lvl = n => n >= 2 ? ' (edit)' : '';
+      const views = [
+        rep.perm_view_leaderboard ? 'Leaderboard' : null,
+        rep.perm_ball_codes       ? 'Ball codes' + lvl(rep.perm_ball_codes) : null,
+        rep.perm_players_teams    ? 'Players & teams' + lvl(rep.perm_players_teams) : null,
+      ].filter(Boolean);
+      return views.length ? views.join(' · ') : 'Monitor only';
+    }
+
     async function loadReps() {
       const list = $('#reps-list');
       list.innerHTML = '<div style="color:var(--ink-2);font-size:13px;">Loading…</div>';
@@ -69,7 +79,9 @@
                 ),
                 el('div', { style: { fontSize: '13px', color: 'var(--ink-2)' } }, r.email),
                 el('div', { style: { fontSize: '12px', color: 'var(--ink-2)', marginTop: '4px' } },
-                  'Permissions: ' + permChipList(r)),
+                  'Can do: ' + permChipList(r)),
+                el('div', { style: { fontSize: '12px', color: 'var(--ink-2)' } },
+                  'Can see: ' + viewChipList(r)),
                 events
                   ? el('div', { style: { fontSize: '12px', color: 'var(--ink-2)' } }, '📅 Assigned: ' + events)
                   : el('div', { style: { fontSize: '12px', color: 'var(--ink-3)' } }, '📅 Not assigned to any event yet — assign on the event editor'),
@@ -133,6 +145,37 @@
       })) };
     }
 
+    // View permissions — level dropdowns (0 hidden / 1 view / 2 edit).
+    function viewPermControls(rep) {
+      const FEATURES = [
+        { key: 'perm_view_leaderboard', label: 'Leaderboard', max: 1,
+          hint: 'See the live tournament leaderboard' },
+        { key: 'perm_ball_codes', label: 'Ball Codes', max: 2,
+          hint: 'See the ball-code pool — edit lets them free up a code' },
+        { key: 'perm_players_teams', label: 'Players & Teams', max: 2,
+          hint: 'See team rosters — edit lets them fix a player’s name & contact' },
+      ];
+      const rows = FEATURES.map(f => {
+        const sel = el('select', { class: 'input', style: { maxWidth: '170px', flexShrink: '0' } });
+        sel.appendChild(el('option', { value: '0' }, 'Hidden'));
+        sel.appendChild(el('option', { value: '1' }, f.max === 1 ? 'Can view' : 'View only'));
+        if (f.max === 2) sel.appendChild(el('option', { value: '2' }, 'View & edit'));
+        sel.value = String((rep && rep[f.key]) || 0);
+        sel.dataset.perm = f.key;
+        return el('label', { class: 'row gap-2', style: { alignItems: 'center', fontSize: '13px', justifyContent: 'space-between', cursor: 'pointer' } },
+          el('div', null,
+            el('div', null, f.label),
+            el('div', { style: { fontSize: '11px', color: 'var(--ink-3)' } }, f.hint)
+          ),
+          sel
+        );
+      });
+      return { rows, getValues: () => Object.fromEntries(rows.map(l => {
+        const sel = l.querySelector('select');
+        return [sel.dataset.perm, parseInt(sel.value, 10) || 0];
+      })) };
+    }
+
     function editRep(r) {
       const nameInput  = el('input', { class: 'input', type: 'text', value: r.name, placeholder: 'Full name' });
       const emailInput = el('input', { class: 'input', type: 'email', value: r.email, placeholder: 'Email' });
@@ -140,10 +183,12 @@
       const activeLabel = el('label', { class: 'row gap-2', style: { fontSize: '13px', alignItems: 'center' } }, activeBox, 'Account active');
 
       const perms = permCheckboxes(r);
+      const views = viewPermControls(r);
       const body = el('div', { class: 'col gap-3' },
         el('div', { class: 'field' }, el('label', null, 'Name'), nameInput),
         el('div', { class: 'field' }, el('label', null, 'Email'), emailInput),
-        el('div', { class: 'col gap-2' }, el('label', null, 'Permissions'), ...perms.rows),
+        el('div', { class: 'col gap-2' }, el('label', null, 'Actions they can perform'), ...perms.rows),
+        el('div', { class: 'col gap-2' }, el('label', null, 'What they can see on the monitor'), ...views.rows),
         activeLabel
       );
 
@@ -152,7 +197,7 @@
           name: nameInput.value.trim(),
           email: emailInput.value.trim(),
           active: activeBox.checked ? 1 : 0,
-        }, perms.getValues());
+        }, perms.getValues(), views.getValues());
         try {
           await JORD.api(`/api/reps/${r.id}`, { method: 'PATCH', body: updates });
           m.close(); loadReps(); JORD.success('Rep updated');
@@ -166,14 +211,16 @@
         const nameInput  = el('input', { class: 'input', type: 'text', placeholder: 'Full name' });
         const emailInput = el('input', { class: 'input', type: 'email', placeholder: 'Email address' });
         const perms = permCheckboxes(null); // all OFF by default
+        const views = viewPermControls(null); // all Hidden by default
 
         const body = el('div', { class: 'col gap-3' },
           el('div', { class: 'field' }, el('label', null, 'Name'), nameInput),
           el('div', { class: 'field' }, el('label', null, 'Email'), emailInput),
-          el('div', { class: 'col gap-2' }, el('label', null, 'Permissions'),
-            el('div', { style: { fontSize: '11px', color: 'var(--ink-3)' } }, 'Start with everything OFF — the rep can still watch the monitor and leaderboard.'),
+          el('div', { class: 'col gap-2' }, el('label', null, 'Actions they can perform'),
+            el('div', { style: { fontSize: '11px', color: 'var(--ink-3)' } }, 'Start with everything OFF — the rep can still watch the monitor.'),
             ...perms.rows
           ),
+          el('div', { class: 'col gap-2' }, el('label', null, 'What they can see on the monitor'), ...views.rows),
           el('div', { class: 'hint', style: { padding: '10px 12px', background: 'var(--surface-2)', borderRadius: '6px', fontSize: '12px' } },
             '🔐 A temporary password will be generated. Share it with the rep securely. They can change it from their account menu after signing in.')
         );
@@ -185,7 +232,7 @@
             const body = Object.assign({
               name: nameInput.value.trim(),
               email: emailInput.value.trim(),
-            }, perms.getValues());
+            }, perms.getValues(), views.getValues());
             const created = await JORD.api('/api/reps', { method: 'POST', body });
             m.close();
             loadReps();

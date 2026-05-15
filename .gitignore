@@ -7,6 +7,7 @@ data/backups/
 .DS_Store
 Thumbs.db
 tests/visual-report/
+tests/results/
 server.log
 server-err.log
 .claude/

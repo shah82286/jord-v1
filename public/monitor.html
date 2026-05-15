@@ -145,6 +145,14 @@
     return !!currentUser[perm];
   }
 
+  /* Level-aware view perm: 0 = hidden, 1 = view only, 2 = can edit.
+     Admins & supers always have full access (level 2). */
+  function permLevel(perm) {
+    if (!currentUser) return 0;
+    if (currentUser.role === 'super' || currentUser.role === 'admin') return 2;
+    return parseInt(currentUser[perm], 10) || 0;
+  }
+
   /* Persistent team color palette — assigned on first appearance, kept for session */
   var TEAM_COLORS = ['#E91E63','#2196F3','#FF9800','#9C27B0','#00BCD4','#FF5722','#4CAF50','#CDDC39','#795548','#607D8B','#F44336','#3F51B5'];
   var teamColorMap = {};
@@ -184,7 +192,7 @@
         currentUser = res; /* login response already has role + all perm_* fields */
         return JORD.api('/api/events/' + eid);
       })
-      .then(function () { enterMonitor(); })
+      .then(function (ev) { applyEventBranding(ev); enterMonitor(); })
       .catch(function (err) {
         JORD.clearToken();
         errEl.textContent = (err && err.message) || 'Invalid email or password.';
@@ -198,8 +206,15 @@
   if (JORD.getToken()) {
     JORD.api('/api/auth/me')
       .then(function (me) { currentUser = me; return JORD.api('/api/events/' + eid); })
-      .then(function () { enterMonitor(); })
+      .then(function (ev) { applyEventBranding(ev); enterMonitor(); })
       .catch(function () { JORD.clearToken(); });
+  }
+
+  /* Charity branding — mesh their logo + accent into the monitor look */
+  function applyEventBranding(ev) {
+    if (ev && ev.brand_enabled) {
+      JORD.applyBranding({ logo: ev.brand_logo, accent: ev.brand_accent });
+    }
   }
 
   function enterMonitor() {
@@ -214,6 +229,7 @@
       updateStats(d);
       updateAlerts(d.alerts || []);
       updateMapDots(d);
+      refreshActiveSection();
       document.getElementById('last-upd').textContent = 'Updated ' + new Date().toLocaleTimeString();
     });
   }
@@ -242,6 +258,10 @@
     heading.style.marginBottom = 'var(--s-4)';
     heading.innerHTML = '<div class="hero-eyebrow">Monitor</div><h2 id="mon-title" class="mt-1">Loading…</h2>';
     wrap.appendChild(heading);
+
+    /* Section nav — shows Ball Codes / Players & Teams / Leaderboard the
+       rep has been granted. Hidden entirely if the rep has none of them. */
+    wrap.appendChild(buildSectionNav());
 
     /* Stats bar */
     var stats = document.createElement('div');
@@ -392,7 +412,31 @@
     }
 
     grid.appendChild(right);
-    wrap.appendChild(grid);
+
+    /* The existing map/standings/alerts grid becomes the "Monitor" section. */
+    var secMonitor = document.createElement('div');
+    secMonitor.id = 'sec-monitor';
+    secMonitor.appendChild(grid);
+    wrap.appendChild(secMonitor);
+
+    /* Ball Codes section — hidden until selected from the nav. */
+    var secBalls = document.createElement('div');
+    secBalls.id = 'sec-balls';
+    secBalls.className = 'card';
+    secBalls.style.display = 'none';
+    secBalls.innerHTML = '<h3 class="card-title">🎟 Ball Codes</h3>'
+      + '<div id="balls-body"><p class="text-muted small">Loading…</p></div>';
+    wrap.appendChild(secBalls);
+
+    /* Players & Teams section — hidden until selected from the nav. */
+    var secPlayers = document.createElement('div');
+    secPlayers.id = 'sec-players';
+    secPlayers.className = 'card';
+    secPlayers.style.display = 'none';
+    secPlayers.innerHTML = '<h3 class="card-title">👥 Players & Teams</h3>'
+      + '<div id="players-body"><p class="text-muted small">Loading…</p></div>';
+    wrap.appendChild(secPlayers);
+
     container.appendChild(wrap);
   }
 
@@ -945,6 +989,194 @@
     if (canReset) card.appendChild(resetBtn);
     card.appendChild(errEl);
     return card;
+  }
+
+  /* ── Section nav (Ball Codes / Players & Teams / Leaderboard) ── */
+  var activeSection = 'monitor';
+
+  function navBtnCss(active) {
+    return 'font-size:13px;font-weight:600;padding:8px 14px;border-radius:var(--r-md);cursor:pointer;'
+      + 'border:1px solid ' + (active ? 'var(--primary)' : 'var(--border)') + ';'
+      + 'background:' + (active ? 'var(--primary)' : 'transparent') + ';'
+      + 'color:' + (active ? '#FBF9F4' : 'var(--ink)') + ';min-height:38px';
+  }
+
+  function buildSectionNav() {
+    var nav = document.createElement('div');
+    nav.id = 'section-nav';
+    nav.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;margin-bottom:var(--s-4)';
+
+    var items = [{ id: 'monitor', label: '📡 Monitor' }];
+    if (permLevel('perm_ball_codes') >= 1)    items.push({ id: 'balls',   label: '🎟 Ball Codes' });
+    if (permLevel('perm_players_teams') >= 1) items.push({ id: 'players', label: '👥 Players & Teams' });
+
+    var canLeaderboard = currentUser &&
+      (currentUser.role === 'super' || currentUser.role === 'admin' || currentUser.perm_view_leaderboard);
+
+    /* Nothing extra unlocked — keep the page clean, no nav at all. */
+    if (items.length === 1 && !canLeaderboard) { nav.style.display = 'none'; return nav; }
+
+    items.forEach(function (it) {
+      var btn = document.createElement('button');
+      btn.textContent = it.label;
+      btn.dataset.section = it.id;
+      btn.className = 'mon-nav-btn';
+      btn.style.cssText = navBtnCss(it.id === activeSection);
+      btn.addEventListener('click', function () { switchSection(it.id); });
+      nav.appendChild(btn);
+    });
+
+    if (canLeaderboard) {
+      var lb = document.createElement('a');
+      lb.textContent = '📊 Leaderboard ↗';
+      lb.href = '/leaderboard/' + eid;
+      lb.target = '_blank';
+      lb.rel = 'noopener';
+      lb.style.cssText = navBtnCss(false) + ';text-decoration:none;display:inline-flex;align-items:center';
+      nav.appendChild(lb);
+    }
+    return nav;
+  }
+
+  function switchSection(id) {
+    activeSection = id;
+    ['monitor', 'balls', 'players'].forEach(function (s) {
+      var sec = document.getElementById('sec-' + s);
+      if (sec) sec.style.display = (s === id) ? '' : 'none';
+    });
+    document.querySelectorAll('.mon-nav-btn').forEach(function (b) {
+      b.style.cssText = navBtnCss(b.dataset.section === id);
+    });
+    if (id === 'balls' || id === 'players') loadRoster();
+  }
+
+  function refreshActiveSection() {
+    if (activeSection === 'balls' || activeSection === 'players') loadRoster();
+  }
+
+  /* ── Ball roster (powers both Ball Codes + Players & Teams panels) ── */
+  var rosterData = null;
+
+  function loadRoster() {
+    JORD.api('/api/events/' + eid + '/balls')
+      .then(function (res) { rosterData = res; renderBallCodes(); renderPlayersTeams(); })
+      .catch(function (err) {
+        var msg = '<p style="color:var(--danger);font-size:13px">' + (err.message || 'Failed to load') + '</p>';
+        var bb = document.getElementById('balls-body');   if (bb) bb.innerHTML = msg;
+        var pb = document.getElementById('players-body'); if (pb) pb.innerHTML = msg;
+      });
+  }
+
+  function renderBallCodes() {
+    var body = document.getElementById('balls-body');
+    if (!body || !rosterData) return;
+    var balls = rosterData.balls || [];
+    var canEdit = permLevel('perm_ball_codes') >= 2;
+    var head = '<div style="display:flex;gap:14px;font-size:12px;color:var(--ink-2);margin-bottom:10px">'
+      + '<span><strong>' + rosterData.total + '</strong> codes</span>'
+      + '<span><strong>' + rosterData.assigned + '</strong> assigned</span>'
+      + '<span><strong>' + rosterData.available + '</strong> available</span></div>';
+    if (!balls.length) { body.innerHTML = head + '<p class="text-muted small">No ball codes in this event yet.</p>'; return; }
+    var rows = balls.map(function (b) {
+      var nm = ((b.first_name || '') + ' ' + (b.last_name || '')).trim();
+      var name = nm ? JORD.escapeHtml(nm) : '<em style="color:var(--ink-3)">unassigned</em>';
+      var team = b.team_name ? JORD.escapeHtml(b.team_name) : '—';
+      var status = b.scanned
+        ? '<span style="color:var(--accent);font-weight:600">scanned</span>'
+        : (b.team_id ? 'registered' : 'available');
+      var act = (canEdit && b.team_id)
+        ? '<button class="rep-unassign-btn" data-code="' + JORD.escapeHtml(b.drop_code) + '"'
+          + ' style="font-size:11px;padding:3px 8px;border:1px solid var(--danger);color:var(--danger);background:transparent;border-radius:4px;cursor:pointer">Unassign</button>'
+        : '';
+      return '<tr style="border-top:1px solid var(--border)">'
+        + '<td style="padding:7px 8px;font-family:var(--font-mono);font-weight:700">' + JORD.escapeHtml(b.drop_code) + '</td>'
+        + '<td style="padding:7px 8px">' + name + '</td>'
+        + '<td style="padding:7px 8px">' + team + '</td>'
+        + '<td style="padding:7px 8px;font-size:12px">' + status + '</td>'
+        + '<td style="padding:7px 8px;text-align:right">' + act + '</td></tr>';
+    }).join('');
+    body.innerHTML = head
+      + '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px">'
+      + '<thead><tr style="font-size:11px;color:var(--ink-2);text-align:left">'
+      + '<th style="padding:0 8px 6px">Code</th><th style="padding:0 8px 6px">Player</th>'
+      + '<th style="padding:0 8px 6px">Team</th><th style="padding:0 8px 6px">Status</th><th></th></tr></thead>'
+      + '<tbody>' + rows + '</tbody></table></div>';
+    body.querySelectorAll('.rep-unassign-btn').forEach(function (btn) {
+      btn.addEventListener('click', function () { unassignBall(btn.dataset.code); });
+    });
+  }
+
+  function unassignBall(code) {
+    JORD.confirm('Unassign code ' + code + '? This frees the code and removes that player from their team.',
+      { okText: 'Unassign', danger: true })
+      .then(function (ok) {
+        if (!ok) return;
+        JORD.api('/api/events/' + eid + '/balls/' + code + '/unassign', { method: 'PATCH', body: {} })
+          .then(function () { JORD.success('Code ' + code + ' unassigned'); loadRoster(); })
+          .catch(function (e) { JORD.error(e.message); });
+      });
+  }
+
+  function renderPlayersTeams() {
+    var body = document.getElementById('players-body');
+    if (!body || !rosterData) return;
+    var balls = rosterData.balls || [];
+    var canEdit = permLevel('perm_players_teams') >= 2;
+    var teams = {}, order = [];
+    balls.forEach(function (b) {
+      if (!b.team_id) return;
+      if (!teams[b.team_id]) { teams[b.team_id] = { name: b.team_name || 'Team', players: [] }; order.push(b.team_id); }
+      teams[b.team_id].players.push(b);
+    });
+    if (!order.length) { body.innerHTML = '<p class="text-muted small">No teams registered yet.</p>'; return; }
+    body.innerHTML = '';
+    order.forEach(function (tid) {
+      var t = teams[tid];
+      var card = document.createElement('div');
+      card.style.cssText = 'border:1px solid var(--border);border-radius:var(--r-md);padding:12px 14px;margin-bottom:10px';
+      card.innerHTML = '<div style="font-weight:700;margin-bottom:8px">' + JORD.escapeHtml(t.name)
+        + ' <span style="font-size:12px;color:var(--ink-2);font-weight:400">· ' + t.players.length
+        + ' player' + (t.players.length === 1 ? '' : 's') + '</span></div>';
+      t.players.sort(function (a, b) { return (a.player_index || 0) - (b.player_index || 0); });
+      t.players.forEach(function (p) {
+        var nm = ((p.first_name || '') + ' ' + (p.last_name || '')).trim() || p.drop_code;
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px';
+        row.innerHTML = '<span style="flex:1">' + JORD.escapeHtml(nm) + '</span>'
+          + '<span style="font-family:var(--font-mono);font-size:11px;color:var(--ink-2)">' + JORD.escapeHtml(p.drop_code) + '</span>';
+        if (canEdit) {
+          var eb = document.createElement('button');
+          eb.textContent = '✏️ Edit';
+          eb.style.cssText = 'font-size:11px;padding:3px 8px;border:1px solid var(--border);background:transparent;border-radius:4px;cursor:pointer';
+          eb.addEventListener('click', function () { editPlayer(p); });
+          row.appendChild(eb);
+        }
+        card.appendChild(row);
+      });
+      body.appendChild(card);
+    });
+  }
+
+  function editPlayer(p) {
+    var fn = JORD.el('input', { class: 'input', value: p.first_name || '' });
+    var ln = JORD.el('input', { class: 'input', value: p.last_name || '' });
+    var em = JORD.el('input', { class: 'input', type: 'email', value: p.email || '' });
+    var ph = JORD.el('input', { class: 'input', value: p.phone || '' });
+    var body = JORD.el('div', { class: 'col gap-2' },
+      JORD.el('div', { class: 'field' }, JORD.el('label', null, 'First name'), fn),
+      JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Last name'), ln),
+      JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Email'), em),
+      JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Phone'), ph)
+    );
+    var saveBtn = JORD.el('button', { class: 'btn btn-primary', on: { click: function () {
+      JORD.api('/api/events/' + eid + '/balls/' + p.drop_code + '/player', {
+        method: 'PATCH',
+        body: { first_name: fn.value.trim(), last_name: ln.value.trim(), email: em.value.trim(), phone: ph.value.trim() }
+      })
+        .then(function () { m.close(); JORD.success('Player updated'); loadRoster(); })
+        .catch(function (e) { JORD.error(e.message); });
+    }}}, 'Save');
+    var m = JORD.modal({ title: 'Edit ' + p.drop_code, body: body, footer: saveBtn });
   }
 
   /* Handle "Fill correction form" button clicks from map popups */

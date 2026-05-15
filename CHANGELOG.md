@@ -2,6 +2,134 @@
 
 ---
 
+## v3.14.0 — 2026-05-15
+### Session 29 — Charity event branding (logo + color mesh)
+
+#### What Changed
+
+##### Signup form ([public/signup.html](public/signup.html))
+- New "Charity & branding" section: an **Is this a charity event?** Yes/No toggle, a
+  **Charity / event website** URL field, and an optional **logo upload** (read client-side
+  to a base64 data URL, 2 MB cap, with preview + remove).
+- `POST /api/tournament-signup` accepts `is_charity`, `charity_url`, `logo_data` and stores
+  them on `tournament_requests` (validated: URL must be http(s), logo must be an image data URL).
+
+##### Branding extraction (`server.js`)
+- `POST /api/admin/tournament-requests/:id/fetch-branding` — best-effort scrape of the org's
+  website: pulls logo candidates (apple-touch-icon, favicon, `og:image`, logo-named `<img>`s,
+  downloaded server-side → data URLs to dodge CORS) and color candidates (`theme-color` meta +
+  most-frequent brandable hexes from inline + linked CSS). Timeout-guarded; failures return a
+  friendly error so the super admin falls back to manual upload.
+- Helpers: `extractSiteBranding`, `fetchImageAsDataUrl`, `normalizeHex`, `isBrandableColor`.
+
+##### "Mock their admin look" studio ([public/admin/editor.html](public/admin/editor.html))
+- The tournament-request review modal gains a **Charity & branding** section (charity badge,
+  website link, uploaded-logo preview) and a **🎨 Mock their admin look** button.
+- The studio: fetch from the org site, pick a logo candidate or upload one, pick an accent
+  (extracted swatches or a color picker), toggle branding on/off, and see a **live preview**
+  of the meshed admin look. "Use this look" stores the choice; **Accept** applies it.
+- Reject branding (toggle off) → the event uses the standard JORD look.
+
+##### Applying branding
+- New `events` columns: `is_charity`, `brand_enabled`, `brand_logo`, `brand_accent`, `brand_url`.
+- The accept-request flow stores the chosen branding on the new event.
+- `JORD.applyBranding({ logo, accent })` in [public/js/jord.js](public/js/jord.js) — sets the
+  accent + a subtle background tint (cream meshed with the brand color) via CSS custom
+  properties and swaps the topbar logo. Scopable to a subtree for the studio preview.
+- Branding is applied on the **event admin editor** and the **player-facing leaderboard,
+  register, and monitor** pages for branded events. `brand_logo` is excluded from SSE
+  broadcasts (large base64) — pages fetch it once on load via `/info` or `/public`.
+- Express JSON body limit raised to 2 MB to accommodate base64 logo uploads.
+
+##### Dev tooling
+- `scripts/test-branding.js` — end-to-end smoke test (spins up a fake charity site;
+  17 checks: signup → fetch-branding → accept → branding on event + public endpoint).
+
+---
+
+## v3.13.0 — 2026-05-15
+### Session 28 — Rep view permissions: Leaderboard, Ball Codes, Players & Teams
+
+#### What Changed
+
+##### New rep view permissions
+- The admin who sets up a rep can now grant three additional **view permissions**,
+  chosen per rep in `/admin/reps` (create + edit modals):
+  - **Leaderboard** — Hidden / Can view
+  - **Ball Codes** — Hidden / View only / View & edit
+  - **Players & Teams** — Hidden / View only / View & edit
+- Stored as three new `admins` columns (auto-migrate on startup):
+  `perm_view_leaderboard` (0–1), `perm_ball_codes` (0–2), `perm_players_teams` (0–2).
+  Default `0` (hidden) for new reps. Super/admin rows backfilled to full access.
+- `/api/auth/login` + `/api/auth/me` now return the three new fields; `ADMIN_COLS`,
+  the rep create (`POST /api/reps`) and update (`PATCH /api/reps/:id`) endpoints all
+  carry them. Level values are clamped server-side (0..max).
+
+##### Monitor page (`/monitor/:eventId`)
+- New **section nav** under the event title. Buttons appear only for what the rep
+  has been granted; reps with none of the new perms see no nav at all.
+  - **📡 Monitor** — the existing map / standings / alerts grid.
+  - **🎟 Ball Codes** — full ball-code table (code, player, team, status). With
+    edit level, each assigned code gets an **Unassign** button.
+  - **👥 Players & Teams** — team rosters grouped by team. With edit level, each
+    player gets an **Edit** button (fix name / email / phone).
+  - **📊 Leaderboard ↗** — opens the live leaderboard in a new tab.
+- Ball Codes + Players & Teams panels share one fetch of `GET /api/events/:id/balls`
+  and refresh on each SSE tick while visible.
+
+##### Server endpoint gating
+- New `requirePermLevel(perm, minLevel)` and `requireRosterView` middleware.
+  Super/admin always pass; reps are checked against the level column.
+- `GET /api/events/:eventId/balls` — now `requireRosterView` + `requireEventAccess`
+  (was `requireAuth` only — also closes a cross-event read gap).
+- `PATCH .../balls/:code/unassign` — now `perm_ball_codes` level 2 + event access.
+- `PATCH .../balls/:code/player` — now `perm_players_teams` level 2 + event access.
+- Ball-pool add/delete and team delete remain `requireAdminOrSuper` — reps still
+  never manage the ball pool or delete teams.
+
+---
+
+## v3.12.0 — 2026-05-15
+### Session 27 — Per-event admin assignment + editor login-flash fix
+
+#### What Changed
+
+##### Per-event admin assignment
+- Events can now have **multiple admins**. `events.admin_id` stays the *creator*; a new
+  join table `event_admins (event_id, admin_id, assigned_by, assigned_at)` grants
+  additional admins full management access to a specific event.
+- `hasEventAccess()` and `GET /api/events` updated: an `admin`-role user now sees events
+  they created **or** are assigned to via `event_admins`.
+- New endpoints:
+  - `GET /api/events/:eventId/admins` — returns the creator + assigned admins (any admin with event access)
+  - `POST /api/events/:eventId/admins` — **super only**. Body `{ admin_id }` to assign an
+    existing admin, or `{ name, email }` to create a brand-new admin account (temp password)
+    and assign it. Existing-email collisions reuse the account instead of duplicating.
+  - `DELETE /api/events/:eventId/admins/:adminId` — **super only**. The creator can't be removed.
+- **Accept-request flow** (`POST /api/admin/tournament-requests/:id/accept`) now finds-or-creates
+  a tournament-admin account for the requester's email and makes the new event **theirs**
+  (`events.admin_id` = requester). A new account gets a temp password; the response returns it.
+- **Notifications** — new Klaviyo events + direct SMTP emails:
+  - `jord_admin_welcome` — new account: login email + temporary password
+  - `jord_admin_assigned` — existing admin added to an additional event
+  - Builders `msgAdminWelcome` / `msgAdminAssigned`, sent via `notifyAdminAssignment()`.
+- **UI** (`public/admin/editor.html`) — new super-only "👤 Admins" tab on the event editor.
+  Toggle between "Existing admin" (dropdown) and "New admin" (name + email); newly created
+  accounts surface their temp password with a copy button. The accept-request modal shows
+  the generated credentials before opening the new event.
+
+##### Editor login-flash fix
+- `public/admin/editor.html` shipped its login gate **visible** by default; the async
+  `/api/auth/me` check on load briefly displayed it before `showApp()` hid it — a login
+  screen flashed when opening an event. The gate is dead markup in editor.html (`showGate()`
+  always redirects to `/admin`), so it's now `hidden` by default. No more flash.
+
+##### Dev tooling
+- `scripts/seed-stress-tournament.js` / `run-stress-tournament.js` — seed + simulate a
+  144-player stress-test tournament. `scripts/test-event-admins.js` — endpoint smoke test.
+
+---
+
 ## v3.11.0 — 2026-05-12
 ### Session 26 — Tournament Rep role
 

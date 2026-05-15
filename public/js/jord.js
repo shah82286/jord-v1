@@ -248,10 +248,19 @@
   APP.renderTopbar = function (subtitle = '', right = null, { dark = false } = {}) {
     const logoSrc = dark ? JORD_LOGO_INV : JORD_LOGO;
     const homeHref = '/';
+    // If a branded (charity) logo is already set, show it in place of the JORD mark.
+    const branded = !!APP._brandLogo;
+    const logo = APP.el('img', {
+      class: 'jord-logo-img', alt: branded ? 'Event logo' : 'JORD Golf',
+      src: APP._brandLogo || logoSrc,
+      style: branded
+        ? { maxHeight: '40px', height: 'auto', maxWidth: '200px' }
+        : { height: '34px', width: 'auto' },
+    });
     const bar = APP.el('header', { class: 'topbar' },
       APP.el('div', { class: 'topbar-inner' },
         APP.el('a', { class: 'brand', href: homeHref },
-          APP.el('img', { src: logoSrc, alt: 'JORD Golf', style: { height: '34px', width: 'auto' } }),
+          logo,
           subtitle ? APP.el('span', { class: 'brand-sub', style: {
             borderLeft: '1px solid rgba(26,26,26,0.18)',
             paddingLeft: '12px', marginLeft: '4px'
@@ -262,6 +271,61 @@
     );
     document.body.insertBefore(bar, document.body.firstChild);
     return bar;
+  };
+
+  /* ─── Event branding (charity events) ─────────────────────────────── */
+  function _hexToRgb(h) {
+    h = String(h || '').trim().replace(/^#/, '');
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    if (!/^[0-9a-f]{6}$/i.test(h)) return null;
+    return { r: parseInt(h.slice(0,2),16), g: parseInt(h.slice(2,4),16), b: parseInt(h.slice(4,6),16) };
+  }
+  function _rgbToHex(r, g, b) {
+    const c = v => Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0');
+    return '#' + c(r) + c(g) + c(b);
+  }
+  function _mix(hexA, hexB, t) {            // blend t share of hexB into hexA
+    const a = _hexToRgb(hexA), b = _hexToRgb(hexB);
+    if (!a || !b) return hexA;
+    return _rgbToHex(a.r+(b.r-a.r)*t, a.g+(b.g-a.g)*t, a.b+(b.b-a.b)*t);
+  }
+  function _shade(hex, amt) {               // amt<0 darken, >0 lighten
+    const c = _hexToRgb(hex); if (!c) return hex;
+    const tgt = amt < 0 ? 0 : 255, t = Math.abs(amt);
+    return _rgbToHex(c.r+(tgt-c.r)*t, c.g+(tgt-c.g)*t, c.b+(tgt-c.b)*t);
+  }
+  APP.brandColor = { mix: _mix, shade: _shade, valid: h => !!_hexToRgb(h) };
+
+  /**
+   * Apply a charity event's branding to the page (or a preview subtree).
+   * brand = { logo, accent }. opts.root scopes it to one element (used by the
+   * super admin's "Mock their admin look" preview). Idempotent.
+   */
+  APP.applyBranding = function (brand, opts) {
+    opts = opts || {};
+    if (!brand || (!brand.accent && !brand.logo)) return;
+    const root  = opts.root || document.documentElement;
+    const scope = opts.root || document;
+    if (brand.accent && _hexToRgb(brand.accent)) {
+      const accent = brand.accent, dark = _shade(accent, -0.20);
+      const set = (k, v) => root.style.setProperty(k, v);
+      set('--accent', accent);        set('--accent-2', dark);
+      set('--jord-saffron', accent);  set('--jord-saffron-2', dark);
+      set('--jord-gold', accent);     set('--jord-gold-2', dark);
+      // subtle background tint — a mesh of JORD cream + their accent
+      set('--bg',        _mix('#F5F2EB', accent, 0.05));
+      set('--surface',   _mix('#FBF9F4', accent, 0.035));
+      set('--surface-2', _mix('#ECE7DB', accent, 0.09));
+    }
+    if (brand.logo) {
+      if (!opts.root) APP._brandLogo = brand.logo;   // global apply — remember for later renderTopbar
+      scope.querySelectorAll('img.jord-logo-img').forEach(img => {
+        img.src = brand.logo;
+        img.style.maxHeight = '40px';
+        img.style.height = 'auto';
+        img.style.maxWidth = '200px';
+      });
+    }
   };
 
   /* ─── Format helpers ──────────────────────────────────────────────── */

@@ -110,6 +110,7 @@
       .then(function (info) {
         if (info.error) { renderError(info.error); return; }
         eventInfo = info;
+        if (info.branding) JORD.applyBranding(info.branding);
         /* Registration is open during setup (pre-tournament) AND active.
            Only an ended tournament closes registration. */
         if (info.status === 'ended') { renderError('This tournament has ended. Registration is closed.'); return; }
@@ -296,13 +297,13 @@
     contactGrid.className = 'field-grid';
     var emailField = document.createElement('div');
     emailField.className = 'field';
-    emailField.innerHTML = '<label>Email <span style="font-weight:400;color:var(--ink-2)">(optional)</span></label>';
+    emailField.innerHTML = '<label>Email</label>';
     var emailInput = document.createElement('input');
     emailInput.className = 'input'; emailInput.type = 'email'; emailInput.placeholder = 'you@example.com';
     emailField.appendChild(emailInput);
     var phoneField = document.createElement('div');
     phoneField.className = 'field';
-    phoneField.innerHTML = '<label>Phone <span style="font-weight:400;color:var(--ink-2)">(optional)</span></label>';
+    phoneField.innerHTML = '<label>Phone</label>';
     var phoneInput = document.createElement('input');
     phoneInput.className = 'input'; phoneInput.type = 'tel'; phoneInput.placeholder = '+1 555 000 0000';
     phoneField.appendChild(phoneInput);
@@ -367,9 +368,13 @@
       var code  = codeInput.value.trim().toUpperCase();
       var first = firstInput.value.trim();
       var last  = lastInput.value.trim();
+      var email = emailInput.value.trim();
+      var phone = phoneInput.value.trim();
       if (!teamName) { errEl.textContent = 'Enter a team name first.'; teamInput.focus(); return; }
       if (!code || code.length < 4) { errEl.textContent = 'Enter a valid drop code (at least 4 characters).'; return; }
       if (!first || !last) { errEl.textContent = 'First and last name are required.'; return; }
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { errEl.textContent = 'A valid email address is required.'; emailInput.focus(); return; }
+      if (!phone || phone.length < 7) { errEl.textContent = 'A valid phone number is required.'; phoneInput.focus(); return; }
 
       submitBtn.disabled = true;
       submitBtn.textContent = 'Creating team…';
@@ -586,7 +591,7 @@
     contactGrid.className = 'field-grid mt-3';
     var emailField = document.createElement('div');
     emailField.className = 'field';
-    emailField.innerHTML = '<label>Email <span style="color:var(--ink-3);font-weight:400">(optional)</span></label>';
+    emailField.innerHTML = '<label>Email</label>';
     var emailInput = document.createElement('input');
     emailInput.className = 'input';
     emailInput.type = 'email';
@@ -594,7 +599,7 @@
     emailField.appendChild(emailInput);
     var phoneField = document.createElement('div');
     phoneField.className = 'field';
-    phoneField.innerHTML = '<label>Phone <span style="color:var(--ink-3);font-weight:400">(optional)</span></label>';
+    phoneField.innerHTML = '<label>Phone</label>';
     var phoneInput = document.createElement('input');
     phoneInput.className = 'input';
     phoneInput.type = 'tel';
@@ -615,8 +620,12 @@
       var code  = codeInput.value.trim().toUpperCase();
       var first = firstInput.value.trim();
       var last  = lastInput.value.trim();
+      var email = emailInput.value.trim();
+      var phone = phoneInput.value.trim();
       if (!code || code.length < 4) { errEl.textContent = 'Enter a valid drop code (at least 4 characters).'; return; }
       if (!first || !last) { errEl.textContent = 'First and last name are required.'; return; }
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { errEl.textContent = 'A valid email address is required.'; emailInput.focus(); return; }
+      if (!phone || phone.length < 7) { errEl.textContent = 'A valid phone number is required.'; phoneInput.focus(); return; }
 
       submitBtn.disabled = true;
       submitBtn.textContent = 'Joining…';
@@ -629,8 +638,8 @@
           drop_code:  code,
           first_name: first,
           last_name:  last,
-          email:      emailInput.value.trim() || null,
-          phone:      phoneInput.value.trim() || null
+          email:      email,
+          phone:      phone
         })
       })
       .then(function (r) { return r.json(); })
@@ -668,11 +677,18 @@
       + '<h2>Welcome, ' + playerName + '!</h2>'
       + '<p class="text-muted mt-2">You\'re on team <strong>' + teamName + '</strong></p>'
       + '<div class="divider mt-4 mb-4"></div>'
-      + '<p style="font-size:14px;font-weight:600;margin-bottom:8px">Your drop code:</p>'
+      /* Keep-page-open note — same as player 1's screen */
+      + '<div style="background:var(--surface-2);border-radius:var(--r-md);padding:14px 16px;margin-bottom:var(--s-3);border:1px solid var(--accent)">'
+      + '<p style="font-size:14px;font-weight:600;margin:0 0 6px;color:var(--accent)">📱 Keep this tab open</p>'
+      + '<p style="font-size:13px;margin:0;color:var(--ink-2);line-height:1.5">When you reach your ball on course, tap the button below to capture your GPS location.</p>'
+      + '</div>'
+      /* Submit-shot button — was missing for late joiners */
+      + '<a href="/scan/' + dropCode + '" class="btn btn-primary btn-block btn-lg mt-2" style="font-size:16px;padding:16px">📍 Get My Ball Location Now</a>'
+      + '<p style="font-size:12px;color:var(--ink-2);text-align:center;margin-top:var(--s-3)">Your drop code:</p>'
       + '<div class="code-list"><div class="code-pill">' + dropCode + '</div></div>'
-      + '<p class="text-muted mt-4" style="font-size:13px">Keep your drop code safe — you\'ll need it on course to submit your shot.</p>'
+      + '<p class="text-muted mt-2" style="font-size:13px">Keep your drop code safe — you\'ll need it on course to submit your shot.</p>'
       + '<a href="/team/' + eid + '/' + teamCode + '" class="btn btn-ghost btn-block mt-4">👥 View Team Page</a>'
-      + '<a href="/leaderboard/' + eid + '" class="btn btn-primary btn-block mt-2" target="_blank">📺 View Live Leaderboard</a>';
+      + '<a href="/leaderboard/' + eid + '" class="btn btn-ghost btn-block mt-2" target="_blank">📺 View Live Leaderboard</a>';
     root.appendChild(card);
   }
 

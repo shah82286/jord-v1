@@ -294,9 +294,17 @@ try { db.exec("ALTER TABLE admins ADD COLUMN perm_resolve_alerts INTEGER DEFAULT
 try { db.exec("ALTER TABLE admins ADD COLUMN perm_reset_scans INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE admins ADD COLUMN perm_register_walkups INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE admins ADD COLUMN parent_admin_id TEXT"); } catch {}
+// Rep view permissions — what a rep can see from /monitor.
+//   perm_view_leaderboard: 0 = hidden, 1 = can view
+//   perm_ball_codes / perm_players_teams: 0 = hidden, 1 = view only, 2 = can edit
+try { db.exec("ALTER TABLE admins ADD COLUMN perm_view_leaderboard INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE admins ADD COLUMN perm_ball_codes INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE admins ADD COLUMN perm_players_teams INTEGER DEFAULT 0"); } catch {}
 // Backfill: existing super/admin rows opt-in to all three new perms.
 // (Idempotent — a rerun on already-1 rows is a no-op.)
 db.prepare("UPDATE admins SET perm_resolve_alerts=1, perm_reset_scans=1, perm_register_walkups=1 WHERE role IN ('super','admin')").run();
+// Super/admin always have full leaderboard/ball-code/player visibility (level 2).
+db.prepare("UPDATE admins SET perm_view_leaderboard=1, perm_ball_codes=2, perm_players_teams=2 WHERE role IN ('super','admin')").run();
 // Per-event rep assignments (many-to-many)
 db.exec(`
   CREATE TABLE IF NOT EXISTS event_reps (
@@ -310,6 +318,34 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_event_reps_rep ON event_reps(rep_id);
 `);
+
+// Per-event admin assignments (many-to-many). events.admin_id remains the
+// CREATOR; event_admins grants additional admins management access to an event.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS event_admins (
+    event_id      TEXT NOT NULL,
+    admin_id      TEXT NOT NULL,
+    assigned_by   TEXT,
+    assigned_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (event_id, admin_id),
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE,
+    FOREIGN KEY (admin_id) REFERENCES admins(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_event_admins_admin ON event_admins(admin_id);
+`);
+
+// ─── Event branding (charity events) ─────────────────────────────────────────
+// Signup form collects a charity flag, org URL, and an optional uploaded logo.
+// On accept, a super admin can extract branding from the org's site and apply a
+// "meshed" look (their logo + accent color) to the event's admin + player pages.
+try { db.exec("ALTER TABLE tournament_requests ADD COLUMN is_charity INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE tournament_requests ADD COLUMN charity_url TEXT"); } catch {}
+try { db.exec("ALTER TABLE tournament_requests ADD COLUMN logo_data TEXT"); } catch {}   // base64 data URL
+try { db.exec("ALTER TABLE events ADD COLUMN is_charity INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE events ADD COLUMN brand_enabled INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE events ADD COLUMN brand_logo TEXT"); } catch {}               // base64 data URL
+try { db.exec("ALTER TABLE events ADD COLUMN brand_accent TEXT"); } catch {}             // hex color
+try { db.exec("ALTER TABLE events ADD COLUMN brand_url TEXT"); } catch {}
 
 // ─── AUTH HELPERS ────────────────────────────────────────────────────────────
 
@@ -379,7 +415,8 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(express.json());
+// 2mb limit so base64-encoded logo uploads (signup + accept) fit in the JSON body.
+app.use(express.json({ limit: '2mb' }));
 // redirect:false → don't 301 /admin → /admin/ when public/admin/ exists as a dir;
 // page routes below handle clean URLs like /admin and /admin/backups themselves.
 app.use(express.static('public', { redirect: false }));
@@ -464,6 +501,28 @@ function requirePerm(perm) {
   };
 }
 
+// Level-aware permission gate for rep view perms (perm_ball_codes, perm_players_teams).
+// Levels: 0 = hidden, 1 = view only, 2 = can edit.
+//   super / admin → always pass (they manage events through the editor)
+//   rep           → passes only if req.admin[perm] >= minLevel
+function requirePermLevel(perm, minLevel) {
+  return (req, res, next) => {
+    if (!req.admin) return res.status(401).json({ error: 'Unauthorized' });
+    if (req.admin.role === 'super' || req.admin.role === 'admin') return next();
+    if ((req.admin[perm] || 0) >= minLevel) return next();
+    return res.status(403).json({ error: 'Permission denied' });
+  };
+}
+
+// The ball roster powers both the Ball Codes and Players & Teams rep panels,
+// so either view permission grants read access to it.
+function requireRosterView(req, res, next) {
+  if (!req.admin) return res.status(401).json({ error: 'Unauthorized' });
+  if (req.admin.role === 'super' || req.admin.role === 'admin') return next();
+  if ((req.admin.perm_ball_codes || 0) >= 1 || (req.admin.perm_players_teams || 0) >= 1) return next();
+  return res.status(403).json({ error: 'Permission denied' });
+}
+
 // Is `req.admin` allowed to access event `:eventId`?
 //   super → always
 //   admin → if they own it
@@ -474,7 +533,10 @@ function hasEventAccess(admin, eventId) {
   if (admin.role === 'super') return true;
   if (admin.role === 'admin') {
     const ev = db.prepare('SELECT admin_id FROM events WHERE id=?').get(eventId);
-    return !!ev && ev.admin_id === admin.id;
+    if (ev && ev.admin_id === admin.id) return true;
+    // Also granted if explicitly assigned to the event via event_admins
+    const row = db.prepare('SELECT 1 FROM event_admins WHERE event_id=? AND admin_id=?').get(eventId, admin.id);
+    return !!row;
   }
   if (admin.role === 'rep') {
     const row = db.prepare('SELECT 1 FROM event_reps WHERE event_id=? AND rep_id=?').get(eventId, admin.id);
@@ -708,8 +770,11 @@ function broadcast(eventId) {
   if (!clients?.size) return;
   const event = db.prepare('SELECT * FROM events WHERE id=?').get(eventId);
   const tee_boxes = db.prepare('SELECT * FROM tee_boxes WHERE event_id=?').all(eventId);
+  // brand_logo is a large base64 string — exclude it from the SSE payload (sent
+  // on every scan). Pages fetch the logo once on load via /info or /public.
+  const { brand_logo, ...eventLite } = event;
   const payload = JSON.stringify({
-    event: { ...event, tee_boxes },
+    event: { ...eventLite, tee_boxes },
     ld:  event.has_longest_drive ? getLDLeaderboard(eventId) : [],
     cp:  event.has_closest_pin   ? getCPLeaderboard(eventId) : [],
     alerts: db.prepare(`SELECT * FROM rep_alerts WHERE event_id=? AND resolved=0 ORDER BY created_at DESC`).all(eventId)
@@ -767,6 +832,51 @@ async function sendKlaviyo(type, recipient, data) {
   } catch (e) { console.error('[Klaviyo] error:', e.message); }
 }
 
+// ── Email design system — cream editorial, matches the live site ────────────
+// Email clients don't reliably load web fonts, so display text uses Georgia
+// (a serif that stands in for Playfair Display); body uses Helvetica/Arial.
+// Palette mirrors public/css/jord.css: cream bg, near-black ink, saffron accent.
+function emailBtn(href, label, opts) {
+  opts = opts || {};
+  const dark = !opts.secondary;
+  return `<a href="${href}" style="display:block;background:${dark ? '#1A1A1A' : '#FBF9F4'};`
+       + `color:${dark ? '#FBF9F4' : '#1A1A1A'};border:1px solid #1A1A1A;text-align:center;`
+       + `padding:15px 18px;border-radius:4px;font-weight:bold;font-size:13px;letter-spacing:0.06em;`
+       + `text-transform:uppercase;text-decoration:none;margin:0 0 12px;`
+       + `font-family:Helvetica,Arial,sans-serif">${label}</a>`;
+}
+
+function emailBox(opts) {
+  // opts: { label, value, note, big, accent, mono }
+  const valColor = opts.accent ? '#B8884D' : '#1A1A1A';
+  const valSize  = opts.big ? '46px' : '24px';
+  const valFont  = opts.mono ? "'Courier New',monospace" : "Georgia,'Times New Roman',serif";
+  return `<div style="background:#ECE7DB;border-radius:6px;padding:20px;margin:0 0 14px;text-align:center">`
+       + `<div style="font-size:11px;font-weight:bold;letter-spacing:0.16em;text-transform:uppercase;color:#8A8479;margin:0 0 6px">${opts.label}</div>`
+       + `<div style="font-family:${valFont};font-size:${valSize};font-weight:bold;color:${valColor};line-height:1.15;${opts.mono ? 'letter-spacing:2px;' : ''}">${opts.value}</div>`
+       + (opts.note ? `<div style="font-size:13px;color:#5C5852;line-height:1.5;margin:8px 0 0">${opts.note}</div>` : '')
+       + `</div>`;
+}
+
+function emailShell(opts) {
+  // opts: { eyebrow, heading, subhead, bodyHtml }
+  return `
+<div style="margin:0;padding:0;background:#F5F2EB;width:100%">
+  <div style="font-family:Helvetica,Arial,sans-serif;max-width:560px;margin:0 auto;padding:32px 18px">
+    <div style="text-align:center;margin:0 0 22px">
+      <span style="font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:bold;color:#1A1A1A;letter-spacing:0.02em">JORD <span style="font-style:italic;color:#B8884D">Golf</span></span>
+    </div>
+    <div style="background:#FBF9F4;border:1px solid #E4DDCE;border-radius:8px;padding:30px 26px">
+      ${opts.eyebrow ? `<div style="font-size:11px;font-weight:bold;letter-spacing:0.18em;text-transform:uppercase;color:#8A8479;margin:0 0 10px">${opts.eyebrow}</div>` : ''}
+      <h1 style="font-family:Georgia,'Times New Roman',serif;font-size:25px;font-weight:bold;color:#1A1A1A;line-height:1.25;margin:0 0 ${opts.subhead ? '8px' : '20px'}">${opts.heading}</h1>
+      ${opts.subhead ? `<p style="font-size:14px;color:#5C5852;line-height:1.5;margin:0 0 22px">${opts.subhead}</p>` : ''}
+      ${opts.bodyHtml}
+    </div>
+    <p style="text-align:center;color:#8A8479;font-size:12px;margin:18px 0 0">JORD Golf &middot; <span style="font-style:italic">The new traditional</span><span style="color:#B8884D">*</span></p>
+  </div>
+</div>`.trim();
+}
+
 // ── Message builders ────────────────────────────────────────────────────────
 
 function msgRegistration({ firstName, teamName, eventName, venue, dropCode, leaderboardUrl, scanUrl, adminPhone }) {
@@ -775,28 +885,140 @@ function msgRegistration({ firstName, teamName, eventName, venue, dropCode, lead
     `Submit your shot when at the ball: ${scanUrl} | Live leaderboard: ${leaderboardUrl}` +
     (adminPhone ? ` | Questions? Call: ${adminPhone}` : '');
 
-  const subject = `You're registered for ${eventName}!`;
+  const bodyHtml =
+      emailBox({ label: 'Your Team', value: teamName })
+    + emailBox({ label: 'Your Ball Code', value: dropCode, mono: true, note: 'You\'ll need this on course to submit your shot — keep it handy.' })
+    + `<p style="font-size:14px;color:#5C5852;line-height:1.6;margin:0 0 18px">When you reach your ball on course, tap below to capture your GPS location.</p>`
+    + emailBtn(scanUrl, '📍 Get My Ball Location')
+    + emailBtn(leaderboardUrl, 'Watch the Live Leaderboard', { secondary: true })
+    + (adminPhone ? `<p style="text-align:center;color:#8A8479;font-size:13px;margin:14px 0 0">Need help on course? Call your JORD rep: <strong style="color:#1A1A1A">${adminPhone}</strong></p>` : '');
 
-  const emailHtml = `
-<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0C2010;color:#F0F7E8;padding:32px;border-radius:12px">
-  <h1 style="color:#BEFF3A;font-size:28px;margin:0 0 8px">You're in, ${firstName}! ⛳</h1>
-  <p style="color:#7FA882;margin:0 0 24px;font-size:16px">${eventName} &mdash; ${venue}</p>
-  <div style="background:#142B17;border-radius:8px;padding:20px;margin-bottom:24px">
-    <p style="margin:0 0 8px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Your Team</p>
-    <p style="margin:0;font-size:22px;font-weight:700;color:#BEFF3A">${teamName}</p>
-  </div>
-  <div style="background:#142B17;border-radius:8px;padding:20px;margin-bottom:24px">
-    <p style="margin:0 0 8px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Your Ball Code</p>
-    <p style="margin:0;font-size:32px;font-weight:700;color:#fff;letter-spacing:4px">${dropCode}</p>
-    <p style="margin:8px 0 0;font-size:13px;color:#7FA882">When you reach your ball on course, tap the button below to capture your GPS location.</p>
-  </div>
-  <a href="${scanUrl}" style="display:block;background:#BEFF3A;color:#0C2010;text-align:center;padding:18px;border-radius:8px;font-weight:700;font-size:17px;text-decoration:none;margin-bottom:14px">📍 Get My Ball Location</a>
-  <a href="${leaderboardUrl}" style="display:block;background:#142B17;color:#BEFF3A;text-align:center;padding:14px;border-radius:8px;font-weight:600;font-size:15px;text-decoration:none;border:1px solid #BEFF3A;margin-bottom:24px">📊 Watch the Live Leaderboard</a>
-  ${adminPhone ? `<p style="text-align:center;color:#7FA882;font-size:13px">Need help on course? Call your JORD rep: <strong style="color:#F0F7E8">${adminPhone}</strong></p>` : ''}
-  <p style="text-align:center;color:#4A5B52;font-size:12px;margin-top:24px">Powered by JORD Golf</p>
-</div>`.trim();
+  const emailHtml = emailShell({
+    eyebrow: `${eventName} · ${venue}`,
+    heading: `You're in, <span style="font-style:italic;color:#B8884D">${firstName}</span>.`,
+    subhead: 'Your team is registered. Here\'s everything you need for the day.',
+    bodyHtml,
+  });
 
-  return { SmsText: sms, EmailSubject: subject, EmailBodyHtml: emailHtml };
+  return { SmsText: sms, EmailSubject: `You're registered for ${eventName}`, EmailBodyHtml: emailHtml };
+}
+
+// New admin account created + assigned to an event — includes temp password.
+function msgAdminWelcome({ name, eventName, venue, email, tempPassword, loginUrl }) {
+  const sms =
+    `Welcome to JORD Golf, ${name}! Your tournament admin account for ${eventName} is ready. ` +
+    `Sign in at ${loginUrl} — email: ${email}, temporary password: ${tempPassword}. Please change it after your first login.`;
+  const bodyHtml =
+      `<p style="font-size:14px;color:#5C5852;line-height:1.6;margin:0 0 18px">You're set up to manage <strong style="color:#1A1A1A">${eventName}</strong>${venue ? ` — ${venue}` : ''}. Sign in below, then change your password from the account menu.</p>`
+    + emailBox({ label: 'Your Login Email', value: `<span style="font-size:17px">${email}</span>` })
+    + emailBox({ label: 'Temporary Password', value: tempPassword, mono: true, accent: true, note: 'Change this right after your first sign-in (🔐 Password in the admin panel).' })
+    + emailBtn(loginUrl, 'Sign In to the Admin Panel');
+  const emailHtml = emailShell({
+    eyebrow: 'Welcome to JORD Golf',
+    heading: `Welcome aboard, <span style="font-style:italic;color:#B8884D">${name}</span>.`,
+    bodyHtml,
+  });
+  return { SmsText: sms, EmailSubject: `Your JORD Golf admin account — ${eventName}`, EmailBodyHtml: emailHtml };
+}
+
+// Existing admin assigned to an additional event — no password (they already have one).
+function msgAdminAssigned({ name, eventName, venue, loginUrl }) {
+  const sms =
+    `${name}, you've been added as an admin for ${eventName}${venue ? ` at ${venue}` : ''}. ` +
+    `It's now in your events list — sign in at ${loginUrl}.`;
+  const bodyHtml =
+      `<p style="font-size:14px;color:#5C5852;line-height:1.6;margin:0 0 18px">You've been added as an admin for <strong style="color:#1A1A1A">${eventName}</strong>${venue ? ` — ${venue}` : ''}. It now appears in your events list — sign in with your existing credentials to manage it.</p>`
+    + emailBtn(loginUrl, 'Open the Admin Panel');
+  const emailHtml = emailShell({
+    eyebrow: 'New event assigned',
+    heading: `You've got a new event, <span style="font-style:italic;color:#B8884D">${name}</span>.`,
+    bodyHtml,
+  });
+  return { SmsText: sms, EmailSubject: `You've been added to ${eventName} on JORD Golf`, EmailBodyHtml: emailHtml };
+}
+
+// Generic account welcome (used for tournament reps) — temp password + login.
+function msgAccountWelcome({ name, roleLabel, email, tempPassword, loginUrl }) {
+  const sms =
+    `Welcome to JORD Golf, ${name}! Your ${roleLabel} account is ready. ` +
+    `Sign in at ${loginUrl} — email: ${email}, temporary password: ${tempPassword}. Please change it after your first login.`;
+  const bodyHtml =
+      `<p style="font-size:14px;color:#5C5852;line-height:1.6;margin:0 0 18px">A <strong style="color:#1A1A1A">${roleLabel}</strong> account has been created for you on JORD Golf Tournaments. Sign in below, then change your password from the account menu.</p>`
+    + emailBox({ label: 'Your Login Email', value: `<span style="font-size:17px">${email}</span>` })
+    + emailBox({ label: 'Temporary Password', value: tempPassword, mono: true, accent: true, note: 'Change this right after your first sign-in.' })
+    + emailBtn(loginUrl, 'Sign In');
+  const emailHtml = emailShell({
+    eyebrow: 'Welcome to JORD Golf',
+    heading: `Welcome aboard, <span style="font-style:italic;color:#B8884D">${name}</span>.`,
+    bodyHtml,
+  });
+  return { SmsText: sms, EmailSubject: `Your JORD Golf ${roleLabel} account`, EmailBodyHtml: emailHtml };
+}
+
+// Password reset link (admins + reps).
+function msgPasswordReset({ name, resetUrl }) {
+  const bodyHtml =
+      `<p style="font-size:14px;color:#5C5852;line-height:1.6;margin:0 0 20px">Tap below to set a new password. This link expires in 24 hours. If you didn't request a reset, you can safely ignore this email.</p>`
+    + emailBtn(resetUrl, 'Reset My Password')
+    + `<p style="font-size:12px;color:#8A8479;line-height:1.5;margin:14px 0 0;word-break:break-all">Or paste this link into your browser:<br>${resetUrl}</p>`;
+  const emailHtml = emailShell({
+    eyebrow: 'Account security',
+    heading: 'Reset your password',
+    subhead: name ? `Hi ${name},` : '',
+    bodyHtml,
+  });
+  return { EmailSubject: 'Reset your JORD Golf password', EmailBodyHtml: emailHtml };
+}
+
+// Public /signup form — auto-reply to the person who submitted the request.
+function msgSignupReceived({ name, tournamentName }) {
+  const bodyHtml =
+      `<p style="font-size:14px;color:#5C5852;line-height:1.6;margin:0 0 16px">Thanks${name ? ', ' + name : ''} — we've received your request to run <strong style="color:#1A1A1A">${tournamentName}</strong> on JORD Golf.</p>`
+    + `<p style="font-size:14px;color:#5C5852;line-height:1.6;margin:0 0 16px">Our team will review it and reach out shortly to get you set up before your first tee time.</p>`
+    + `<p style="font-size:13px;color:#8A8479;line-height:1.5;margin:0">Questions in the meantime? Just reply to this email.</p>`;
+  const emailHtml = emailShell({
+    eyebrow: 'Tournament request received',
+    heading: 'Thanks for reaching out.',
+    bodyHtml,
+  });
+  return { EmailSubject: `We got your request — ${tournamentName}`, EmailBodyHtml: emailHtml };
+}
+
+// Player 1 just created a team — receipt with the join code so they can invite teammates.
+function msgTeamCreated({ firstName, teamName, eventName, shareCode, joinUrl, teamPageUrl }) {
+  const sms =
+    `⛳ ${firstName}, team "${teamName}" is created for ${eventName}! ` +
+    `Teammates join with code ${shareCode} or this link: ${joinUrl}`;
+  const bodyHtml =
+      emailBox({ label: 'Your Team', value: teamName })
+    + emailBox({ label: 'Team Join Code', value: shareCode, mono: true, accent: true, note: 'Teammates enter this code — or scan your team QR — to join.' })
+    + `<p style="font-size:14px;color:#5C5852;line-height:1.6;margin:0 0 18px">Open your team page to see who's joined, share the invite link, and pull up the QR code.</p>`
+    + emailBtn(teamPageUrl, '👥 View Team Page & Invite Players')
+    + `<p style="font-size:12px;color:#8A8479;line-height:1.5;margin:14px 0 0;word-break:break-all">Invite link:<br>${joinUrl}</p>`;
+  const emailHtml = emailShell({
+    eyebrow: eventName,
+    heading: `Team <span style="font-style:italic;color:#B8884D">${teamName}</span> is set.`,
+    subhead: 'Now bring your teammates in.',
+    bodyHtml,
+  });
+  return { SmsText: sms, EmailSubject: `Team "${teamName}" is ready — invite your players`, EmailBodyHtml: emailHtml };
+}
+
+// Notify an admin that they've been added to an event (Klaviyo event + direct email).
+// `kind` is 'welcome' (new account, temp password) or 'assigned' (existing admin).
+async function notifyAdminAssignment(kind, { name, email, eventName, venue, eventId, tempPassword }) {
+  if (!email) return;
+  const loginUrl = `${APP_URL}/admin`;
+  const msg = kind === 'welcome'
+    ? msgAdminWelcome({ name, eventName, venue, email, tempPassword, loginUrl })
+    : msgAdminAssigned({ name, eventName, venue, loginUrl });
+  const [first, ...rest] = String(name || '').trim().split(/\s+/);
+  try {
+    await sendKlaviyo(kind === 'welcome' ? 'admin_welcome' : 'admin_assigned',
+      { email, first_name: first || name, last_name: rest.join(' ') },
+      { ...msg, event_id: eventId });
+    await sendEmailDirect(email, msg.EmailSubject, msg.EmailBodyHtml);
+  } catch (e) { console.error('[Notify] admin assignment error:', e.message); }
 }
 
 function msgLDScan({ firstName, teamName, eventName, venue, finalYards, rawYards, penaltyYards, locationType, teamRank, teamTotalYards, leaderboardUrl }) {
@@ -814,36 +1036,22 @@ function msgLDScan({ firstName, teamName, eventName, venue, finalYards, rawYards
 
   const subject = `Your drive: ${scored} yards at ${eventName}`;
 
-  const rankColor = teamRank === 1 ? '#BEFF3A' : '#F0F7E8';
-  const locColor  = locationType === 'fairway' ? '#3B82F6' : locationType === 'rough' ? '#EAB308' : '#DC2626';
+  const penNoteHtml = pen > 0 ? `${raw} yd raw − ${pen} yd penalty (${locLabel})` : null;
+  const bodyHtml =
+      emailBox({ label: 'Your Distance', value: scored + ' <span style="font-size:18px;font-weight:normal;color:#5C5852">yd</span>', big: true, accent: true, note: penNoteHtml })
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px"><tr>`
+    + `<td width="33%" style="padding:0 5px"><div style="background:#ECE7DB;border-radius:6px;padding:14px 8px;text-align:center"><div style="font-size:10px;font-weight:bold;letter-spacing:0.1em;text-transform:uppercase;color:#8A8479;margin:0 0 4px">Location</div><div style="font-size:14px;font-weight:bold;color:#1A1A1A">${locLabel}</div></div></td>`
+    + `<td width="33%" style="padding:0 5px"><div style="background:#ECE7DB;border-radius:6px;padding:14px 8px;text-align:center"><div style="font-size:10px;font-weight:bold;letter-spacing:0.1em;text-transform:uppercase;color:#8A8479;margin:0 0 4px">Team Rank</div><div style="font-size:14px;font-weight:bold;color:${teamRank === 1 ? '#B8884D' : '#1A1A1A'}">${teamRank === 1 ? '🥇 #1' : '#' + teamRank}</div></div></td>`
+    + `<td width="33%" style="padding:0 5px"><div style="background:#ECE7DB;border-radius:6px;padding:14px 8px;text-align:center"><div style="font-size:10px;font-weight:bold;letter-spacing:0.1em;text-transform:uppercase;color:#8A8479;margin:0 0 4px">Team Total</div><div style="font-size:14px;font-weight:bold;color:#1A1A1A">${Math.round(teamTotalYards)} yd</div></div></td>`
+    + `</tr></table>`
+    + emailBtn(leaderboardUrl, '📊 View Live Leaderboard');
 
-  const emailHtml = `
-<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0C2010;color:#F0F7E8;padding:32px;border-radius:12px">
-  <h1 style="color:#BEFF3A;font-size:28px;margin:0 0 4px">Nice swing, ${firstName}! 🏌️</h1>
-  <p style="color:#7FA882;margin:0 0 24px;font-size:15px">${eventName} &mdash; ${venue}</p>
-  <div style="background:#142B17;border-radius:8px;padding:24px;margin-bottom:16px;text-align:center">
-    <p style="margin:0 0 4px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Your Distance</p>
-    <p style="margin:0;font-size:56px;font-weight:700;color:#BEFF3A;line-height:1">${scored}</p>
-    <p style="margin:4px 0 0;font-size:16px;color:#7FA882">yards</p>
-    ${pen > 0 ? `<p style="margin:8px 0 0;font-size:13px;color:#EAB308">${raw} raw &minus; ${pen} penalty (${locLabel})</p>` : ''}
-  </div>
-  <div style="display:flex;gap:12px;margin-bottom:24px">
-    <div style="flex:1;background:#142B17;border-radius:8px;padding:16px;text-align:center">
-      <p style="margin:0 0 4px;font-size:12px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Location</p>
-      <p style="margin:0;font-size:15px;font-weight:700;color:${locColor}">${locLabel}</p>
-    </div>
-    <div style="flex:1;background:#142B17;border-radius:8px;padding:16px;text-align:center">
-      <p style="margin:0 0 4px;font-size:12px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Team Rank</p>
-      <p style="margin:0;font-size:15px;font-weight:700;color:${rankColor}">${teamRank === 1 ? '🥇 #1' : `#${teamRank}`}</p>
-    </div>
-    <div style="flex:1;background:#142B17;border-radius:8px;padding:16px;text-align:center">
-      <p style="margin:0 0 4px;font-size:12px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Team Total</p>
-      <p style="margin:0;font-size:15px;font-weight:700;color:#F0F7E8">${Math.round(teamTotalYards)} yds</p>
-    </div>
-  </div>
-  <a href="${leaderboardUrl}" style="display:block;background:#BEFF3A;color:#0C2010;text-align:center;padding:16px;border-radius:8px;font-weight:700;font-size:16px;text-decoration:none;margin-bottom:16px">📊 View Live Leaderboard</a>
-  <p style="text-align:center;color:#4A5B52;font-size:12px;margin-top:16px">Powered by JORD Golf</p>
-</div>`.trim();
+  const emailHtml = emailShell({
+    eyebrow: `${eventName} · ${venue}`,
+    heading: `Nice swing, <span style="font-style:italic;color:#B8884D">${firstName}</span>.`,
+    subhead: teamRank === 1 ? 'Your team is leading — keep it going.' : 'Your drive is on the board.',
+    bodyHtml,
+  });
 
   return { SmsText: sms, EmailSubject: subject, EmailBodyHtml: emailHtml };
 }
@@ -859,31 +1067,21 @@ function msgCTPScan({ firstName, teamName, eventName, venue, distanceFt, onGreen
 
   const subject = `Your CTP result: ${ft} ft at ${eventName}`;
 
-  const rankColor = isLeader ? '#BEFF3A' : '#F0F7E8';
+  const bodyHtml =
+      emailBox({ label: 'Distance to Pin', value: ft + ' <span style="font-size:18px;font-weight:normal;color:#5C5852">ft</span>', big: true, accent: true,
+                 note: onGreen ? null : '⚠️ Off green — penalty applied' })
+    + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px"><tr>`
+    + `<td width="50%" style="padding:0 5px"><div style="background:#ECE7DB;border-radius:6px;padding:14px 8px;text-align:center"><div style="font-size:10px;font-weight:bold;letter-spacing:0.1em;text-transform:uppercase;color:#8A8479;margin:0 0 4px">Team</div><div style="font-size:14px;font-weight:bold;color:#1A1A1A">${teamName}</div></div></td>`
+    + `<td width="50%" style="padding:0 5px"><div style="background:#ECE7DB;border-radius:6px;padding:14px 8px;text-align:center"><div style="font-size:10px;font-weight:bold;letter-spacing:0.1em;text-transform:uppercase;color:#8A8479;margin:0 0 4px">Standing</div><div style="font-size:14px;font-weight:bold;color:${isLeader ? '#B8884D' : '#1A1A1A'}">${isLeader ? '🥇 Leading' : '#' + teamRank}</div></div></td>`
+    + `</tr></table>`
+    + emailBtn(leaderboardUrl, '📊 View Live Leaderboard');
 
-  const emailHtml = `
-<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0C2010;color:#F0F7E8;padding:32px;border-radius:12px">
-  <h1 style="color:#BEFF3A;font-size:28px;margin:0 0 4px">Closest to the Pin, ${firstName}! 🎯</h1>
-  <p style="color:#7FA882;margin:0 0 24px;font-size:15px">${eventName} &mdash; ${venue}</p>
-  <div style="background:#142B17;border-radius:8px;padding:24px;margin-bottom:16px;text-align:center">
-    <p style="margin:0 0 4px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Distance to Pin</p>
-    <p style="margin:0;font-size:56px;font-weight:700;color:#BEFF3A;line-height:1">${ft}</p>
-    <p style="margin:4px 0 0;font-size:16px;color:#7FA882">feet</p>
-    ${!onGreen ? `<p style="margin:8px 0 0;font-size:13px;color:#EAB308">⚠️ Off green — penalty applied</p>` : ''}
-  </div>
-  <div style="display:flex;gap:12px;margin-bottom:24px">
-    <div style="flex:1;background:#142B17;border-radius:8px;padding:16px;text-align:center">
-      <p style="margin:0 0 4px;font-size:12px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Team</p>
-      <p style="margin:0;font-size:14px;font-weight:700;color:#F0F7E8">${teamName}</p>
-    </div>
-    <div style="flex:1;background:#142B17;border-radius:8px;padding:16px;text-align:center">
-      <p style="margin:0 0 4px;font-size:12px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Standing</p>
-      <p style="margin:0;font-size:14px;font-weight:700;color:${rankColor}">${isLeader ? '🥇 Leading' : `#${teamRank}`}</p>
-    </div>
-  </div>
-  <a href="${leaderboardUrl}" style="display:block;background:#BEFF3A;color:#0C2010;text-align:center;padding:16px;border-radius:8px;font-weight:700;font-size:16px;text-decoration:none;margin-bottom:16px">📊 View Live Leaderboard</a>
-  <p style="text-align:center;color:#4A5B52;font-size:12px;margin-top:16px">Powered by JORD Golf</p>
-</div>`.trim();
+  const emailHtml = emailShell({
+    eyebrow: `${eventName} · ${venue}`,
+    heading: `Closest to the pin, <span style="font-style:italic;color:#B8884D">${firstName}</span>.`,
+    subhead: isLeader ? 'Your team is leading the pin contest.' : 'Your shot is on the board.',
+    bodyHtml,
+  });
 
   return { SmsText: sms, EmailSubject: subject, EmailBodyHtml: emailHtml };
 }
@@ -899,24 +1097,20 @@ function msgTournamentEnded({ firstName, teamName, eventName, venue, winnerTeam,
 
   const subject = `Your results from ${eventName}`;
 
-  const emailHtml = `
-<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0C2010;color:#F0F7E8;padding:32px;border-radius:12px">
-  <h1 style="color:#BEFF3A;font-size:28px;margin:0 0 4px">Tournament Complete! 🏆</h1>
-  <p style="color:#7FA882;margin:0 0 24px;font-size:15px">${eventName} &mdash; ${venue}</p>
-  <div style="background:#142B17;border-radius:8px;padding:20px;margin-bottom:16px;text-align:center">
-    <p style="margin:0 0 4px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Champion</p>
-    <p style="margin:0;font-size:24px;font-weight:700;color:#BEFF3A">🥇 ${winnerTeam}</p>
-  </div>
-  ${resultText ? `
-  <div style="background:#142B17;border-radius:8px;padding:20px;margin-bottom:16px;text-align:center">
-    <p style="margin:0 0 4px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">Your Result, ${firstName}</p>
-    <p style="margin:0;font-size:20px;font-weight:700;color:#F0F7E8">${resultText}</p>
-    <p style="margin:4px 0 0;font-size:13px;color:#7FA882">Team: ${teamName}</p>
-  </div>` : ''}
-  <a href="${dashboardUrl}" style="display:block;background:#BEFF3A;color:#0C2010;text-align:center;padding:16px;border-radius:8px;font-weight:700;font-size:16px;text-decoration:none;margin-bottom:16px">📊 See Your Full Results</a>
-  <p style="text-align:center;color:#7FA882;font-size:14px">Thanks for playing with JORD Golf!</p>
-  <p style="text-align:center;color:#4A5B52;font-size:12px;margin-top:8px">Powered by JORD Golf</p>
-</div>`.trim();
+  const bodyHtml =
+      emailBox({ label: 'Champion', value: '🥇 ' + winnerTeam, accent: true })
+    + (resultText
+        ? emailBox({ label: `Your Result, ${firstName}`, value: resultText, note: 'Team: ' + teamName })
+        : '')
+    + emailBtn(dashboardUrl, '📊 See Your Full Results')
+    + `<p style="text-align:center;color:#5C5852;font-size:14px;margin:14px 0 0">Thanks for playing with JORD Golf.</p>`;
+
+  const emailHtml = emailShell({
+    eyebrow: `${eventName} · ${venue}`,
+    heading: `That's a <span style="font-style:italic;color:#B8884D">wrap</span>.`,
+    subhead: 'The tournament is complete — here\'s how it finished.',
+    bodyHtml,
+  });
 
   return { SmsText: sms, EmailSubject: subject, EmailBodyHtml: emailHtml };
 }
@@ -979,21 +1173,15 @@ async function checkLeadershipChange(eventId, newLB) {
       for (const b of balls.filter(b => b.email || b.phone)) {
         const sms = `👑 ${b.first_name}, you've been knocked off #1! "${leader.team_name}" just took the lead with ${yards} total yards. Fight back: ${lbUrl}`;
 
-        const emailHtml = `
-<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#0C2010;color:#F0F7E8;padding:32px;border-radius:12px">
-  <h1 style="color:#FF4C4C;font-size:28px;margin:0 0 8px">You've been dethroned! 👑</h1>
-  <p style="color:#7FA882;margin:0 0 24px;font-size:16px">Hey ${b.first_name} — someone just took the top spot.</p>
-  <div style="background:#142B17;border-radius:8px;padding:20px;margin-bottom:24px;border-left:4px solid #FF4C4C">
-    <p style="margin:0 0 8px;font-size:13px;color:#7FA882;text-transform:uppercase;letter-spacing:1px">New #1 Team</p>
-    <p style="margin:0;font-size:24px;font-weight:700;color:#FF4C4C">${leader.team_name}</p>
-    <p style="margin:8px 0 0;font-size:20px;font-weight:700;color:#F0F7E8">${yards} total yards</p>
-  </div>
-  <div style="background:#1C0A0A;border-radius:8px;padding:20px;margin-bottom:24px;border:1px solid #FF4C4C44">
-    <p style="margin:0;font-size:15px;color:#FFA0A0;font-style:italic">"${taunt}"</p>
-  </div>
-  <a href="${lbUrl}" style="display:block;background:#BEFF3A;color:#0C2010;text-align:center;padding:16px;border-radius:8px;font-weight:700;font-size:16px;text-decoration:none;margin-bottom:24px">📊 See the Live Leaderboard</a>
-  <p style="text-align:center;color:#4A5B52;font-size:12px;margin-top:24px">Powered by JORD Golf</p>
-</div>`.trim();
+        const emailHtml = emailShell({
+          eyebrow: 'Leaderboard update',
+          heading: `You've been <span style="font-style:italic;color:#B8884D">dethroned</span>.`,
+          subhead: `Hey ${b.first_name} — someone just took the top spot.`,
+          bodyHtml:
+              emailBox({ label: 'New #1 Team', value: leader.team_name, note: yards + ' total yards', accent: true })
+            + `<div style="background:#ECE7DB;border-left:3px solid #B8884D;border-radius:4px;padding:16px 18px;margin:0 0 16px"><p style="font-size:14px;color:#5C5852;font-style:italic;line-height:1.5;margin:0">"${taunt}"</p></div>`
+            + emailBtn(lbUrl, '📊 See the Live Leaderboard'),
+        });
 
         await sendKlaviyo('dethroned',
           { email: b.email, phone: b.phone, first_name: b.first_name, last_name: b.last_name },
@@ -1029,6 +1217,9 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
     perm_resolve_alerts:   admin.perm_resolve_alerts,
     perm_reset_scans:      admin.perm_reset_scans,
     perm_register_walkups: admin.perm_register_walkups,
+    perm_view_leaderboard: admin.perm_view_leaderboard,
+    perm_ball_codes:       admin.perm_ball_codes,
+    perm_players_teams:    admin.perm_players_teams,
     parent_admin_id:       admin.parent_admin_id || null,
     // For reps: list of event IDs they're assigned to (lets the frontend route them on login)
     assigned_event_ids: admin.role === 'rep'
@@ -1054,6 +1245,9 @@ app.get('/api/auth/me', requireAuth, (req, res) => {
     perm_resolve_alerts:   a.perm_resolve_alerts,
     perm_reset_scans:      a.perm_reset_scans,
     perm_register_walkups: a.perm_register_walkups,
+    perm_view_leaderboard: a.perm_view_leaderboard,
+    perm_ball_codes:       a.perm_ball_codes,
+    perm_players_teams:    a.perm_players_teams,
     parent_admin_id:       a.parent_admin_id || null,
     assigned_event_ids: a.role === 'rep'
       ? db.prepare('SELECT event_id FROM event_reps WHERE rep_id=?').all(a.id).map(r => r.event_id)
@@ -1070,8 +1264,15 @@ app.post('/api/auth/forgot-password', forgotLimiter, (req, res) => {
   const expires = sqliteDatetimeFromNow(60 * 60 * 1000); // 1 hour
   db.prepare('INSERT INTO password_reset_tokens (token,admin_id,expires_at) VALUES (?,?,?)').run(token, admin.id, expires);
   const resetUrl = `${APP_URL}/admin?reset_token=${token}`;
-  // When Klaviyo is wired up, send email here. For now, super admin sees this in /api/admins/reset-requests
-  res.json({ success: true, message: 'Reset link generated. Contact your JORD administrator to receive it.', _reset_url: resetUrl });
+  // Email the reset link to the account holder (non-blocking). _reset_url is
+  // still returned so a super admin can share it manually as a fallback.
+  setImmediate(async () => {
+    try {
+      const m = msgPasswordReset({ name: admin.name, resetUrl });
+      await sendEmailDirect(admin.email, m.EmailSubject, m.EmailBodyHtml);
+    } catch (e) { console.error('[Email] password-reset send error:', e.message); }
+  });
+  res.json({ success: true, message: 'If that email exists, a reset link has been sent.', _reset_url: resetUrl });
 });
 
 app.post('/api/auth/forgot-username', (req, res) => {
@@ -1115,7 +1316,7 @@ app.post('/api/auth/reset-password', resetLimiter, (req, res) => {
 // ─── ADMIN MANAGEMENT (super only) ───────────────────────────────────────────
 
 // Column sets used in admin/rep SELECTs and PATCH validators
-const ADMIN_COLS = 'id,name,email,role,active,perm_corrections,perm_end_tournament,perm_manage_players,perm_manage_balls,perm_resolve_alerts,perm_reset_scans,perm_register_walkups,parent_admin_id,created_at';
+const ADMIN_COLS = 'id,name,email,role,active,perm_corrections,perm_end_tournament,perm_manage_players,perm_manage_balls,perm_resolve_alerts,perm_reset_scans,perm_register_walkups,perm_view_leaderboard,perm_ball_codes,perm_players_teams,parent_admin_id,created_at';
 
 app.get('/api/admins', requireAuth, requireSuper, (req, res) => {
   // Super-admin view: super + admin rows only. Reps are managed under /api/reps.
@@ -1208,6 +1409,12 @@ app.post('/api/admins/:id/reset-password', requireAuth, requireSuper, (req, res)
   db.prepare('UPDATE password_reset_tokens SET used=1 WHERE admin_id=? AND used=0').run(req.params.id); // invalidate old tokens
   db.prepare('INSERT INTO password_reset_tokens (token,admin_id,expires_at) VALUES (?,?,?)').run(token, req.params.id, expires);
   const resetUrl = `${APP_URL}/admin?reset_token=${token}`;
+  setImmediate(async () => {
+    try {
+      const m = msgPasswordReset({ name: admin.name, resetUrl });
+      await sendEmailDirect(admin.email, m.EmailSubject, m.EmailBodyHtml);
+    } catch (e) { console.error('[Email] admin password-reset send error:', e.message); }
+  });
   res.json({ success: true, reset_url: resetUrl });
 });
 
@@ -1250,8 +1457,11 @@ app.get('/api/reps', requireAuth, requireAdminOrSuper, (req, res) => {
 // Create a rep
 app.post('/api/reps', requireAuth, requireAdminOrSuper, (req, res) => {
   const { name, email, password,
-          perm_corrections, perm_resolve_alerts, perm_reset_scans, perm_register_walkups } = req.body;
+          perm_corrections, perm_resolve_alerts, perm_reset_scans, perm_register_walkups,
+          perm_view_leaderboard, perm_ball_codes, perm_players_teams } = req.body;
   if (!name || !email) return res.status(400).json({ error: 'name and email required' });
+  // Clamp a level perm to 0..max (0 = off, 1 = view, 2 = edit)
+  const lvl = (v, max) => Math.min(Math.max(parseInt(v, 10) || 0, 0), max);
 
   let finalPassword = password;
   let generated = false;
@@ -1272,8 +1482,9 @@ app.post('/api/reps', requireAuth, requireAdminOrSuper, (req, res) => {
   db.prepare(`INSERT INTO admins
     (id, name, email, password_hash, role, parent_admin_id,
      perm_corrections, perm_end_tournament, perm_manage_players, perm_manage_balls,
-     perm_resolve_alerts, perm_reset_scans, perm_register_walkups)
-    VALUES (?,?,?,?, 'rep', ?, ?, 0, 0, 0, ?, ?, ?)`)
+     perm_resolve_alerts, perm_reset_scans, perm_register_walkups,
+     perm_view_leaderboard, perm_ball_codes, perm_players_teams)
+    VALUES (?,?,?,?, 'rep', ?, ?, 0, 0, 0, ?, ?, ?, ?, ?, ?)`)
     .run(
       id,
       name.trim(),
@@ -1284,9 +1495,25 @@ app.post('/api/reps', requireAuth, requireAdminOrSuper, (req, res) => {
       perm_resolve_alerts   ? 1 : 0,
       perm_reset_scans      ? 1 : 0,
       perm_register_walkups ? 1 : 0,
+      lvl(perm_view_leaderboard, 1),
+      lvl(perm_ball_codes, 2),
+      lvl(perm_players_teams, 2),
     );
 
   const created = db.prepare(`SELECT ${ADMIN_COLS} FROM admins WHERE id=?`).get(id);
+
+  // Email the new rep their welcome + temp password (non-blocking).
+  setImmediate(async () => {
+    try {
+      const m = msgAccountWelcome({
+        name: name.trim(), roleLabel: 'Tournament Rep',
+        email: email.toLowerCase().trim(), tempPassword: finalPassword,
+        loginUrl: `${APP_URL}/admin`,
+      });
+      await sendEmailDirect(email.toLowerCase().trim(), m.EmailSubject, m.EmailBodyHtml);
+    } catch (e) { console.error('[Email] rep welcome send error:', e.message); }
+  });
+
   res.json({ ...created, ...(generated ? { temp_password: finalPassword } : {}) });
 });
 
@@ -1294,11 +1521,17 @@ app.post('/api/reps', requireAuth, requireAdminOrSuper, (req, res) => {
 app.patch('/api/reps/:id', requireAuth, requireAdminOrSuper, (req, res) => {
   const target = db.prepare('SELECT * FROM admins WHERE id=?').get(req.params.id);
   if (!repIsManageable(req.admin, target)) return res.status(404).json({ error: 'Rep not found' });
-  const allowed = ['name','email','active','perm_corrections','perm_resolve_alerts','perm_reset_scans','perm_register_walkups'];
+  const allowed = ['name','email','active','perm_corrections','perm_resolve_alerts','perm_reset_scans','perm_register_walkups',
+                   'perm_view_leaderboard','perm_ball_codes','perm_players_teams'];
+  const levelMax = { perm_view_leaderboard: 1, perm_ball_codes: 2, perm_players_teams: 2 };
   const updates = Object.entries(req.body).filter(([k]) => allowed.includes(k));
   if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
+  const coerce = (k, v) => {
+    if (k in levelMax) return Math.min(Math.max(parseInt(v, 10) || 0, 0), levelMax[k]);
+    return typeof v === 'boolean' ? (v ? 1 : 0) : v;
+  };
   db.prepare(`UPDATE admins SET ${updates.map(([k]) => `${k}=?`).join(',')} WHERE id=?`)
-    .run(...updates.map(([,v]) => (typeof v === 'boolean' ? (v ? 1 : 0) : v)), req.params.id);
+    .run(...updates.map(([k, v]) => coerce(k, v)), req.params.id);
   res.json(db.prepare(`SELECT ${ADMIN_COLS} FROM admins WHERE id=?`).get(req.params.id));
 });
 
@@ -1320,7 +1553,14 @@ app.post('/api/reps/:id/reset-password', requireAuth, requireAdminOrSuper, (req,
   const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   db.prepare('INSERT INTO password_reset_tokens (token, admin_id, expires_at) VALUES (?,?,?)')
     .run(token, req.params.id, expires);
-  res.json({ token, reset_url: `${APP_URL}/admin?reset_token=${token}`, expires_at: expires });
+  const resetUrl = `${APP_URL}/admin?reset_token=${token}`;
+  setImmediate(async () => {
+    try {
+      const m = msgPasswordReset({ name: target.name, resetUrl });
+      await sendEmailDirect(target.email, m.EmailSubject, m.EmailBodyHtml);
+    } catch (e) { console.error('[Email] rep password-reset send error:', e.message); }
+  });
+  res.json({ token, reset_url: resetUrl, expires_at: expires });
 });
 
 // ─── PER-EVENT REP ASSIGNMENTS ───────────────────────────────────────────────
@@ -1355,6 +1595,103 @@ app.delete('/api/events/:eventId/reps/:repId', requireAuth, requireAdminOrSuper,
   const rep = db.prepare('SELECT * FROM admins WHERE id=? AND role=\'rep\'').get(req.params.repId);
   if (!repIsManageable(req.admin, rep)) return res.status(403).json({ error: 'You cannot manage that rep' });
   db.prepare('DELETE FROM event_reps WHERE event_id=? AND rep_id=?').run(req.params.eventId, req.params.repId);
+  res.json({ success: true });
+});
+
+// ─── PER-EVENT ADMINS ─────────────────────────────────────────────────────────
+// events.admin_id is the CREATOR. event_admins holds additional admins who can
+// manage the event. Assigning is super-only; any admin with access can view.
+
+// List the creator + assigned admins for an event.
+app.get('/api/events/:eventId/admins', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const event = db.prepare('SELECT id, admin_id FROM events WHERE id=?').get(req.params.eventId);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+  const creator = event.admin_id
+    ? db.prepare(`SELECT ${ADMIN_COLS} FROM admins WHERE id=?`).get(event.admin_id)
+    : null;
+  const assigned = db.prepare(`
+    SELECT a.id, a.name, a.email, a.role, a.active, a.created_at,
+           ea.assigned_at, ea.assigned_by
+    FROM event_admins ea
+    JOIN admins a ON a.id = ea.admin_id
+    WHERE ea.event_id = ?
+    ORDER BY a.name ASC
+  `).all(req.params.eventId);
+  res.json({ creator: creator ? { ...creator, is_creator: 1 } : null, assigned });
+});
+
+// Assign an admin to an event — super only.
+// Body: { admin_id }  (assign an existing admin/super)
+//   OR  { name, email }  (create a new admin account, then assign)
+app.post('/api/events/:eventId/admins', requireAuth, requireSuper, (req, res) => {
+  const { eventId } = req.params;
+  const { admin_id, name, email } = req.body;
+  const event = db.prepare('SELECT id, name, venue, admin_id FROM events WHERE id=?').get(eventId);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+
+  let target;          // the admin row to assign
+  let tempPassword = null;
+  let createdNew = false;
+
+  if (admin_id) {
+    target = db.prepare('SELECT * FROM admins WHERE id=?').get(admin_id);
+    if (!target) return res.status(404).json({ error: 'Admin not found' });
+    if (target.role === 'rep') return res.status(400).json({ error: 'Reps are assigned from the Reps tab, not here' });
+  } else if (name && email) {
+    const cleanEmail = String(email).toLowerCase().trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) return res.status(400).json({ error: 'A valid email is required' });
+    const existing = db.prepare('SELECT * FROM admins WHERE email=?').get(cleanEmail);
+    if (existing) {
+      // Email already belongs to an account — assign that one instead of duplicating.
+      if (existing.role === 'rep') return res.status(400).json({ error: 'That email belongs to a rep account' });
+      target = existing;
+    } else {
+      // Create a fresh tournament-admin account with a temp password.
+      tempPassword = generateAdminPassword();
+      createdNew = true;
+      const id = uid('ADM');
+      db.prepare('INSERT INTO admins (id,name,email,password_hash,role) VALUES (?,?,?,?,?)')
+        .run(id, String(name).trim(), cleanEmail, hashPassword(tempPassword), 'admin');
+      target = db.prepare('SELECT * FROM admins WHERE id=?').get(id);
+    }
+  } else {
+    return res.status(400).json({ error: 'Provide either an existing admin_id, or a name and email for a new admin' });
+  }
+
+  if (target.id === event.admin_id) {
+    return res.status(400).json({ error: 'That admin already owns this event' });
+  }
+  const already = db.prepare('SELECT 1 FROM event_admins WHERE event_id=? AND admin_id=?').get(eventId, target.id);
+  if (already) return res.status(400).json({ error: 'That admin is already assigned to this event' });
+
+  db.prepare('INSERT INTO event_admins (event_id, admin_id, assigned_by) VALUES (?,?,?)')
+    .run(eventId, target.id, req.admin.id);
+
+  // Notify (non-blocking) — welcome email w/ temp password for new accounts,
+  // otherwise a plain "you've been added" notice.
+  setImmediate(() => notifyAdminAssignment(createdNew ? 'welcome' : 'assigned', {
+    name: target.name, email: target.email,
+    eventName: event.name, venue: event.venue, eventId,
+    tempPassword,
+  }));
+
+  res.json({
+    success: true,
+    admin: db.prepare(`SELECT ${ADMIN_COLS} FROM admins WHERE id=?`).get(target.id),
+    created_new: createdNew,
+    ...(tempPassword ? { temp_password: tempPassword } : {}),
+  });
+});
+
+// Unassign an admin from an event — super only. The creator cannot be removed.
+app.delete('/api/events/:eventId/admins/:adminId', requireAuth, requireSuper, (req, res) => {
+  const { eventId, adminId } = req.params;
+  const event = db.prepare('SELECT admin_id FROM events WHERE id=?').get(eventId);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+  if (event.admin_id === adminId) {
+    return res.status(400).json({ error: 'This admin created the event and cannot be removed' });
+  }
+  db.prepare('DELETE FROM event_admins WHERE event_id=? AND admin_id=?').run(eventId, adminId);
   res.json({ success: true });
 });
 
@@ -1412,7 +1749,11 @@ app.get('/api/events', requireAuth, (req, res) => {
   if (role === 'super') {
     events = db.prepare(`${baseSelect} GROUP BY e.id ORDER BY e.starts_at DESC`).all();
   } else if (role === 'admin') {
-    events = db.prepare(`${baseSelect} WHERE e.admin_id=? GROUP BY e.id ORDER BY e.starts_at DESC`).all(req.admin.id);
+    // Admins see events they created OR are explicitly assigned to via event_admins
+    events = db.prepare(`${baseSelect}
+      WHERE e.admin_id=?
+         OR e.id IN (SELECT event_id FROM event_admins WHERE admin_id=?)
+      GROUP BY e.id ORDER BY e.starts_at DESC`).all(req.admin.id, req.admin.id);
   } else if (role === 'rep') {
     // Reps see only the events they're explicitly assigned to via event_reps
     events = db.prepare(`${baseSelect}
@@ -1447,7 +1788,8 @@ app.get('/api/events/:id/public', (req, res) => {
           allow_oob, oob_penalty_mode, oob_fixed_yards, hole_distance_yards,
           fairway_polygon, rough_polygon, oob_polygon, green_polygon, ctp_green_polygon,
           pin_lat, pin_lon, admin_phone,
-          ctp_pin_lat, ctp_pin_lon, cp_off_green_penalty_ft } = ev;
+          ctp_pin_lat, ctp_pin_lon, cp_off_green_penalty_ft,
+          is_charity, brand_enabled, brand_logo, brand_accent } = ev;
   res.json({ id, name, venue, status, has_longest_drive, has_closest_pin,
              allow_rough, rough_penalty_mode, rough_fixed_yards: rough_fixed_yards || 0,
              allow_oob, oob_penalty_mode, oob_fixed_yards: oob_fixed_yards || 0,
@@ -1458,7 +1800,12 @@ app.get('/api/events/:id/public', (req, res) => {
              pin_lat: pin_lat || null, pin_lon: pin_lon || null,
              ctp_pin_lat: ctp_pin_lat || null, ctp_pin_lon: ctp_pin_lon || null,
              cp_off_green_penalty_ft: cp_off_green_penalty_ft || 0,
-             admin_phone: admin_phone || null, tee_boxes });
+             admin_phone: admin_phone || null, tee_boxes,
+             // Branding — only sent when enabled, so player pages can mesh the look.
+             is_charity: is_charity ? 1 : 0,
+             branding: brand_enabled
+               ? { logo: brand_logo || null, accent: brand_accent || null }
+               : null });
 });
 
 app.post('/api/events', requireAuth, requireAdminOrSuper, (req, res) => {
@@ -1486,7 +1833,8 @@ app.patch('/api/events/:id', requireAuth, requireAdminOrSuper, (req, res) => {
     'fairway_polygon','rough_polygon','oob_polygon','green_polygon',
     'pin_lat','pin_lon',
     'ctp_green_polygon','ctp_pin_lat','ctp_pin_lon','ctp_hole_distance_yards',
-    'cp_off_green_penalty_ft','admin_phone','venue_lat','venue_lon','zone_visibility'];
+    'cp_off_green_penalty_ft','admin_phone','venue_lat','venue_lon','zone_visibility',
+    'is_charity','brand_enabled','brand_logo','brand_accent','brand_url'];
   const updates = Object.entries(req.body).filter(([k]) => allowed.includes(k));
   if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
   db.prepare(`UPDATE events SET ${updates.map(([k])=>`${k}=?`).join(',')} WHERE id=?`)
@@ -1625,7 +1973,7 @@ app.delete('/api/events/:eventId/balls/:code', requireAuth, requireAdminOrSuper,
 
 // Unassign a ball from its team — clears player info + team_id, keeps ball in pool
 // Auto-deletes the team record if no balls remain on it
-app.patch('/api/events/:eventId/balls/:code/unassign', requireAuth, requireAdminOrSuper, (req, res) => {
+app.patch('/api/events/:eventId/balls/:code/unassign', requireAuth, requirePermLevel('perm_ball_codes', 2), requireEventAccess, (req, res) => {
   const code = req.params.code.toUpperCase();
   const ball = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(code, req.params.eventId);
   if (!ball) return res.status(404).json({ error: 'Ball not found' });
@@ -1653,7 +2001,7 @@ app.delete('/api/events/:eventId/teams/:teamId', requireAuth, requireAdminOrSupe
 });
 
 // Edit player info on a ball (name, email, phone)
-app.patch('/api/events/:eventId/balls/:code/player', requireAuth, requireAdminOrSuper, (req, res) => {
+app.patch('/api/events/:eventId/balls/:code/player', requireAuth, requirePermLevel('perm_players_teams', 2), requireEventAccess, (req, res) => {
   const code = req.params.code.toUpperCase();
   const { first_name, last_name, email, phone } = req.body;
   const ball = db.prepare('SELECT * FROM balls WHERE drop_code=? AND event_id=?').get(code, req.params.eventId);
@@ -1670,7 +2018,7 @@ app.patch('/api/events/:eventId/balls/:code/player', requireAuth, requireAdminOr
   res.json({ success: true });
 });
 
-app.get('/api/events/:eventId/balls', requireAuth, (req, res) => {
+app.get('/api/events/:eventId/balls', requireAuth, requireRosterView, requireEventAccess, (req, res) => {
   const balls = db.prepare(`
     SELECT b.*, t.team_name FROM balls b
     LEFT JOIN teams t ON t.id=b.team_id
@@ -1683,10 +2031,13 @@ app.get('/api/events/:eventId/balls', requireAuth, (req, res) => {
 
 // ─── PUBLIC EVENT INFO (for registration page) ───────────────────────────────
 app.get('/api/events/:eventId/info', (req, res) => {
-  const ev = db.prepare('SELECT id,name,venue,starts_at,ends_at,status,has_longest_drive,has_closest_pin FROM events WHERE id=?').get(req.params.eventId);
+  const ev = db.prepare(`SELECT id,name,venue,starts_at,ends_at,status,has_longest_drive,has_closest_pin,
+    is_charity,brand_enabled,brand_logo,brand_accent FROM events WHERE id=?`).get(req.params.eventId);
   if (!ev) return res.status(404).json({ error: 'Event not found' });
   const tee_boxes = db.prepare('SELECT id,name,color,hole_type FROM tee_boxes WHERE event_id=?').all(req.params.eventId);
-  res.json({ ...ev, tee_boxes });
+  const { brand_enabled, brand_logo, brand_accent, ...rest } = ev;
+  res.json({ ...rest, tee_boxes,
+    branding: brand_enabled ? { logo: brand_logo || null, accent: brand_accent || null } : null });
 });
 
 // ─── REGISTRATION ─────────────────────────────────────────────────────────────
@@ -1705,11 +2056,12 @@ app.post('/api/events/:eventId/register-player', registerLimiter, async (req, re
   if (typeof last_name !== 'string' || last_name.trim().length < 1 || last_name.trim().length > 100) {
     return res.status(400).json({ error: 'Last name must be 1-100 characters' });
   }
-  if (email && (typeof email !== 'string' || email.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
-    return res.status(400).json({ error: 'Invalid email format' });
+  // Email + phone are REQUIRED for every player who registers.
+  if (!email || typeof email !== 'string' || email.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'A valid email address is required' });
   }
-  if (phone && (typeof phone !== 'string' || phone.length > 20)) {
-    return res.status(400).json({ error: 'Phone must be 20 characters or less' });
+  if (!phone || typeof phone !== 'string' || phone.trim().length < 7 || phone.length > 20) {
+    return res.status(400).json({ error: 'A valid phone number is required' });
   }
 
   const event = db.prepare('SELECT status FROM events WHERE id=?').get(eventId);
@@ -1794,6 +2146,23 @@ app.post('/api/events/:eventId/finalize-team', (req, res) => {
           { ...msg, event_id: eventId, team_name: team_name.trim() });
         if (p.email) await sendEmailDirect(p.email, msg.EmailSubject, msg.EmailBodyHtml);
       }
+      // Team-created receipt to player 1 — the join code + invite link so they
+      // can bring teammates in. (players[0] = the player who created the team.)
+      const p1 = players[0];
+      if (p1) {
+        const tc = msgTeamCreated({
+          firstName:    p1.first_name,
+          teamName:     team_name.trim(),
+          eventName:    ev.name,
+          shareCode:    normalizedShare,
+          joinUrl:      `${APP_URL}/register/${eventId}?team=${normalizedShare}`,
+          teamPageUrl:  `${APP_URL}/team/${eventId}/${normalizedShare}`,
+        });
+        await sendKlaviyo('team_created',
+          { email: p1.email, phone: p1.phone, first_name: p1.first_name, last_name: p1.last_name },
+          { ...tc, event_id: eventId, team_name: team_name.trim() });
+        if (p1.email) await sendEmailDirect(p1.email, tc.EmailSubject, tc.EmailBodyHtml);
+      }
     } catch (e) { console.error('[Klaviyo] registration notification error:', e.message); }
   });
 });
@@ -1839,8 +2208,15 @@ app.post('/api/events/:eventId/teams/by-share-code/:code/add-player', registerLi
   if (!drop_code || !first_name || !last_name) return res.status(400).json({ error: 'drop_code, first_name, last_name required' });
   if (typeof first_name !== 'string' || first_name.trim().length < 1 || first_name.trim().length > 100) return res.status(400).json({ error: 'First name must be 1-100 characters' });
   if (typeof last_name !== 'string' || last_name.trim().length < 1 || last_name.trim().length > 100) return res.status(400).json({ error: 'Last name must be 1-100 characters' });
+  // Email + phone are REQUIRED for every player who registers.
+  if (!email || typeof email !== 'string' || email.length > 255 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'A valid email address is required' });
+  }
+  if (!phone || typeof phone !== 'string' || phone.trim().length < 7 || phone.length > 20) {
+    return res.status(400).json({ error: 'A valid phone number is required' });
+  }
 
-  const event = db.prepare('SELECT status FROM events WHERE id=?').get(eventId);
+  const event = db.prepare('SELECT name, venue, admin_phone, status FROM events WHERE id=?').get(eventId);
   if (!event) return res.status(404).json({ error: 'Event not found' });
   // Registration is open during setup AND active — only a finished tournament closes it.
   if (event.status === 'ended') return res.status(403).json({ error: 'This tournament has ended — registration is closed' });
@@ -1864,6 +2240,27 @@ app.post('/api/events/:eventId/teams/by-share-code/:code/add-player', registerLi
 
   broadcast(eventId);
   res.json({ success: true, team_id: team.id, team_name: team.team_name, drop_code: ballCode, player: `${first_name} ${last_name}` });
+
+  // Fire the registration confirmation (text + email) for this late-joining
+  // player — same message player 1's team got at finalize-team. Non-blocking.
+  setImmediate(async () => {
+    try {
+      const msg = msgRegistration({
+        firstName:     first_name.trim(),
+        teamName:      team.team_name,
+        eventName:     event.name,
+        venue:         event.venue || '',
+        dropCode:      ballCode,
+        leaderboardUrl: `${APP_URL}/leaderboard/${eventId}`,
+        scanUrl:       `${APP_URL}/scan/${ballCode}`,
+        adminPhone:    event.admin_phone || null,
+      });
+      await sendKlaviyo('registered',
+        { email: email, phone: phone, first_name: first_name.trim(), last_name: last_name.trim() },
+        { ...msg, event_id: eventId, team_name: team.team_name });
+      if (email) await sendEmailDirect(email, msg.EmailSubject, msg.EmailBodyHtml);
+    } catch (e) { console.error('[Klaviyo] add-player registration notification error:', e.message); }
+  });
 });
 
 // ─── BALL LOOKUP ─────────────────────────────────────────────────────────────
@@ -2211,7 +2608,8 @@ app.get('/api/leaderboard/:eventId/stream', (req, res) => {
 
   const event = db.prepare('SELECT * FROM events WHERE id=?').get(eventId);
   const tee_boxes = db.prepare('SELECT * FROM tee_boxes WHERE event_id=?').all(eventId);
-  const payload = { event: { ...event, tee_boxes },
+  const { brand_logo: _bl, ...eventLite } = event || {};
+  const payload = { event: event ? { ...eventLite, tee_boxes } : null,
     ld: event?.has_longest_drive ? getLDLeaderboard(eventId) : [],
     cp: event?.has_closest_pin   ? getCPLeaderboard(eventId) : [],
     alerts: db.prepare('SELECT * FROM rep_alerts WHERE event_id=? AND resolved=0').all(eventId)
@@ -2540,7 +2938,7 @@ app.get('/api/global/events', requireAuth, requireSuper, (req, res) => {
 // ─── TOURNAMENT SIGNUP ─────────────────────────────────────────────────────────
 app.post('/api/tournament-signup', async (req, res) => {
   try {
-    const { tournament_name, event_date, venue, location, contest_type, expected_players, admin_name, admin_email, admin_phone, notes, event_url, venue_lat, venue_lon } = req.body;
+    const { tournament_name, event_date, venue, location, contest_type, expected_players, admin_name, admin_email, admin_phone, notes, event_url, venue_lat, venue_lon, is_charity, charity_url, logo_data } = req.body;
 
     // Validate required fields
     if (!tournament_name || !event_date || !venue || !location || !contest_type || !expected_players || !admin_name || !admin_email || !admin_phone) {
@@ -2550,15 +2948,26 @@ app.post('/api/tournament-signup', async (req, res) => {
     const vLat = venue_lat ? parseFloat(venue_lat) : null;
     const vLon = venue_lon ? parseFloat(venue_lon) : null;
 
+    // Branding fields (all optional)
+    const isCharity = (is_charity === 1 || is_charity === '1' || is_charity === true) ? 1 : 0;
+    const charityUrl = (typeof charity_url === 'string' && /^https?:\/\//i.test(charity_url.trim()))
+      ? charity_url.trim() : null;
+    // logo_data must be a reasonably-sized image data URL, else drop it silently.
+    const logoData = (typeof logo_data === 'string'
+      && /^data:image\/(png|jpe?g|svg\+xml|webp);base64,/i.test(logo_data)
+      && logo_data.length < 2_800_000) ? logo_data : null;
+
     // Persist to tournament_requests so super admin can review later
     db.prepare(`INSERT INTO tournament_requests
       (tournament_name, event_date, venue, location, contest_type, expected_players,
-       admin_name, admin_email, admin_phone, notes, event_url, venue_lat, venue_lon, status)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending')`)
+       admin_name, admin_email, admin_phone, notes, event_url, venue_lat, venue_lon,
+       is_charity, charity_url, logo_data, status)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?, 'pending')`)
       .run(tournament_name, event_date, venue, location, contest_type, parseInt(expected_players, 10),
            admin_name, admin_email, admin_phone, notes || null,
            event_url || null,
-           Number.isFinite(vLat) ? vLat : null, Number.isFinite(vLon) ? vLon : null);
+           Number.isFinite(vLat) ? vLat : null, Number.isFinite(vLon) ? vLon : null,
+           isCharity, charityUrl, logoData);
 
     // Format the email content
     const emailBody = `
@@ -2596,6 +3005,14 @@ ${notes || 'None'}
       console.log('[Email] Body:', emailBody);
     }
 
+    // Auto-reply to the person who submitted the request (non-blocking, on-brand).
+    if (admin_email) {
+      const firstName = String(admin_name || '').trim().split(/\s+/)[0] || '';
+      const m = msgSignupReceived({ name: firstName, tournamentName: tournament_name });
+      sendEmailDirect(admin_email, m.EmailSubject, m.EmailBodyHtml)
+        .catch(e => console.error('[Email] signup auto-reply error:', e.message));
+    }
+
     res.json({ success: true, message: 'Tournament signup request submitted successfully' });
   } catch (err) {
     console.error('[Signup Error]', err);
@@ -2630,6 +3047,7 @@ function requestToEventDraft(r) {
     admin_phone: r.admin_phone || null,
     venue_lat: Number.isFinite(r.venue_lat) ? r.venue_lat : null,
     venue_lon: Number.isFinite(r.venue_lon) ? r.venue_lon : null,
+    is_charity: r.is_charity ? 1 : 0,
   };
 }
 
@@ -2659,7 +3077,7 @@ function renderRequestEmailTemplate(key, request) {
 }
 
 function validateRequestPatch(input) {
-  const allowed = ['tournament_name', 'event_date', 'venue', 'location', 'contest_type', 'expected_players', 'admin_name', 'admin_email', 'admin_phone', 'notes', 'status', 'event_url', 'venue_lat', 'venue_lon'];
+  const allowed = ['tournament_name', 'event_date', 'venue', 'location', 'contest_type', 'expected_players', 'admin_name', 'admin_email', 'admin_phone', 'notes', 'status', 'event_url', 'venue_lat', 'venue_lon', 'is_charity', 'charity_url'];
   const out = {};
   for (const k of allowed) {
     if (input[k] === undefined) continue;
@@ -2679,10 +3097,12 @@ function validateRequestPatch(input) {
       const v = String(input[k]).toLowerCase();
       if (!REQUEST_STATUSES.includes(v)) throw new Error('invalid status');
       out[k] = v;
-    } else if (k === 'event_url') {
+    } else if (k === 'event_url' || k === 'charity_url') {
       const v = String(input[k]).trim();
-      if (v && !/^https?:\/\//i.test(v)) throw new Error('event_url must start with http:// or https://');
+      if (v && !/^https?:\/\//i.test(v)) throw new Error(`${k} must start with http:// or https://`);
       out[k] = v || null;
+    } else if (k === 'is_charity') {
+      out[k] = (input[k] === 1 || input[k] === '1' || input[k] === true) ? 1 : 0;
     } else if (k === 'venue_lat' || k === 'venue_lon') {
       if (input[k] === null || input[k] === '') { out[k] = null; continue; }
       const n = parseFloat(input[k]);
@@ -2746,15 +3166,205 @@ app.post('/api/admin/tournament-requests/:id/accept', requireAuth, requireSuper,
   }
   const draft = requestToEventDraft(r);
   if (!draft) return res.status(400).json({ error: 'Request missing required fields for event creation' });
+
+  // Find or create the requester's tournament-admin account so the event is THEIRS.
+  const reqEmail = String(r.admin_email || '').toLowerCase().trim();
+  let ownerAdminId = req.admin.id;   // fallback: the super who accepted
+  let tempPassword = null;
+  let createdNew = false;
+  let notifyKind = null;             // 'welcome' | 'assigned' | null
+  let warning = null;
+  if (reqEmail && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(reqEmail)) {
+    const existing = db.prepare('SELECT * FROM admins WHERE email=?').get(reqEmail);
+    if (existing && existing.role === 'rep') {
+      // Email collides with a rep account — keep super as owner, flag it.
+      warning = `${reqEmail} belongs to an existing rep account; event left under your ownership.`;
+    } else if (existing) {
+      ownerAdminId = existing.id;
+      notifyKind = 'assigned';
+    } else {
+      tempPassword = generateAdminPassword();
+      createdNew = true;
+      notifyKind = 'welcome';
+      const newId = uid('ADM');
+      db.prepare('INSERT INTO admins (id,name,email,password_hash,role) VALUES (?,?,?,?,?)')
+        .run(newId, String(r.admin_name || 'Tournament Admin').trim(), reqEmail, hashPassword(tempPassword), 'admin');
+      ownerAdminId = newId;
+    }
+  }
+
+  // Branding the super admin chose in the "Mock their admin look" review (optional).
+  const b = (req.body && req.body.branding) || {};
+  const brandEnabled = b.enabled ? 1 : 0;
+  const brandLogo = (typeof b.logo === 'string'
+    && /^data:image\//i.test(b.logo) && b.logo.length < 2_800_000) ? b.logo : null;
+  const brandAccent = normalizeHex(b.accent);
+  const brandUrl = r.charity_url || r.event_url || null;
+
   const eventId = uid('EVT');
   db.prepare(`INSERT INTO events
-    (id,name,venue,starts_at,ends_at,has_longest_drive,has_closest_pin,admin_phone,admin_id,venue_lat,venue_lon)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?)`)
+    (id,name,venue,starts_at,ends_at,has_longest_drive,has_closest_pin,admin_phone,admin_id,venue_lat,venue_lon,
+     is_charity,brand_enabled,brand_logo,brand_accent,brand_url)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(eventId, draft.name, draft.venue, draft.starts_at, draft.ends_at,
-         draft.has_longest_drive, draft.has_closest_pin, draft.admin_phone, req.admin.id,
-         draft.venue_lat, draft.venue_lon);
+         draft.has_longest_drive, draft.has_closest_pin, draft.admin_phone, ownerAdminId,
+         draft.venue_lat, draft.venue_lon,
+         draft.is_charity, brandEnabled, brandLogo, brandAccent, brandUrl);
   db.prepare(`UPDATE tournament_requests SET status='accepted', created_event_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(eventId, id);
-  res.json({ event_id: eventId, request: db.prepare('SELECT * FROM tournament_requests WHERE id=?').get(id) });
+
+  // Notify the requester (non-blocking) — welcome w/ temp password, or "added" notice.
+  if (notifyKind) {
+    setImmediate(() => notifyAdminAssignment(notifyKind, {
+      name: r.admin_name, email: reqEmail,
+      eventName: draft.name, venue: draft.venue, eventId,
+      tempPassword,
+    }));
+  }
+
+  res.json({
+    event_id: eventId,
+    request: db.prepare('SELECT * FROM tournament_requests WHERE id=?').get(id),
+    admin_created: createdNew,
+    ...(tempPassword ? { temp_password: tempPassword } : {}),
+    ...(warning ? { warning } : {}),
+  });
+});
+
+// ─── SITE BRANDING EXTRACTION ────────────────────────────────────────────────
+// Best-effort scraping of an org's website for a logo + brand colors. Always
+// gated by a human (the super admin's Mock → Accept review), so imperfect
+// results are fine — the admin picks/overrides before anything goes live.
+
+function normalizeHex(input) {
+  if (!input) return null;
+  let h = String(input).trim().toLowerCase();
+  if (h[0] !== '#') h = '#' + h;
+  if (/^#[0-9a-f]{3}$/.test(h)) h = '#' + h.slice(1).split('').map(c => c + c).join('');
+  return /^#[0-9a-f]{6}$/.test(h) ? h : null;
+}
+
+// Reject near-white, near-black, and low-saturation greys — not real accents.
+function isBrandableColor(hex) {
+  const h = normalizeHex(hex);
+  if (!h) return false;
+  const r = parseInt(h.slice(1, 3), 16), g = parseInt(h.slice(3, 5), 16), b = parseInt(h.slice(5, 7), 16);
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const lum = (max + min) / 2;
+  if (lum > 235 || lum < 22) return false;   // too light / too dark
+  if (max - min < 28) return false;          // grey-ish
+  return true;
+}
+
+// Fetch a remote image → data URL (caps ~1.6MB). null on any failure.
+async function fetchImageAsDataUrl(imgUrl) {
+  try {
+    const fetch = require('node-fetch');
+    const resp = await fetch(imgUrl, {
+      timeout: 7000, size: 1_600_000, redirect: 'follow',
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JORDGolfBot/1.0)' },
+    });
+    if (!resp.ok) return null;
+    const ctype = (resp.headers.get('content-type') || '').split(';')[0].trim();
+    if (!/^image\//.test(ctype)) return null;
+    const buf = await resp.buffer();
+    if (!buf.length || buf.length > 1_600_000) return null;
+    return `data:${ctype};base64,${buf.toString('base64')}`;
+  } catch { return null; }
+}
+
+async function extractSiteBranding(siteUrl) {
+  const result = { logos: [], colors: [], theme_color: null, error: null };
+  const fetch = require('node-fetch');
+  let html = '', baseUrl;
+  try {
+    baseUrl = new URL(siteUrl);
+    const resp = await fetch(siteUrl, {
+      timeout: 8000, size: 3_000_000, redirect: 'follow',
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JORDGolfBot/1.0)' },
+    });
+    if (!resp.ok) { result.error = `Site returned ${resp.status}`; return result; }
+    html = await resp.text();
+  } catch {
+    result.error = 'Could not reach that website';
+    return result;
+  }
+  const abs = (href) => { try { return new URL(href, baseUrl).href; } catch { return null; } };
+
+  // ── Logo candidate URLs ──
+  const logoUrls = new Set();
+  for (const m of html.matchAll(/<link[^>]+>/gi)) {
+    if (!/rel\s*=\s*["'][^"']*(apple-touch-icon|icon|mask-icon)/i.test(m[0])) continue;
+    const href = m[0].match(/href\s*=\s*["']([^"']+)["']/i);
+    if (href) { const u = abs(href[1]); if (u) logoUrls.add(u); }
+  }
+  for (const m of html.matchAll(/<meta[^>]+>/gi)) {
+    if (!/(property|name)\s*=\s*["'](og:image|twitter:image)/i.test(m[0])) continue;
+    const c = m[0].match(/content\s*=\s*["']([^"']+)["']/i);
+    if (c) { const u = abs(c[1]); if (u) logoUrls.add(u); }
+  }
+  for (const m of html.matchAll(/<img[^>]+>/gi)) {
+    if (!/logo/i.test(m[0])) continue;
+    const src = m[0].match(/\bsrc\s*=\s*["']([^"']+)["']/i);
+    if (src) { const u = abs(src[1]); if (u) logoUrls.add(u); }
+  }
+  logoUrls.add(baseUrl.origin + '/favicon.ico');
+
+  // ── Color candidates ──
+  const tc = html.match(/<meta[^>]+name\s*=\s*["']theme-color["'][^>]*>/i);
+  if (tc) {
+    const c = tc[0].match(/content\s*=\s*["']([^"']+)["']/i);
+    if (c) result.theme_color = normalizeHex(c[1]);
+  }
+  let cssText = html;
+  const sheets = [];
+  for (const m of html.matchAll(/<link[^>]+rel\s*=\s*["']stylesheet["'][^>]*>/gi)) {
+    const href = m[0].match(/href\s*=\s*["']([^"']+)["']/i);
+    if (href) { const u = abs(href[1]); if (u) sheets.push(u); }
+    if (sheets.length >= 2) break;
+  }
+  for (const s of sheets) {
+    try {
+      const r = await fetch(s, { timeout: 6000, size: 800_000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; JORDGolfBot/1.0)' } });
+      if (r.ok) cssText += '\n' + await r.text();
+    } catch {}
+  }
+  const colorCount = {};
+  for (const m of cssText.matchAll(/#([0-9a-f]{6}|[0-9a-f]{3})\b/gi)) {
+    const hex = normalizeHex('#' + m[1]);
+    if (hex) colorCount[hex] = (colorCount[hex] || 0) + 1;
+  }
+  const ranked = Object.entries(colorCount)
+    .filter(([hex]) => isBrandableColor(hex))
+    .sort((a, b) => b[1] - a[1])
+    .map(([hex]) => hex);
+  result.colors = [...new Set([result.theme_color, ...ranked].filter(Boolean))].slice(0, 8);
+
+  // Download top logo candidates server-side → data URLs (dodges CORS, lets us store).
+  const candidates = [...logoUrls].slice(0, 6);
+  const fetched = await Promise.all(candidates.map(fetchImageAsDataUrl));
+  result.logos = fetched.filter(Boolean).slice(0, 5);
+  if (!result.logos.length && !result.colors.length && !result.error) {
+    result.error = 'No logo or colors could be detected on that site';
+  }
+  return result;
+}
+
+// FETCH BRANDING — super admin pulls logo + color candidates from the org's site.
+app.post('/api/admin/tournament-requests/:id/fetch-branding', requireAuth, requireSuper, async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const r = db.prepare('SELECT * FROM tournament_requests WHERE id=?').get(id);
+  if (!r) return res.status(404).json({ error: 'Not found' });
+  const url = (req.body && req.body.url) || r.charity_url || r.event_url;
+  if (!url || !/^https?:\/\//i.test(url)) {
+    return res.status(400).json({ error: 'No website URL on this request — add one or upload a logo manually' });
+  }
+  const branding = await extractSiteBranding(url);
+  // The requester's signup-uploaded logo (if any) is offered as the first candidate.
+  const logos = [];
+  if (r.logo_data) logos.push(r.logo_data);
+  for (const l of branding.logos) if (!logos.includes(l)) logos.push(l);
+  res.json({ url, logos, colors: branding.colors, theme_color: branding.theme_color, error: branding.error });
 });
 
 // EMAIL — send a custom email reply, append to reply_log, mark replied
