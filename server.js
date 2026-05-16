@@ -15,6 +15,11 @@ const fs       = require('fs');
 const nodemailer = require('nodemailer');
 const backup    = require('./scripts/backup');
 
+// Railway's container network has no working IPv6 outbound. Node 17+ resolves
+// DNS "verbatim" (IPv6 first), so smtp.gmail.com → an IPv6 address → ENETUNREACH.
+// Force IPv4-first so SMTP and other outbound connections actually connect.
+try { require('dns').setDefaultResultOrder('ipv4first'); } catch {}
+
 // Load env
 const env = {};
 try {
