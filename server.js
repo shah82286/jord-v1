@@ -3011,6 +3011,15 @@ ${notes || 'None'}
       const m = msgSignupReceived({ name: firstName, tournamentName: tournament_name });
       sendEmailDirect(admin_email, m.EmailSubject, m.EmailBodyHtml)
         .catch(e => console.error('[Email] signup auto-reply error:', e.message));
+      // Also fire a Klaviyo event so the submission is captured there (and any
+      // Klaviyo Flow — auto-reply, sales follow-up — can act on it). Works even
+      // when SMTP isn't configured.
+      const [first, ...rest] = String(admin_name || '').trim().split(/\s+/);
+      sendKlaviyo('tournament_signup',
+        { email: admin_email, phone: admin_phone || null, first_name: first || admin_name, last_name: rest.join(' ') },
+        { ...m, tournament_name, venue, location, contest_type, expected_players,
+          admin_name, admin_email, admin_phone })
+        .catch(e => console.error('[Klaviyo] signup event error:', e.message));
     }
 
     res.json({ success: true, message: 'Tournament signup request submitted successfully' });

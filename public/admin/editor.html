@@ -850,7 +850,7 @@
     try {
       const res = await JORD.api('/api/auth/forgot-password', { method: 'POST', body: { email: $('#fp-email').value.trim() } });
       result.className = 'card'; result.style.cssText = 'background:var(--surface-2);padding:12px 14px;font-size:13px;';
-      result.innerHTML = `<strong>Reset link generated.</strong><br>Contact your JORD administrator to receive your reset link.<br><br><span style="color:var(--ink-2);font-size:12px;">(Super admins: check Manage Admins → pending reset for the link)</span>`;
+      result.innerHTML = `<strong>Check your email.</strong><br>If an account exists for that address, we've emailed a password reset link. It expires in 1 hour.<br><br><span style="color:var(--ink-2);font-size:12px;">Didn't get it? Check spam, or ask your JORD administrator.</span>`;
     } catch (err) {
       result.className = 'badge badge-red'; result.textContent = err.message || 'Error';
     }
