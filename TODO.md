@@ -28,14 +28,20 @@ When super admin creates a new admin account, send a welcome email with temp pas
 **#TEST-COLOR — Fix swapped fairway/green colors on test page**
 `/test` GPS simulator has fairway shown as green (`#22C55E`) and green shown as blue (`#3B82F6`) — opposite of the standard. `test.html:235-245`. Minor visual fix to match main maps.
 
-**#KLAVIYO-FLOWS — Build Klaviyo Flows for the new server events**
-The server now fires Klaviyo metrics that have NO Flow in the Klaviyo dashboard — those events currently go nowhere (no SMS/email delivered via Klaviyo). Need to build Live Flows for: `jord_team_created` (player 1 finalizes a team — has SMS + email), `jord_admin_welcome`, `jord_admin_assigned`. Decide which need SMS vs email-only (admin welcome/assigned probably email-only; team_created should send SMS). Each Flow's email block uses `{{ event.EmailBodyHtml|safe }}` — the server builds the cream HTML, so no Klaviyo template design needed, just the Flow + trigger. Existing 4 Flows still need NOTHING — the re-skin is automatic since the server builds the HTML.
+**#KLAVIYO-FLOWS — Build the 5 remaining Klaviyo Flows**
+All transactional email now routes through Klaviyo (SMTP was dropped — Railway blocks outbound SMTP). The server fires these metrics but they have NO Flow yet, so nothing is delivered. Build a Live Flow for each (steps in KLAVIYO-SETUP.md Part 1):
+- `jord_password_reset` — **do first**, nobody can reset a password without it. Email-only.
+- `jord_account_welcome` — new rep login + temp password. Email-only.
+- `jord_admin_welcome` — new admin login + temp password. Email-only.
+- `jord_admin_assigned` — existing admin added to an event. Email-only.
+- `jord_tournament_signup` — `/signup` form auto-reply. Email-only.
+All five are email-only (no SMS block). Email subject `{{ event.EmailSubject }}`, one HTML block `{{ event.EmailBodyHtml|safe }}`, Transactional ON, Smart Sending OFF. The 5 flows already Live (`registered`, `ball_scanned`, `tournament_ended`, `dethroned`, `team_created`) need nothing — the cream re-skin is automatic since the server builds the HTML.
 
-**#EMAIL-DELIVERABILITY — SMTP setup for support@jordgolf.com**
-The new transactional emails (password reset, rep/admin welcome, /signup auto-reply) send via SMTP (`sendEmailDirect`), NOT Klaviyo. If `SMTP_HOST`/`SMTP_USER`/`SMTP_PASS` aren't set in Railway env vars, these emails silently don't send (server just mock-logs). Action: (1) configure SMTP creds for support@jordgolf.com in Railway, (2) set SPF + DKIM + DMARC DNS records so the emails don't land in spam. Without this, password resets never reach admins/reps.
+**#KLAVIYO-TRANSACTIONAL — Resolve transactional approval with Klaviyo**
+Klaviyo **rejected** the transactional status on a JORD email — Shaheen is confirming with Klaviyo support. This is a hard blocker: transactional status is what lets password-reset / welcome / registration emails reach people who never opted into marketing. Until Klaviyo approves transactional sending on the account, those emails are held. Action: get transactional approved (work with Klaviyo on whatever they flagged — wording, sender setup, etc.), then confirm all 10 flows show Transactional **Approved**, not "Under Review" or "Rejected".
 
-**#REG-EMAIL-DEDUPE — Registration confirmation may send twice**
-`finalize-team` and `add-player` both call `sendKlaviyo('registered')` AND `sendEmailDirect()` for the same player. If the Klaviyo `jord_registered` Flow also delivers an email, the player gets the registration email twice (once Klaviyo, once SMTP). Decide one channel per message: e.g. Klaviyo Flow = SMS only, SMTP = email — then remove the duplicate. Low urgency, but confusing for players.
+**#EMAIL-DEPLOY — Deploy the all-Klaviyo email build to Railway**
+Commits `733ecae` (route transactional email through Klaviyo) + `00cc475` (doc) + `3339d0e` (IPv4 DNS fix) are pushed to GitHub but not yet deployed. Manually deploy `main` in Railway so the new email routing goes live. Then re-test password reset end-to-end once the `jord_password_reset` flow exists.
 
 **#REG-SIM-TEST — Run the 20-player registration simulation**
 `scripts/test-registration-flow.js` was built (spins up a sandboxed server on a temp DB, registers ~20 players across 5 teams, exercises duplicate-code / full-team / pre-tournament edge cases) but never run end-to-end. Run it, fix anything it surfaces, before the next real tournament.

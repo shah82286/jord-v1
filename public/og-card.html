@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<!--
+  Link-preview (Open Graph) card source — rendered at exactly 1200×630 and
+  screenshotted to /img/og-cover.jpg by scripts/capture-og-image.js.
+  Not linked in navigation; it exists only to generate that image.
+-->
+<title>JORD Golf — link preview card</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,600;0,700;1,500&family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; }
+  body { font-family: 'Inter', sans-serif; }
+
+  .card {
+    position: relative; width: 1200px; height: 630px; overflow: hidden;
+    background: #0C0C0A;
+  }
+  .card-bg {
+    position: absolute; inset: 0;
+    background: url('/img/lifestyle/hero-swing-fairway-2400.jpg') center 28% / cover no-repeat;
+  }
+  /* Editorial scrim — dark at the lower-left where the headline sits */
+  .card-scrim {
+    position: absolute; inset: 0;
+    background:
+      linear-gradient(118deg, rgba(12,12,10,0.90) 0%, rgba(12,12,10,0.60) 46%, rgba(12,12,10,0.08) 100%),
+      linear-gradient(0deg,   rgba(12,12,10,0.78) 0%, rgba(12,12,10,0.00) 52%);
+  }
+
+  .card-inner {
+    position: absolute; inset: 0; padding: 56px 64px;
+    display: flex; flex-direction: column; justify-content: space-between;
+  }
+
+  .card-top { display: flex; align-items: center; justify-content: space-between; }
+  .card-logo { height: 50px; width: auto; }
+
+  .live-pill {
+    display: inline-flex; align-items: center; gap: 9px;
+    background: rgba(251,249,244,0.10); border: 1px solid rgba(251,249,244,0.28);
+    border-radius: 999px; padding: 9px 18px;
+    font-size: 16px; font-weight: 700; letter-spacing: 0.14em;
+    color: #FBF9F4; text-transform: uppercase;
+  }
+  .live-dot { width: 11px; height: 11px; border-radius: 50%; background: #E8554E; box-shadow: 0 0 12px rgba(232,85,78,0.9); }
+
+  .eyebrow {
+    font-size: 17px; font-weight: 700; letter-spacing: 0.26em; text-transform: uppercase;
+    color: #E8C896; margin-bottom: 20px;
+  }
+  .eyebrow::before {
+    content: ''; display: inline-block; width: 34px; height: 2px;
+    background: #E8C896; vertical-align: middle; margin-right: 14px; margin-bottom: 4px;
+  }
+  h1 {
+    font-family: 'Playfair Display', serif; font-weight: 700;
+    font-size: 76px; line-height: 1.04; color: #FBF9F4;
+    letter-spacing: -0.01em; margin-bottom: 22px;
+  }
+  h1 em { font-style: italic; font-weight: 500; color: #E8C896; }
+  .lead {
+    font-size: 25px; font-weight: 500; line-height: 1.4; color: rgba(251,249,244,0.86);
+    max-width: 720px;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="card-bg"></div>
+    <div class="card-scrim"></div>
+    <div class="card-inner">
+      <div class="card-top">
+        <img class="card-logo" src="/img/logos/logo-script-white.png" alt="JORD Golf">
+        <span class="live-pill"><span class="live-dot"></span> Live Leaderboard</span>
+      </div>
+      <div class="card-bottom">
+        <div class="eyebrow">Tournament Live Scoring</div>
+        <h1>The side game,<br><em>made the main event.</em></h1>
+        <p class="lead">Live GPS scoring for Longest Drive &amp; Closest to the Pin — players watch their shot land, the clubhouse watches the lead change.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
