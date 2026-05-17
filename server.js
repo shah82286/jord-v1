@@ -1022,7 +1022,6 @@ async function notifyAdminAssignment(kind, { name, email, eventName, venue, even
     await sendKlaviyo(kind === 'welcome' ? 'admin_welcome' : 'admin_assigned',
       { email, first_name: first || name, last_name: rest.join(' ') },
       { ...msg, event_id: eventId });
-    await sendEmailDirect(email, msg.EmailSubject, msg.EmailBodyHtml);
   } catch (e) { console.error('[Notify] admin assignment error:', e.message); }
 }
 
@@ -1269,13 +1268,17 @@ app.post('/api/auth/forgot-password', forgotLimiter, (req, res) => {
   const expires = sqliteDatetimeFromNow(60 * 60 * 1000); // 1 hour
   db.prepare('INSERT INTO password_reset_tokens (token,admin_id,expires_at) VALUES (?,?,?)').run(token, admin.id, expires);
   const resetUrl = `${APP_URL}/admin?reset_token=${token}`;
-  // Email the reset link to the account holder (non-blocking). _reset_url is
-  // still returned so a super admin can share it manually as a fallback.
+  // Fire a Klaviyo event so the jord_password_reset Flow emails the link
+  // (non-blocking). _reset_url is still returned so a super admin can share
+  // it manually as a fallback.
   setImmediate(async () => {
     try {
       const m = msgPasswordReset({ name: admin.name, resetUrl });
-      await sendEmailDirect(admin.email, m.EmailSubject, m.EmailBodyHtml);
-    } catch (e) { console.error('[Email] password-reset send error:', e.message); }
+      const [first, ...rest] = String(admin.name || '').trim().split(/\s+/);
+      await sendKlaviyo('password_reset',
+        { email: admin.email, first_name: first || admin.name, last_name: rest.join(' ') },
+        { ...m, reset_url: resetUrl });
+    } catch (e) { console.error('[Klaviyo] password-reset send error:', e.message); }
   });
   res.json({ success: true, message: 'If that email exists, a reset link has been sent.', _reset_url: resetUrl });
 });
@@ -1417,8 +1420,11 @@ app.post('/api/admins/:id/reset-password', requireAuth, requireSuper, (req, res)
   setImmediate(async () => {
     try {
       const m = msgPasswordReset({ name: admin.name, resetUrl });
-      await sendEmailDirect(admin.email, m.EmailSubject, m.EmailBodyHtml);
-    } catch (e) { console.error('[Email] admin password-reset send error:', e.message); }
+      const [first, ...rest] = String(admin.name || '').trim().split(/\s+/);
+      await sendKlaviyo('password_reset',
+        { email: admin.email, first_name: first || admin.name, last_name: rest.join(' ') },
+        { ...m, reset_url: resetUrl });
+    } catch (e) { console.error('[Klaviyo] admin password-reset send error:', e.message); }
   });
   res.json({ success: true, reset_url: resetUrl });
 });
@@ -1507,7 +1513,7 @@ app.post('/api/reps', requireAuth, requireAdminOrSuper, (req, res) => {
 
   const created = db.prepare(`SELECT ${ADMIN_COLS} FROM admins WHERE id=?`).get(id);
 
-  // Email the new rep their welcome + temp password (non-blocking).
+  // Email the new rep their welcome + temp password via Klaviyo (non-blocking).
   setImmediate(async () => {
     try {
       const m = msgAccountWelcome({
@@ -1515,8 +1521,11 @@ app.post('/api/reps', requireAuth, requireAdminOrSuper, (req, res) => {
         email: email.toLowerCase().trim(), tempPassword: finalPassword,
         loginUrl: `${APP_URL}/admin`,
       });
-      await sendEmailDirect(email.toLowerCase().trim(), m.EmailSubject, m.EmailBodyHtml);
-    } catch (e) { console.error('[Email] rep welcome send error:', e.message); }
+      const [first, ...rest] = name.trim().split(/\s+/);
+      await sendKlaviyo('account_welcome',
+        { email: email.toLowerCase().trim(), first_name: first || name.trim(), last_name: rest.join(' ') },
+        { ...m, role: 'rep' });
+    } catch (e) { console.error('[Klaviyo] rep welcome send error:', e.message); }
   });
 
   res.json({ ...created, ...(generated ? { temp_password: finalPassword } : {}) });
@@ -1562,8 +1571,11 @@ app.post('/api/reps/:id/reset-password', requireAuth, requireAdminOrSuper, (req,
   setImmediate(async () => {
     try {
       const m = msgPasswordReset({ name: target.name, resetUrl });
-      await sendEmailDirect(target.email, m.EmailSubject, m.EmailBodyHtml);
-    } catch (e) { console.error('[Email] rep password-reset send error:', e.message); }
+      const [first, ...rest] = String(target.name || '').trim().split(/\s+/);
+      await sendKlaviyo('password_reset',
+        { email: target.email, first_name: first || target.name, last_name: rest.join(' ') },
+        { ...m, reset_url: resetUrl });
+    } catch (e) { console.error('[Klaviyo] rep password-reset send error:', e.message); }
   });
   res.json({ token, reset_url: resetUrl, expires_at: expires });
 });
@@ -2149,7 +2161,6 @@ app.post('/api/events/:eventId/finalize-team', (req, res) => {
         await sendKlaviyo('registered',
           { email: p.email, phone: p.phone, first_name: p.first_name, last_name: p.last_name },
           { ...msg, event_id: eventId, team_name: team_name.trim() });
-        if (p.email) await sendEmailDirect(p.email, msg.EmailSubject, msg.EmailBodyHtml);
       }
       // Team-created receipt to player 1 — the join code + invite link so they
       // can bring teammates in. (players[0] = the player who created the team.)
@@ -2166,7 +2177,6 @@ app.post('/api/events/:eventId/finalize-team', (req, res) => {
         await sendKlaviyo('team_created',
           { email: p1.email, phone: p1.phone, first_name: p1.first_name, last_name: p1.last_name },
           { ...tc, event_id: eventId, team_name: team_name.trim() });
-        if (p1.email) await sendEmailDirect(p1.email, tc.EmailSubject, tc.EmailBodyHtml);
       }
     } catch (e) { console.error('[Klaviyo] registration notification error:', e.message); }
   });
@@ -2263,7 +2273,6 @@ app.post('/api/events/:eventId/teams/by-share-code/:code/add-player', registerLi
       await sendKlaviyo('registered',
         { email: email, phone: phone, first_name: first_name.trim(), last_name: last_name.trim() },
         { ...msg, event_id: eventId, team_name: team.team_name });
-      if (email) await sendEmailDirect(email, msg.EmailSubject, msg.EmailBodyHtml);
     } catch (e) { console.error('[Klaviyo] add-player registration notification error:', e.message); }
   });
 });
@@ -3010,15 +3019,11 @@ ${notes || 'None'}
       console.log('[Email] Body:', emailBody);
     }
 
-    // Auto-reply to the person who submitted the request (non-blocking, on-brand).
+    // Auto-reply to the person who submitted the request — fired as a Klaviyo
+    // event so the jord_tournament_signup Flow sends the on-brand reply.
     if (admin_email) {
       const firstName = String(admin_name || '').trim().split(/\s+/)[0] || '';
       const m = msgSignupReceived({ name: firstName, tournamentName: tournament_name });
-      sendEmailDirect(admin_email, m.EmailSubject, m.EmailBodyHtml)
-        .catch(e => console.error('[Email] signup auto-reply error:', e.message));
-      // Also fire a Klaviyo event so the submission is captured there (and any
-      // Klaviyo Flow — auto-reply, sales follow-up — can act on it). Works even
-      // when SMTP isn't configured.
       const [first, ...rest] = String(admin_name || '').trim().split(/\s+/);
       sendKlaviyo('tournament_signup',
         { email: admin_email, phone: admin_phone || null, first_name: first || admin_name, last_name: rest.join(' ') },
