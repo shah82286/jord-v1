@@ -1,0 +1,752 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>The Clubhouse · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  .page-head { display:flex; align-items:flex-end; justify-content:space-between; gap:var(--s-3); margin:var(--s-5) 0; flex-wrap:wrap; }
+  .page-head h1 { font-family:var(--font-display); font-size:clamp(1.7rem,5vw,2.6rem); letter-spacing:-0.02em; }
+  .page-head h1 em { font-style:italic; color:var(--accent); }
+  .row-card { display:flex; align-items:center; justify-content:space-between; gap:var(--s-3); padding:14px 18px; border:1px solid var(--border); border-radius:var(--r-sm); background:var(--surface); margin-bottom:var(--s-2); flex-wrap:wrap; }
+  .row-card .meta { font-size:13px; color:var(--ink-2); }
+  .mini { font-size:12px; color:var(--ink-3); }
+
+  /* Clubhouse home — photo hero + clickable tiles */
+  .cl-hero { position:relative; border-radius:var(--r-lg); overflow:hidden; margin:var(--s-5) 0 var(--s-6);
+    background-image:linear-gradient(155deg, rgba(20,19,18,.58), rgba(20,19,18,.80)), url(/img/lifestyle/hero-drive-followthrough-1600.jpg);
+    background-size:cover; background-position:center 30%; }
+  .cl-hero-inner { padding:var(--s-8) var(--s-6); max-width:580px; }
+  .cl-hero .eyebrow { font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:rgba(255,255,255,.6); font-weight:700; }
+  .cl-hero h1 { font-family:var(--font-display); color:#fff; font-size:clamp(2rem,6vw,3.2rem); letter-spacing:-0.02em; margin:8px 0 var(--s-3); }
+  .cl-hero h1 em { font-style:italic; color:var(--accent); }
+  .cl-hero p { color:rgba(255,255,255,.85); font-size:15px; max-width:460px; margin-bottom:var(--s-4); line-height:1.55; }
+  .sec-head { font-family:var(--font-display); font-size:1.5rem; }
+  .sec-head-row { display:flex; justify-content:space-between; align-items:center; margin:var(--s-6) 0 var(--s-3); }
+  .sec-head-row .sec-head { margin:0; }
+  .tile-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:var(--s-3); }
+  .tile { display:flex; align-items:center; gap:var(--s-3); border:2px solid var(--border); border-radius:var(--r-lg);
+    padding:var(--s-4); background:var(--surface); cursor:pointer; position:relative;
+    transition:transform var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast); }
+  .tile:hover { transform:translateY(-3px); border-color:var(--ink); box-shadow:0 8px 22px rgba(0,0,0,.09); }
+  .tile-icon { width:52px; height:52px; border-radius:50%; background:var(--surface-2); display:flex;
+    align-items:center; justify-content:center; font-size:24px; flex-shrink:0; }
+  .tile-body { flex:1; min-width:0; }
+  .tile-body h3 { font-family:var(--font-display); font-size:1.15rem; }
+  .tile-body .meta { font-size:12.5px; color:var(--ink-2); margin:2px 0 5px; }
+  .tile-new { border-style:dashed; justify-content:center; text-align:center; color:var(--ink-2);
+    font-weight:600; font-family:var(--font-display); font-size:1.05rem; }
+  .tile-course { cursor:default; }
+  .tile-course:hover { transform:none; border-color:var(--border); box-shadow:none; }
+  .tile-x { position:absolute; top:10px; right:10px; width:30px; height:30px; border-radius:50%;
+    border:1px solid var(--border-2); background:var(--surface); cursor:pointer; font-size:13px; }
+  .inline-panel { border:1px solid var(--border); border-radius:var(--r-sm); padding:var(--s-4); background:var(--surface); margin-bottom:var(--s-4); }
+  .sc-grid { display:grid; grid-template-columns:repeat(9,1fr); gap:6px; margin:var(--s-3) 0; }
+  .sc-grid .h-cell label { font-size:10px; color:var(--ink-3); font-weight:700; display:block; text-align:center; }
+  .sc-grid input { width:100%; padding:6px 2px; text-align:center; font-size:13px; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
+  .search-result { display:flex; justify-content:space-between; align-items:center; gap:var(--s-3); padding:10px 12px; border-bottom:1px solid var(--border); }
+  .seg { display:inline-flex; border:1px solid var(--border-2); border-radius:var(--r-sm); overflow:hidden; }
+  .seg button { padding:8px 16px; background:var(--surface); border:none; cursor:pointer; font-weight:600; font-size:13px; color:var(--ink-2); }
+  .seg button.is-active { background:var(--primary); color:var(--primary-ink); }
+
+  /* wizard */
+  .wiz-steps { display:flex; gap:6px; margin:var(--s-4) 0 var(--s-5); }
+  .wiz-steps span { flex:1; height:6px; border-radius:3px; background:var(--surface-2); transition:background var(--t-fast); }
+  .wiz-steps span.done { background:var(--accent); }
+  .wiz-steps span.current { background:var(--primary); }
+
+  .pick-card { border:2px solid var(--border); border-radius:var(--r-lg); padding:var(--s-4) var(--s-5);
+    background:var(--surface); cursor:pointer; margin-bottom:var(--s-3);
+    transition:transform var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast); }
+  .pick-card:hover { transform:translateY(-2px); border-color:var(--ink); box-shadow:0 6px 18px rgba(0,0,0,.08); }
+  .pick-card.is-sel { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent) inset; }
+  .pick-card.disabled { opacity:.45; cursor:not-allowed; }
+  .pick-card.disabled:hover { transform:none; box-shadow:none; border-color:var(--border); }
+  .pick-card h3 { font-family:var(--font-display); font-size:1.3rem; }
+  .pick-card .sub { font-size:14px; color:var(--ink-2); font-weight:400; }
+  .pick-card .desc { font-size:13.5px; color:var(--ink-2); margin-top:4px; }
+  .type-card { display:flex; align-items:center; gap:var(--s-4); }
+  .pc-icon { width:58px; height:58px; border-radius:50%; background:var(--surface-2); display:flex;
+    align-items:center; justify-content:center; font-size:28px; flex-shrink:0; transition:background var(--t-fast); }
+  .pick-card.is-sel .pc-icon { background:var(--accent); }
+
+  .fmt-tier-head { font-size:11px; letter-spacing:.16em; text-transform:uppercase; font-weight:700; color:var(--ink-3); margin:var(--s-5) 0 var(--s-2); }
+  .fmt-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--s-3); }
+  .fmt-card { border:2px solid var(--border); border-radius:var(--r-lg); padding:var(--s-4) 12px; background:var(--surface);
+    cursor:pointer; position:relative; text-align:center; transition:transform var(--t-fast), border-color var(--t-fast); }
+  .fmt-card:hover { transform:translateY(-2px); border-color:var(--ink); }
+  .fmt-card.is-sel { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent) inset; }
+  .fmt-card.disabled { opacity:.4; cursor:not-allowed; }
+  .fmt-card.disabled:hover { transform:none; border-color:var(--border); }
+  .fmt-card .fc-emoji { font-size:26px; }
+  .fmt-card .nm { font-weight:700; font-size:15px; margin-top:4px; }
+  .fmt-card .sub { font-size:12px; color:var(--ink-2); }
+  .fmt-card .soon { position:absolute; top:8px; right:8px; font-size:9px; font-weight:700; background:var(--surface-2); color:var(--ink-3); padding:2px 6px; border-radius:8px; }
+  .fmt-desc { margin-top:var(--s-3); padding:12px 14px; background:var(--surface-2);
+    border-radius:var(--r-sm); font-size:13px; color:var(--ink-2); line-height:1.5; }
+  .wiz-nav { display:flex; justify-content:space-between; gap:var(--s-3); margin-top:var(--s-6); }
+  .holes-opt { display:flex; gap:var(--s-2); flex-wrap:wrap; }
+  .holes-opt button { flex:1; min-width:110px; padding:18px 10px; font-size:15px; font-weight:700; border-radius:var(--r-lg); }
+
+  /* tooltips — info bubble on a setting label */
+  .help-icon { display:inline-flex; align-items:center; justify-content:center; width:18px; height:18px;
+    border-radius:50%; background:var(--surface-2); color:var(--ink-2); font-size:11px; font-weight:700;
+    cursor:help; margin-left:5px; position:relative; vertical-align:middle; font-style:normal; }
+  .help-icon:hover, .help-icon:focus { background:var(--accent); color:#FBF9F4; outline:none; }
+  .help-icon .tooltip { display:none; position:absolute; bottom:calc(100% + 7px); left:50%; transform:translateX(-50%);
+    width:220px; background:var(--ink); color:var(--surface); border-radius:var(--r-sm); padding:9px 11px;
+    font-size:12px; font-weight:400; line-height:1.45; z-index:50; box-shadow:0 8px 24px rgba(0,0,0,.22); text-align:left; }
+  .help-icon:hover .tooltip, .help-icon:focus .tooltip { display:block; }
+  .ac-wrap { position:relative; }
+  .ac-list { position:absolute; left:0; right:0; top:calc(100% + 2px); z-index:30; background:var(--surface);
+    border:1px solid var(--border); border-radius:var(--r-sm); max-height:260px; overflow:auto;
+    box-shadow:0 8px 24px rgba(0,0,0,.14); }
+  .ac-list:empty { display:none; }
+  .ac-item { padding:10px 12px; cursor:pointer; border-bottom:1px solid var(--border); font-size:14px; }
+  .ac-item:last-child { border-bottom:none; }
+  .ac-item:hover { background:var(--surface-2); }
+  .ac-item .meta { font-size:12px; color:var(--ink-3); margin-top:2px; }
+</style>
+</head>
+<body>
+<div id="topbar"></div>
+<main class="container container-md">
+  <div id="view"></div>
+</main>
+<script src="/js/jord.js"></script>
+<script>
+const $ = (s,r=document)=>r.querySelector(s);
+const esc = JORD.escapeHtml;
+if (!JORD.getToken()) location.href = '/admin';
+
+/* info bubble for a setting label — hover or tap the ⓘ to read what it does */
+const help = txt => `<span class="help-icon" tabindex="0">i<span class="tooltip">${esc(txt)}</span></span>`;
+/* a playful emoji per scoring engine, shown on format cards */
+const FMT_EMOJI = { stroke:'⛳', stableford:'🎯', scramble:'🤝', bestball:'🔥',
+  matchplay:'⚔️', skins:'💰', erado:'✂️', duplicate:'🎲' };
+
+document.getElementById('topbar').appendChild(
+  JORD.renderTopbar('Clubhouse', JORD.el('a',{class:'btn btn-ghost',href:'/admin'},'← Admin')));
+
+const S = { courses:[], tournaments:[], formats:null, wiz:null };
+
+/* A format is pickable once its scoring engine is wired end-to-end. */
+function pickable(f){ return f.scored; }
+function findFmt(id){ return S.formats ?
+  [...S.formats.individual,...S.formats.pair,...S.formats.team].find(f=>f.id===id) : null; }
+function isTeamFormat(){ const f=findFmt(S.wiz&&S.wiz.format); return !!(f && f.teamSize[1]>1); }
+
+async function loadAll() {
+  [S.courses, S.tournaments, S.formats] = await Promise.all([
+    JORD.api('/api/courses'), JORD.api('/api/tournaments'), JORD.api('/api/formats'),
+  ]);
+}
+
+/* ─── home ─────────────────────────────────────────────────────────── */
+function renderHome() {
+  $('#view').innerHTML = `
+    <div class="cl-hero"><div class="cl-hero-inner">
+      <div class="eyebrow">JORD Golf</div>
+      <h1>The <em>Clubhouse</em></h1>
+      <p>Set up a casual round with friends, a charity scramble or a multi-day tournament —
+        20 game formats and live scoring, all in one place.</p>
+      <button class="btn btn-accent btn-xl" id="create">＋ Create a game</button>
+    </div></div>
+
+    <h2 class="sec-head">Your games</h2>
+    <div id="trnList" class="tile-grid"></div>
+
+    <div class="sec-head-row">
+      <h2 class="sec-head">Courses</h2>
+      <button class="btn btn-ghost" id="addCourse">+ Add course</button>
+    </div>
+    <div id="coursePanel"></div>
+    <div id="courseList" class="tile-grid"></div>`;
+  renderTrnList(); renderCourseList();
+  $('#create').onclick = () => go('new/type');
+  $('#addCourse').onclick = toggleCoursePanel;
+}
+
+function renderTrnList() {
+  const el = $('#trnList');
+  const icon = t => t.type==='reds_blues' ? '⚔️' : t.type==='casual' ? '⛳' : '🏆';
+  const label = t => t.type==='reds_blues' ? 'Reds vs Blues' : t.type==='casual' ? 'Casual round' : 'Tournament';
+  el.innerHTML = S.tournaments.map(t => `
+    <div class="tile" data-open="${t.id}">
+      <div class="tile-icon">${icon(t)}</div>
+      <div class="tile-body">
+        <h3>${esc(t.name)}</h3>
+        <div class="meta">${label(t)} · ${t.rounds.length} round${t.rounds.length>1?'s':''}</div>
+        <span class="badge ${t.status==='active'?'badge-success':t.status==='ended'?'badge-danger':''}">${esc(t.status)}</span>
+      </div>
+    </div>`).join('') +
+    `<div class="tile tile-new" data-new="1"><div>＋<br>New game</div></div>`;
+  el.querySelectorAll('[data-open]').forEach(b => b.onclick = () => go('game/'+b.dataset.open));
+  el.querySelector('[data-new]').onclick = () => go('new/type');
+}
+
+function renderCourseList() {
+  const el = $('#courseList');
+  if (!S.courses.length) {
+    el.innerHTML = '<p class="mini">No courses yet — add one before creating a game.</p>'; return;
+  }
+  el.innerHTML = S.courses.map(c => `
+    <div class="tile tile-course">
+      <div class="tile-icon">⛳</div>
+      <div class="tile-body">
+        <h3>${esc(c.name)}</h3>
+        <div class="meta">${esc([c.city,c.state].filter(Boolean).join(', ')) || 'Course'} · ${c.num_holes||18} holes</div>
+      </div>
+      <button class="tile-x" data-del="${c.id}" title="Delete course">✕</button>
+    </div>`).join('');
+  el.querySelectorAll('[data-del]').forEach(b => b.onclick = async (ev) => {
+    ev.stopPropagation();
+    if (!await JORD.confirm('Delete this course?', { danger:true })) return;
+    try { await JORD.api('/api/courses/'+b.dataset.del,{method:'DELETE'}); await loadAll(); renderHome(); }
+    catch(e){ JORD.error(e.message); }
+  });
+}
+
+/* ─── add course (search / manual) ─────────────────────────────────── */
+function toggleCoursePanel() {
+  const p = $('#coursePanel');
+  if (p.innerHTML) { p.innerHTML=''; return; }
+  p.innerHTML = `
+    <div class="inline-panel">
+      <div class="seg" style="margin-bottom:var(--s-3)">
+        <button id="mSearch" class="is-active">Search online</button>
+        <button id="mManual">Enter manually</button>
+      </div>
+      <div id="courseMode"></div>
+    </div>`;
+  $('#mSearch').onclick = () => { seg('mSearch'); courseSearchMode(); };
+  $('#mManual').onclick = () => { seg('mManual'); courseManualMode(); };
+  courseSearchMode();
+}
+function seg(id){ ['mSearch','mManual'].forEach(x=>$('#'+x)&&$('#'+x).classList.toggle('is-active',x===id)); }
+
+function courseSearchMode() {
+  $('#courseMode').innerHTML = `
+    <div class="field"><label>Course name</label>
+      <div style="display:flex;gap:var(--s-2)">
+        <input class="input" id="cq" placeholder="e.g. Pebble Beach" />
+        <button class="btn btn-accent" id="cgo">Search</button>
+      </div>
+      <div class="hint">Data from golfcourseapi.com — par, stroke index, slope &amp; rating.</div></div>
+    <div id="cresults"></div>`;
+  $('#cgo').onclick = doCourseSearch;
+  $('#cq').addEventListener('keydown', e => { if (e.key==='Enter') doCourseSearch(); });
+}
+async function doCourseSearch() {
+  const q = $('#cq').value.trim(); if (!q) return;
+  const box = $('#cresults'); box.innerHTML = '<p class="mini">Searching…</p>';
+  try {
+    const results = await JORD.api('/api/courses/online-search?q='+encodeURIComponent(q));
+    if (!results.length) { box.innerHTML = '<p class="mini">No matches. Try manual entry.</p>'; return; }
+    box.innerHTML = results.slice(0,20).map((r,i) => {
+      const have = S.courses.some(c => c.source==='golfcourseapi'
+        && String(c.external_id) === String(r.external_id));
+      return `<div class="search-result">
+        <div><strong>${esc(r.name)}</strong>
+          <div class="mini">${esc([r.city,r.state].filter(Boolean).join(', '))} · ${(r.tees?.length)||0} tees</div></div>
+        ${have ? '<span class="badge badge-success">✓ Imported</span>'
+               : `<button class="btn btn-ghost" data-imp="${i}">Import</button>`}
+      </div>`;
+    }).join('');
+    box.querySelectorAll('[data-imp]').forEach(b => b.onclick = async () => {
+      try { await JORD.api('/api/courses/import',{method:'POST',body:results[+b.dataset.imp]});
+        await loadAll(); renderHome(); JORD.success('Course imported'); }
+      catch(e){ JORD.error(e.message); }
+    });
+  } catch(e){ box.innerHTML = '<p class="mini">Search failed: '+esc(e.message)+'</p>'; }
+}
+function courseManualMode() {
+  let holes = '';
+  for (let h=1; h<=18; h++) holes += `<div class="h-cell"><label>${h}</label>
+    <input type="number" min="3" max="6" value="4" data-par="${h}" />
+    <input type="number" min="1" max="18" value="${h}" data-si="${h}" />
+    <input type="number" min="0" placeholder="yds" data-yd="${h}" /></div>`;
+  $('#courseMode').innerHTML = `
+    <div class="field-grid" style="grid-template-columns:1fr 1fr">
+      <div class="field"><label>Course name</label><input class="input" id="mName" /></div>
+      <div class="field"><label>Tee name</label><input class="input" id="mTee" value="White" /></div>
+      <div class="field"><label>City</label><input class="input" id="mCity" /></div>
+      <div class="field"><label>State</label><input class="input" id="mState" /></div>
+      <div class="field"><label>Course rating</label><input class="input" id="mCR" type="number" step="0.1" placeholder="71.2" /></div>
+      <div class="field"><label>Slope rating</label><input class="input" id="mSlope" type="number" placeholder="125" /></div>
+    </div>
+    <p class="mini">Per hole: <strong>par</strong> · <strong>stroke index</strong> (1=hardest) · <strong>yardage</strong>.
+      Rating &amp; slope: <a href="https://ncrdb.usga.org/" target="_blank" rel="noopener">USGA NCRDB</a>.</p>
+    <div class="sc-grid">${holes}</div>
+    <button class="btn btn-primary" id="mSave">Save course</button>`;
+  $('#mSave').onclick = saveManualCourse;
+}
+async function saveManualCourse() {
+  const name = $('#mName').value.trim();
+  if (!name) { JORD.warn('Course name required'); return; }
+  const holes = [];
+  for (let h=1; h<=18; h++) holes.push({ hole_number:h,
+    par:+$(`[data-par="${h}"]`).value||4, stroke_index:+$(`[data-si="${h}"]`).value||h,
+    yardage:+$(`[data-yd="${h}"]`).value||null });
+  try {
+    await JORD.api('/api/courses',{method:'POST',body:{ name,
+      city:$('#mCity').value.trim(), state:$('#mState').value.trim(),
+      tees:[{ name:$('#mTee').value.trim()||'White', gender:'male',
+        course_rating:+$('#mCR').value||null, slope_rating:+$('#mSlope').value||null, holes }] }});
+    await loadAll(); renderHome(); JORD.success('Course saved');
+  } catch(e){ JORD.error(e.message); }
+}
+
+/* ─── wizard ───────────────────────────────────────────────────────── */
+function startWizard() {
+  S.wiz = { step:'type', type:null, course_id:null, holes_segment:'all',
+    name:'', date:new Date().toISOString().slice(0,10), format:'stroke_net',
+    flights_enabled:false, num_flights:2, num_rounds:1, players:[], teams:[], reds:[], blues:[] };
+}
+const STEPS = ['type','course','setup','players'];
+
+/* ─── hash routing — every view has its own URL so back/forward work ── */
+function go(hash) { location.hash = hash; }
+function route() {
+  const parts = location.hash.replace(/^#\/?/,'').split('/');
+  if (parts[0] === 'new') {
+    if (!S.wiz) startWizard();                          // fresh wizard → step 'type'
+    else S.wiz.step = STEPS.includes(parts[1]) ? parts[1] : 'type';
+    renderWizard();
+  } else if (parts[0] === 'game' && parts[1]) {
+    openTournament(parts[1]);
+  } else {
+    S.wiz = null;
+    renderHome();
+  }
+}
+window.addEventListener('hashchange', route);
+
+function renderWizard() {
+  const w = S.wiz, i = STEPS.indexOf(w.step);
+  $('#view').innerHTML = `
+    <div class="page-head"><h1>New <em>game</em></h1>
+      <button class="btn btn-ghost" id="cancel">Cancel</button></div>
+    <div class="wiz-steps">${STEPS.map((s,idx)=>`<span class="${idx<i?'done':idx===i?'current':''}"></span>`).join('')}</div>
+    <div id="wizBody"></div>`;
+  $('#cancel').onclick = () => go('');
+  const lastStep = w.type==='reds_blues' ? stepRvb : (isTeamFormat() ? stepTeams : stepPlayers);
+  ({ type:stepType, course:stepCourse, setup:stepSetup, players:lastStep }[w.step])();
+}
+function nav(backFn, nextLabel, nextFn, nextOk=true) {
+  return `<div class="wiz-nav">
+    <button class="btn btn-ghost btn-lg" id="wBack">← Back</button>
+    <button class="btn btn-primary btn-lg" id="wNext" ${nextOk?'':'disabled'}>${nextLabel}</button></div>`;
+}
+function wireNav(backFn, nextFn) {
+  $('#wBack').onclick = backFn;
+  if ($('#wNext')) $('#wNext').onclick = nextFn;
+}
+
+/* step 1 — game type */
+function stepType() {
+  const w = S.wiz;
+  const types = [
+    { id:'casual',     icon:'⛳', t:'Normal Game', d:'Quickly create a game for you and your friends. Perfect for a casual single round.', on:true },
+    { id:'tournament', icon:'🏆', t:'Tournament',  d:'Advanced single or multi-round event. Best for charity scrambles and larger games.', on:true },
+    { id:'reds_blues', icon:'⚔️', t:'Reds vs Blues', d:'Two teams in a Ryder Cup–style match play battle.', on:true },
+  ];
+  $('#wizBody').innerHTML = `<p class="card-sub">What kind of game are you setting up?</p>` +
+    types.map(x => `<div class="pick-card type-card ${x.on?'':'disabled'} ${w.type===x.id?'is-sel':''}" data-t="${x.on?x.id:''}">
+      <div class="pc-icon">${x.icon}</div>
+      <div><h3>${x.t}${x.on?'':' <span class="mini">— coming soon</span>'}</h3>
+        <div class="desc">${x.d}</div></div></div>`).join('') +
+    nav(null,'Next →',null,!!w.type);
+  $('#wizBody').querySelectorAll('[data-t]').forEach(c => c.onclick = () => {
+    if (!c.dataset.t) return;
+    w.type = c.dataset.t;
+    if (w.type==='reds_blues') w.format = 'match_individual';   // singles match play
+    renderWizard();
+  });
+  wireNav(()=>go(''), ()=>go('new/course'));
+}
+
+/* step 2 — course + holes */
+function stepCourse() {
+  const w = S.wiz;
+  if (!S.courses.length) {
+    $('#wizBody').innerHTML = `<div class="empty"><div class="empty-icon">⛳</div>
+      <div class="empty-title">No courses yet</div>
+      <p>Add a course first — go back to the home screen and use “+ Add course”.</p></div>` +
+      `<div class="wiz-nav"><button class="btn btn-ghost" id="wBack">← Back</button>
+       <button class="btn btn-primary" id="goHome">Go add a course</button></div>`;
+    $('#wBack').onclick = ()=>go('new/type');
+    $('#goHome').onclick = ()=>go('');
+    return;
+  }
+  const selName = (S.courses.find(c=>c.id===w.course_id)||{}).name || '';
+  $('#wizBody').innerHTML = `
+    <div class="field"><label>Course ${help('The golf course this game is played on. Add courses from the home screen, then pick one here.')}</label>
+      <div class="ac-wrap">
+        <input class="input" id="wCourseInput" autocomplete="off"
+          placeholder="Start typing a course name…" value="${esc(selName)}" />
+        <div id="wCourseList" class="ac-list"></div>
+      </div>
+      <div class="hint">Type to search your saved courses.</div>
+    </div>
+    <div class="field"><label>How many holes? ${help('Play all 18 holes, just the front 9 (1–9), or just the back 9 (10–18).')}</label>
+      <div class="holes-opt">
+        <button class="btn btn-ghost" data-seg="all">⛳ Full 18</button>
+        <button class="btn btn-ghost" data-seg="front9">Front 9</button>
+        <button class="btn btn-ghost" data-seg="back9">Back 9</button>
+      </div></div>` + nav(null,'Next →',null,!!w.course_id);
+  // swap btn-ghost↔btn-primary (not just add) — .btn-ghost wins on CSS order
+  const paint = () => $('#wizBody').querySelectorAll('[data-seg]').forEach(b => {
+    const on = b.dataset.seg===w.holes_segment;
+    b.classList.toggle('btn-primary', on);
+    b.classList.toggle('btn-ghost', !on);
+  });
+  paint();
+  // course autocomplete
+  const input = $('#wCourseInput'), list = $('#wCourseList');
+  const showList = () => {
+    const ql = input.value.trim().toLowerCase();
+    list.innerHTML = S.courses
+      .filter(c => c.name.toLowerCase().includes(ql)).slice(0,8)
+      .map(c => `<div class="ac-item" data-c="${c.id}"><strong>${esc(c.name)}</strong>
+        <div class="meta">${esc([c.city,c.state].filter(Boolean).join(', ')) || 'Course'}</div></div>`).join('');
+    list.querySelectorAll('[data-c]').forEach(it => it.onmousedown = e => {
+      e.preventDefault();                       // fire before the input's blur
+      w.course_id = it.dataset.c;
+      renderWizard();
+    });
+  };
+  input.onfocus = showList;
+  input.oninput = () => { w.course_id = null; if ($('#wNext')) $('#wNext').disabled = true; showList(); };
+  input.onblur  = () => setTimeout(() => { if (list) list.innerHTML = ''; }, 150);
+  $('#wizBody').querySelectorAll('[data-seg]').forEach(b => b.onclick = () => { w.holes_segment=b.dataset.seg; paint(); });
+  wireNav(()=>go('new/type'), ()=>{ if(w.course_id) go('new/setup'); });
+}
+
+/* step 3 — game setup (name, date, format picker) */
+function stepSetup() {
+  const w = S.wiz;
+  $('#wizBody').innerHTML = `
+    <div class="field-grid" style="grid-template-columns:1fr 1fr">
+      <div class="field"><label>Game name</label><input class="input" id="wName" value="${esc(w.name)}" placeholder="Saturday Scramble" /></div>
+      <div class="field"><label>Date</label><input class="input" type="date" id="wDate" value="${w.date}" /></div>
+    </div>
+    <div class="field"><label>Primary format ${help('The scoring game. Tap a block to pick it — the chosen format glows saffron and its description appears below.')}</label>
+      ${w.type==='reds_blues'
+        ? `<div class="pick-card is-sel"><h3>Match Play <span class="sub">Singles</span></h3>
+             <div class="desc">Singles match play — fixed for a Reds vs Blues battle.</div></div>`
+        : `<div id="fmtPicker"></div>`}
+    </div>
+    ${w.type!=='casual' ? `
+    ${!isTeamFormat() ? `
+    <div class="field"><label>Rounds ${help('A multi-round tournament is played over several days. The leaderboard adds every round together.')}</label>
+      <select class="select" id="wRounds">
+        ${[1,2,3,4,5,6].map(n=>`<option value="${n}" ${w.num_rounds===n?'selected':''}>${n} round${n>1?'s':''}</option>`).join('')}
+      </select>
+      <div class="hint">Multi-round tournaments show a cumulative leaderboard across rounds.</div>
+    </div>` : ''}
+    ${w.type==='tournament' ? `
+    <div class="field"><label>Flights ${help('Split players into groups by handicap so similar abilities compete — each flight has its own winner.')}</label>
+      <label style="display:flex;gap:8px;align-items:center;font-weight:400;font-size:14px">
+        <input type="checkbox" id="wFlights" ${w.flights_enabled?'checked':''}/> Split the field into handicap flights</label>
+      <div id="flightCount" style="margin-top:8px;${w.flights_enabled?'':'display:none'}">
+        <select class="select" id="wNumFlights">
+          ${[2,3,4,5].map(n=>`<option value="${n}" ${w.num_flights===n?'selected':''}>${n} flights</option>`).join('')}
+        </select>
+      </div>
+    </div>` : ''}` : ''}
+    ` + nav(null,'Next →',null,true);
+  $('#wName').oninput = e => w.name = e.target.value;
+  $('#wDate').onchange = e => w.date = e.target.value;
+  if ($('#wFlights')) $('#wFlights').onchange = e => {
+    w.flights_enabled = e.target.checked;
+    $('#flightCount').style.display = e.target.checked ? '' : 'none';
+  };
+  if ($('#wNumFlights')) $('#wNumFlights').onchange = e => { w.num_flights = +e.target.value; };
+  if ($('#wRounds')) $('#wRounds').onchange = e => { w.num_rounds = +e.target.value; };
+  if ($('#fmtPicker')) renderFormatPicker();
+  wireNav(()=>go('new/course'), ()=>{
+    if (!w.name.trim()) { JORD.warn('Give the game a name'); return; }
+    go('new/players');
+  });
+}
+function renderFormatPicker() {
+  const w = S.wiz;
+  const sel = [...S.formats.individual,...S.formats.pair,...S.formats.team].find(f=>f.id===w.format);
+  const tier = (label,list) => `<div class="fmt-tier-head">${label}</div><div class="fmt-grid">` +
+    list.map(f => {
+      const ok = pickable(f);
+      return `<div class="fmt-card ${ok?'':'disabled'} ${w.format===f.id?'is-sel':''}" data-f="${ok?f.id:''}">
+        ${ok?'':'<span class="soon">SOON</span>'}
+        <div class="fc-emoji">${FMT_EMOJI[f.engine]||'⛳'}</div>
+        <div class="nm">${esc(f.name)}</div><div class="sub">${esc(f.sub)}</div></div>`;
+    }).join('') + `</div>`;
+  $('#fmtPicker').innerHTML =
+    tier('Individual', S.formats.individual) +
+    tier('Pair', S.formats.pair) +
+    tier('Team', S.formats.team) +
+    (sel ? `<div class="fmt-desc"><strong>${esc(sel.name)} · ${esc(sel.sub)}</strong> — ${esc(sel.desc)}</div>` : '');
+  $('#fmtPicker').querySelectorAll('[data-f]').forEach(c => c.onclick = () => {
+    if (!c.dataset.f) return;
+    w.format = c.dataset.f; renderWizard();
+  });
+}
+
+/* step 4 — players */
+function stepPlayers() {
+  const w = S.wiz;
+  const course = S.courses.find(c=>c.id===w.course_id);
+  $('#wizBody').innerHTML = `
+    <p class="card-sub">Add players. Course handicaps are computed from the handicap index and tee.</p>
+    <div class="inline-panel">
+      <div class="field-grid" style="grid-template-columns:1fr 1fr">
+        <div class="field"><label>Name</label><input class="input" id="pName" /></div>
+        <div class="field"><label>Phone (optional)</label><input class="input" id="pPhone" /></div>
+        <div class="field"><label>Handicap index ${help('The official handicap. JORD turns it into a course handicap for the chosen tee automatically.')}</label><input class="input" type="number" step="0.1" id="pHcp" /></div>
+        <div class="field"><label>Tee ${help('Which set of tees the player uses — tees differ in yardage, course rating and slope.')}</label><select class="select" id="pTee"><option value="">default</option></select></div>
+      </div>
+      <button class="btn btn-ghost" id="pAdd">+ Add player</button>
+    </div>
+    <div id="pList"></div>` + nav(null,'Create &amp; start ▶',null,w.players.length>0);
+  // tees load lazily from the course
+  loadCourseTees(course).then(tees => {
+    const sel = $('#pTee');
+    if (sel) sel.innerHTML = tees.map(t=>`<option value="${t.id}">${esc(t.name)} (${esc(t.gender)})</option>`).join('')
+      || '<option value="">no tees</option>';
+  });
+  renderWizPlayers();
+  $('#pAdd').onclick = () => {
+    const name = $('#pName').value.trim();
+    if (!name) { JORD.warn('Player name required'); return; }
+    w.players.push({ name, phone:$('#pPhone').value.trim(), handicap_index:+$('#pHcp').value||null,
+      tee_id:$('#pTee').value||null });
+    $('#pName').value=''; $('#pPhone').value=''; $('#pHcp').value='';
+    renderWizard();
+  };
+  wireNav(()=>go('new/setup'), createGame);
+}
+let _teeCache = {};
+async function loadCourseTees(course) {
+  if (!course) return [];
+  if (_teeCache[course.id]) return _teeCache[course.id];
+  const full = await JORD.api('/api/courses/'+course.id);
+  _teeCache[course.id] = full.tees || [];
+  return _teeCache[course.id];
+}
+function renderWizPlayers() {
+  const w = S.wiz, el = $('#pList');
+  if (!w.players.length) { el.innerHTML = '<p class="mini">No players added yet.</p>'; return; }
+  el.innerHTML = w.players.map((p,i)=>`
+    <div class="row-card">
+      <div><strong>${esc(p.name)}</strong>
+        <div class="meta">HCP index ${p.handicap_index??'—'}</div></div>
+      <button class="btn btn-ghost btn-icon" data-rm="${i}">✕</button>
+    </div>`).join('');
+  el.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => {
+    w.players.splice(+b.dataset.rm,1); renderWizard();
+  });
+}
+
+/* step 4 (pair/team formats) — teams */
+let _teesFor = [];
+function stepTeams() {
+  const w = S.wiz, fmt = findFmt(w.format);
+  const [minP,maxP] = fmt.teamSize;
+  const course = S.courses.find(c=>c.id===w.course_id);
+  const ready = w.teams.length>0 && w.teams.every(t=>t.players.length>0);
+  $('#wizBody').innerHTML = `
+    <p class="card-sub">${esc(fmt.name)} · ${esc(fmt.sub)} — ${minP===maxP?minP:minP+'–'+maxP} players per team.</p>
+    <div id="teamList"></div>
+    <button class="btn btn-ghost" id="addTeam" style="margin-top:var(--s-2)">+ Add team</button>
+    ` + nav(null,'Create &amp; start ▶',null,ready);
+  loadCourseTees(course).then(tees=>{ _teesFor=tees; renderTeams(); });
+  $('#addTeam').onclick = ()=>{ w.teams.push({name:'Team '+(w.teams.length+1),players:[]}); renderWizard(); };
+  wireNav(()=>go('new/setup'), createGame);
+}
+function renderTeams() {
+  const w = S.wiz, el = $('#teamList');
+  if (!el) return;
+  const teeOpts = _teesFor.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')
+    || '<option value="">default</option>';
+  if (!w.teams.length) { el.innerHTML='<p class="mini">Add a team to begin.</p>'; return; }
+  el.innerHTML = w.teams.map((t,ti)=>`
+    <div class="inline-panel">
+      <div style="display:flex;gap:var(--s-2);align-items:center;margin-bottom:var(--s-2)">
+        <input class="input" value="${esc(t.name)}" data-tname="${ti}" style="flex:1" />
+        <button class="btn btn-ghost btn-icon" data-trm="${ti}" title="Remove team">✕</button>
+      </div>
+      ${t.players.map((p,pi)=>`<div class="row-card">
+        <div><strong>${esc(p.name)}</strong><div class="meta">HCP index ${p.handicap_index??'—'}</div></div>
+        <button class="btn btn-ghost btn-icon" data-prm="${ti}.${pi}">✕</button></div>`).join('')}
+      <div class="field-grid" style="grid-template-columns:1fr 1fr;margin-top:var(--s-2)">
+        <div class="field"><label>Player name</label><input class="input" data-pn="${ti}" /></div>
+        <div class="field"><label>Phone</label><input class="input" data-pp="${ti}" /></div>
+        <div class="field"><label>HCP index ${help('The official handicap. JORD turns it into a course handicap for the chosen tee automatically.')}</label><input class="input" type="number" step="0.1" data-ph="${ti}" /></div>
+        <div class="field"><label>Tee ${help('Which set of tees the player uses — tees differ in yardage, course rating and slope.')}</label><select class="select" data-pt="${ti}">${teeOpts}</select></div>
+      </div>
+      <button class="btn btn-ghost" data-padd="${ti}">+ Add player</button>
+    </div>`).join('');
+  el.querySelectorAll('[data-tname]').forEach(i=>i.onchange=e=>{ w.teams[+i.dataset.tname].name=e.target.value; });
+  el.querySelectorAll('[data-trm]').forEach(b=>b.onclick=()=>{ w.teams.splice(+b.dataset.trm,1); renderWizard(); });
+  el.querySelectorAll('[data-prm]').forEach(b=>b.onclick=()=>{
+    const [ti,pi]=b.dataset.prm.split('.').map(Number);
+    w.teams[ti].players.splice(pi,1); renderWizard();
+  });
+  el.querySelectorAll('[data-padd]').forEach(b=>b.onclick=()=>{
+    const ti=+b.dataset.padd;
+    const name=el.querySelector(`[data-pn="${ti}"]`).value.trim();
+    if(!name){ JORD.warn('Player name required'); return; }
+    w.teams[ti].players.push({ name,
+      phone:el.querySelector(`[data-pp="${ti}"]`).value.trim(),
+      handicap_index:+el.querySelector(`[data-ph="${ti}"]`).value||null,
+      tee_id:el.querySelector(`[data-pt="${ti}"]`).value||null });
+    renderWizard();
+  });
+}
+
+/* step 4 (Reds vs Blues) — build the two teams */
+function stepRvb() {
+  const w = S.wiz;
+  const course = S.courses.find(c=>c.id===w.course_id);
+  const ready = w.reds.length>0 && w.blues.length>0;
+  $('#wizBody').innerHTML = `
+    <p class="card-sub">Singles match play — Red #1 plays Blue #1, Red #2 plays Blue #2, and so on.</p>
+    <div id="redPanel"></div>
+    <div id="bluePanel"></div>
+    ` + nav(null,'Create &amp; start ▶',null,ready);
+  loadCourseTees(course).then(tees=>{ _teesFor=tees; renderRvb(); });
+  wireNav(()=>go('new/setup'), createGame);
+}
+function renderRvb() {
+  const w = S.wiz, body = $('#wizBody');
+  if (!body || !$('#redPanel')) return;
+  const teeOpts = _teesFor.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')
+    || '<option value="">default</option>';
+  const panel = (side,arr) => `<div class="inline-panel">
+    <h3 style="font-family:var(--font-display);margin-bottom:var(--s-2)">${side==='red'?'🔴 Reds':'🔵 Blues'}</h3>
+    ${arr.map((p,i)=>`<div class="row-card"><div><strong>${esc(p.name)}</strong>
+      <div class="meta">Match ${i+1} · HCP index ${p.handicap_index??'—'}</div></div>
+      <button class="btn btn-ghost btn-icon" data-rm="${side}.${i}">✕</button></div>`).join('')}
+    <div class="field-grid" style="grid-template-columns:1fr 1fr;margin-top:var(--s-2)">
+      <div class="field"><label>Player name</label><input class="input" data-n="${side}" /></div>
+      <div class="field"><label>HCP index ${help('The official handicap. JORD turns it into a course handicap for the chosen tee automatically.')}</label><input class="input" type="number" step="0.1" data-h="${side}" /></div>
+      <div class="field"><label>Phone</label><input class="input" data-p="${side}" /></div>
+      <div class="field"><label>Tee ${help('Which set of tees the player uses — tees differ in yardage, course rating and slope.')}</label><select class="select" data-t="${side}">${teeOpts}</select></div>
+    </div>
+    <button class="btn btn-ghost" data-add="${side}">+ Add player</button></div>`;
+  $('#redPanel').innerHTML = panel('red', w.reds);
+  $('#bluePanel').innerHTML = panel('blue', w.blues);
+  body.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{
+    const [s,i]=b.dataset.rm.split('.'); (s==='red'?w.reds:w.blues).splice(+i,1); renderWizard();
+  });
+  body.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{
+    const s=b.dataset.add, arr=s==='red'?w.reds:w.blues;
+    const name=body.querySelector(`[data-n="${s}"]`).value.trim();
+    if(!name){ JORD.warn('Player name required'); return; }
+    arr.push({ name, handicap_index:+body.querySelector(`[data-h="${s}"]`).value||null,
+      phone:body.querySelector(`[data-p="${s}"]`).value.trim(),
+      tee_id:body.querySelector(`[data-t="${s}"]`).value||null });
+    renderWizard();
+  });
+}
+
+async function createGame() {
+  const w = S.wiz;
+  try {
+    const trn = await JORD.api('/api/tournaments',{method:'POST',body:{
+      name:w.name.trim(), type:w.type, course_id:w.course_id,
+      round_date:w.date, format:w.format, holes_segment:w.holes_segment,
+      flights_enabled:w.flights_enabled, num_flights:w.num_flights }});
+    const roundIds = [trn.round_id];
+    const nRounds = (w.type==='tournament' && !isTeamFormat()) ? w.num_rounds : 1;
+    for (let i=2; i<=nRounds; i++) {
+      const r = await JORD.api(`/api/tournaments/${trn.id}/rounds`,{method:'POST',body:{course_id:w.course_id,format:w.format}});
+      roundIds.push(r.id);
+    }
+    if (w.type==='reds_blues') {
+      const pairs = Math.max(w.reds.length, w.blues.length);
+      for (let i=0; i<pairs; i++) {
+        if (w.reds[i])  await JORD.api(`/api/tournaments/${trn.id}/field`,{method:'POST',body:{...w.reds[i], side:'red',  match_no:i+1}});
+        if (w.blues[i]) await JORD.api(`/api/tournaments/${trn.id}/field`,{method:'POST',body:{...w.blues[i],side:'blue', match_no:i+1}});
+      }
+    } else if (isTeamFormat()) {
+      for (const t of w.teams)
+        await JORD.api(`/api/rounds/${trn.round_id}/teams`,{method:'POST',body:{name:t.name,players:t.players}});
+    } else {
+      // fans the player out to every round of the tournament
+      for (const p of w.players)
+        await JORD.api(`/api/tournaments/${trn.id}/field`,{method:'POST',body:p});
+    }
+    for (const rid of roundIds)
+      await JORD.api(`/api/rounds/${rid}/status`,{method:'POST',body:{status:'active'}});
+    S.wiz = null;
+    await loadAll();
+    go('game/'+trn.id);
+    JORD.success('Game created and started');
+  } catch(e){ JORD.error(e.message); }
+}
+
+/* ─── tournament detail ────────────────────────────────────────────── */
+async function openTournament(id) {
+  const t = await JORD.api('/api/tournaments/'+id);
+  const data = await JORD.api('/api/rounds/'+t.rounds[0].id);   // round 1 — competitor roster
+  const fmt = findFmt(t.rounds[0].format);
+  const origin = location.origin;
+  const multi = t.rounds.length > 1;
+  $('#view').innerHTML = `
+    <div class="page-head"><h1>${esc(t.name)}</h1>
+      <button class="btn btn-ghost" id="back">← All games</button></div>
+    <div class="card" style="margin-bottom:var(--s-4)">
+      <div style="display:flex;gap:var(--s-3);flex-wrap:wrap;align-items:center;justify-content:space-between">
+        <div class="mini">${fmt?esc(fmt.name+' · '+fmt.sub):esc(t.rounds[0].format)}${t.flights_enabled?' · '+t.num_flights+' flights':''}</div>
+        ${multi?`<a class="btn btn-accent" href="/tournament/${t.id}" target="_blank">🏆 Tournament leaderboard ↗</a>`:''}
+      </div>
+    </div>
+    <div class="card" style="margin-bottom:var(--s-4)">
+      <h2 class="card-title">Round${multi?'s':''}</h2>
+      <div id="roundList"></div>
+    </div>
+    <div class="card"><h2 class="card-title">Competitors</h2><div id="playerList"></div></div>`;
+  $('#back').onclick = () => go('');
+
+  $('#roundList').innerHTML = t.rounds.map(r=>`
+    <div class="row-card">
+      <div><strong>Round ${r.round_number}</strong>
+        <span class="badge ${r.status==='active'?'badge-success':r.status==='ended'?'badge-danger':''}">${esc(r.status)}</span></div>
+      <div style="display:flex;gap:var(--s-2);flex-wrap:wrap">
+        <a class="btn btn-ghost" href="/live/${r.id}" target="_blank">Live ↗</a>
+        <button class="btn btn-ghost" data-copy="${r.id}">Score link</button>
+        ${r.status==='active'?`<button class="btn btn-ghost" data-end="${r.id}">End</button>`
+          :`<button class="btn btn-ghost" data-start="${r.id}">Start</button>`}
+      </div>
+    </div>`).join('');
+  $('#roundList').querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>
+    JORD.copyToClipboard(origin+'/scorecard/'+b.dataset.copy).then(()=>JORD.success('Score-entry link copied')));
+  $('#roundList').querySelectorAll('[data-end]').forEach(b=>b.onclick=()=>setStatus(b.dataset.end,'ended',id));
+  $('#roundList').querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>setStatus(b.dataset.start,'active',id));
+
+  const pl = $('#playerList');
+  pl.innerHTML = data.entries.length ? data.entries.map(e=>`
+    <div class="row-card"><div><strong>${esc(e.player_name)}</strong>
+      <div class="meta">${e.group_name?esc(e.group_name)+' · ':''}Course handicap: ${e.course_handicap??'—'}</div></div></div>`).join('')
+    : '<p class="mini">No competitors yet.</p>';
+}
+async function setStatus(roundId,status,trnId) {
+  if (status==='ended' && !await JORD.confirm('End the round? Scores will lock.',{danger:true})) return;
+  await JORD.api(`/api/rounds/${roundId}/status`,{method:'POST',body:{status}});
+  openTournament(trnId);
+}
+
+/* ─── boot ─────────────────────────────────────────────────────────── */
+async function init() {
+  try { await loadAll(); route(); }
+  catch(e){ if (e.status===401) location.href='/admin'; else JORD.error(e.message); }
+}
+init();
+</script>
+</body>
+</html>

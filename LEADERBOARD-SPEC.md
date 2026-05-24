@@ -232,6 +232,69 @@ scores cache on-device and sync on reconnect. Optional attestation by a 2nd play
 
 ---
 
+## 15. Round setup & format system (from Gamebook study)
+
+Design derived from 30 Gamebook screenshots + WHS research. This supersedes the
+thinner format list in §5 and reshapes Phase 3.
+
+### Three entry points
+A "Choose Game Type" screen, mapping to `tournaments.type`:
+- **Normal Game** (`casual`) — quick single round with friends.
+- **Tournament** (`tournament`) — single/multi-round, up to 72 players, 6 rounds.
+- **Reds vs Blues** (`reds_blues`) — two-team Ryder Cup match play.
+
+### Setup wizard (linear)
+`Course → Holes (Full 18 / Front 9 / Back 9) → Game Setup → Players → Start`
+- **Game Setup:** name, date, **Primary format**, optional **Side game**,
+  **Contests** (LD/CTP — the existing JORD engine), **Round type**.
+- **Players:** each player has Handicap Index, Tee box, Starting hole; the
+  computed **Playing Handicap** is shown.
+
+### Format catalog (19 formats, 3 tiers)
+
+**Individual**
+- Stroke Play — gross / net
+- Stableford — regular + modified (Reg: eagle 4/birdie 3/par 2/bogey 1/DB+ 0;
+  Mod / Mod2 / Mod3 variants)
+- Erado — stroke play; drop the worst N holes (typically 4 of 18; not the last)
+- Skins — per-hole value to the outright winner; ties carry over (optional)
+- Duplicate — individual Stableford with a random 1×/2×/3× per-hole multiplier;
+  last hole always 2×
+- Match Play — individual
+
+**Pair (2 players)**
+- Better Ball — Stroke Play / Stableford
+- 2-Man Scramble — Stroke Play
+- Match Play — Better Ball / Foursome / Greensome / Scramble
+
+**Team (3–5 players)**
+- Best Ball — Stroke Play / Stableford (best 1–5 scores per hole by group size)
+- Scramble — Stroke Play
+- Low Scratch/Net — Stroke Play (best gross + best net combined)
+- Duplicate Scramble — Stableford
+- Irish Rumble — Best Ball / Stableford; escalating best-N (holes 1–6 best 1,
+  7–12 best 2, 13–17 best 3, 18 all)
+
+### Handicap allowances (WHS)
+Stored per format as a default, overridable in format settings:
+- Singles stroke/Stableford 95% · Four-ball 85% (stroke) / 90% (match)
+- Foursomes 50% combined · Greensome 60% low + 40% high
+- 2-person scramble 35/15 · 4-person scramble 25/20/15/10
+
+Per-format settings screen: primary tie-break method, Use handicaps, Use course
+handicaps, Apply HCP %.
+
+### Revised Phase 3 build order
+- **3A** — Rebuild `/tournaments` as the 3-entry wizard + format-catalog picker
+  (Individual/Pair/Team tiers, format detail + settings). Scoring live for
+  stroke (gross/net) + Stableford + scramble.
+- **3B** — Remaining team/pair scoring: Best Ball, Better Ball, Foursome,
+  Greensome, Low Scratch/Net.
+- **3C** — Match play, Skins (carryover), and exotics (Erado, Duplicate,
+  Irish Rumble); side games + LD/CTP contests wired in.
+- **3D** — Multi-round tournaments, flights, Reds vs Blues.
+- Banter Room (was Phase 2) slots in after 3A.
+
 ## 14. Open items / risks
 
 - **golfcourseapi.com field coverage** — verify it returns slope + course

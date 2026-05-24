@@ -7,6 +7,25 @@ Nothing built until confirmed. Move to In Progress / Done as we go.
 
 ## Backlog
 
+**#STRIPE-1 — Wire real Stripe payment for event registrations** ✓
+Code complete in v3.32.0 (May 2026). Stripe Connect Express + destination
+charges + 3% application fee. Webhook handles `checkout.session.completed`
+and `account.updated`. Auto-falls-back to mock mode when
+`STRIPE_SECRET_KEY` is unset. Remaining (operational, not code):
+  1. Set `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`,
+     `STRIPE_WEBHOOK_SECRET`, `STRIPE_PLATFORM_FEE_BPS=300` in **Railway
+     env** (sandbox keys, `sk_test_…` / `pk_test_…`).
+  2. In Stripe Dashboard → Developers → Webhooks, add endpoint:
+     `https://tournament.jordgolf.com/api/stripe/webhook` listening for
+     `checkout.session.completed` and `account.updated`. Copy the
+     signing secret into `STRIPE_WEBHOOK_SECRET`.
+  3. Deploy. Walk through `/admin/stripe-connect` to onboard the JORD
+     organizer account. Then run an end-to-end test with card
+     `4242 4242 4242 4242`.
+
+**#OAUTH-1 — Create OAuth apps for Google + Microsoft sign-in (Apple later)**
+Create OAuth client apps in Google Cloud Console (free) and Azure AD (free), then paste me the Client IDs. Backend endpoint (`POST /api/users/oauth`) and the "Continue with Google / Microsoft" buttons on `/login` slot in once the IDs are set. Sign in with Apple is deferred until the Apple Developer Program ($99/yr) is set up. ~10 minutes per provider — I'll walk through it when you're ready.
+
 **#SECURITY-1 — Set up quarterly API key rotation reminders**
 Email reminders to shah82286@gmail.com on Jan 1, Apr 1, Jul 1, Oct 1 at 9am to rotate Mapbox, Anthropic, and Klaviyo API keys. Use Google Calendar or phone calendar with email notifications. See SECURITY_FIXES_APPLIED.md for details. ~60 seconds setup.
 

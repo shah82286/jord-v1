@@ -2,6 +2,651 @@
 
 ---
 
+## v3.32.0 — 2026-05-21
+### Session 47 — Stripe Connect: real payments, destination charges
+
+Mock checkout swapped for real Stripe Checkout against each organizer's
+**Connect Express account**. Buyers pay on a Stripe-hosted page, money
+settles to the organizer's bank, JORD takes a 3% platform fee
+(`application_fee_amount`). Still on sandbox/test keys.
+
+#### What changed
+- **`stripe` SDK installed** (v22.1.1).
+- **Schema** — six new columns on `admins`: `stripe_account_id`,
+  `stripe_account_status` (`pending|active|restricted`),
+  `stripe_charges_enabled`, `stripe_payouts_enabled`,
+  `stripe_details_submitted`, `stripe_connected_at`. Idempotent
+  `ALTER TABLE … catch {}` migrations.
+- **`lib/stripe.js`** — thin SDK wrapper. Exports `mode` (`stripe` |
+  `mock` — auto-switches on `STRIPE_SECRET_KEY` presence), `feeCents()`
+  (basis-point platform fee, default 300bp / 3%),
+  `createConnectAccount`, `createAccountLink`, `retrieveAccount`,
+  `mapAccountStatus`, `createCheckoutSession`, `verifyWebhook`.
+- **`POST /api/stripe/webhook`** — registered with `express.raw` BEFORE
+  `express.json` so signatures verify. Handles:
+  - `checkout.session.completed` → marks registration `paid` via
+    `metadata.registration_id`.
+  - `account.updated` → maps Stripe flags → admin Connect status,
+    stamps `stripe_connected_at` the first time the account becomes
+    active.
+  Idempotent (skips if already paid).
+- **Connect onboarding endpoints** (all `requireAuth`):
+  - `GET  /api/admin/stripe/account` — current status + fee bps +
+    publishable key.
+  - `POST /api/admin/stripe/connect/onboard` — creates (or reuses)
+    `acct_…` and an `accountLinks.create` URL, returns it for redirect.
+  - `POST /api/admin/stripe/connect/sync` — best-effort re-fetch + persist
+    on return from Stripe (the webhook is still authoritative).
+- **`POST /api/registrations` rewired** — when in Stripe mode it:
+  1. Verifies the event's `admin_id` has a Connect account with
+     `stripe_charges_enabled=1`. Returns `503` with a friendly
+     message otherwise.
+  2. Inserts the registration as `pending`/`stripe`.
+  3. Creates a Checkout Session with
+     `payment_intent_data.application_fee_amount = feeCents(amount)` and
+     `transfer_data.destination = organizer_account`. Metadata includes
+     `registration_id` so the webhook can find it.
+  4. Returns `{ id, checkout_url, session_id }` — the buyer is sent
+     straight to Stripe.
+- **`GET /api/registrations/:id`** — accepts `?session_id=…` fallback so
+  the Stripe success-URL redirect works even if the buyer's browser
+  loses the in-memory id.
+- **`GET /api/event-sites/:slug`** now returns `registration_open` and
+  `payment_mode`. False when Stripe is on but the organizer hasn't
+  activated Connect — the public page swaps "Register →" buttons for a
+  disabled "Coming soon" pill and shows a status note.
+- **New page `/admin/stripe-connect`** — onboarding UI. Status badges
+  (none/restricted/pending/active), three flag tiles, "Connect with
+  Stripe" / "Finish onboarding" CTAs, "↻ Refresh status" button, link
+  to the live Stripe Dashboard. Auto-runs `/sync` when Stripe redirects
+  back to `?return=1` or `?refresh=1`.
+- **Stripe link added to `/admin` top bar** (💳 Stripe).
+- **Event-site editor** now shows a Connect banner above all sections
+  when the organizer hasn't activated payments yet.
+- **Register page** shows a friendly "coming soon" gate when
+  `registration_open=false`, handles `?canceled=1` from Stripe's cancel
+  URL, and swaps the test-mode footnote for Stripe wording in live mode.
+- **Confirmation page** handles `?session_id=…` and polls for up to 15s
+  if the row is still `pending` (waiting on the webhook).
+
+#### Env
+New variables (placeholders in `.env.example`):
+- `STRIPE_SECRET_KEY`        — `sk_test_…` for sandbox
+- `STRIPE_PUBLISHABLE_KEY`   — `pk_test_…` (returned to the admin page)
+- `STRIPE_WEBHOOK_SECRET`    — `whsec_…` from the dashboard
+- `STRIPE_PLATFORM_FEE_BPS`  — defaults to 300 (3.00%)
+
+If `STRIPE_SECRET_KEY` is missing, the system silently falls back to
+mock mode — useful for local dev without leaking keys.
+
+#### Tested
+- **125/125 unit tests pass** (7 new logic tests for `lib/stripe.js`
+  fee math + status mapping; 4 new route presence checks).
+- End-to-end Stripe flow has to be tested live (sandbox) once the keys
+  are in Railway env and the dev server restarted — buyer should hit
+  Checkout with the test card `4242 4242 4242 4242` and land on the
+  confirmation page with status `paid`.
+
+#### Open items
+- Stripe webhook endpoint URL must be configured in the Stripe Dashboard
+  (`<APP_URL>/api/stripe/webhook`) and the signing secret pasted into
+  `STRIPE_WEBHOOK_SECRET`. For local dev: `stripe listen --forward-to
+  localhost:3000/api/stripe/webhook`.
+- Organizers (including you) need to walk through Connect onboarding at
+  `/admin/stripe-connect` once before their events can accept registration.
+
+---
+
+## v3.31.0 — 2026-05-21
+### Session 46 — E1: registration + checkout (mock payment)
+
+End-to-end registration flow lands. Buyers can pick a package on the public
+event site, fill in their info + player roster, and receive a confirmation.
+Payment is in **mock mode** until Stripe is wired in (tracked as `#STRIPE-1`).
+
+#### What Changed
+- New table **`registrations`** — `id`, `event_id`, `package_id`,
+  `buyer_name/email/phone`, `players_json`, `amount_cents`,
+  `platform_fee_cents` (3%), `payment_status`, `payment_mode`,
+  `stripe_session_id`, `created_at`, `paid_at`.
+- Three new endpoints:
+  - **`POST /api/registrations`** — public. Validates event + package,
+    checks `quantity_limit` against paid count, computes 3% platform fee,
+    creates the row, marks it `paid` in mock mode, returns
+    `{ id, confirmation_url, payment_mode, status }`.
+  - **`GET  /api/registrations/:id`** — public lookup for the
+    confirmation page (joins event, package, site, support email).
+  - **`GET  /api/admin/events/:id/registrations`** — organizer-only.
+    Lists registrations + totals (count, revenue, fees) for the upcoming
+    dashboard.
+- New public pages:
+  - **`/e/:slug/register?pkg=:pkgId`** — `event-register.html`. Two-column
+    layout: form (buyer info + player roster sized by `includes_players`)
+    on the left, sticky order summary on the right with package price +
+    3% service fee + total. "Test mode" badge so the buyer knows.
+    Mobile-first: collapses to single column under 760px.
+  - **`/e/:slug/confirmation/:regId`** — `event-confirmation.html`.
+    Confirmation #, event, venue, package, status pills (paid + test-mode),
+    player roster, payment breakdown, back-to-event link, support email.
+- Wired the **"Register →"** buttons on the public event site
+  (`event-site.html`) to navigate to the new register page (was a
+  "coming soon" alert).
+- Auto-switch: `PAYMENT_MODE` constant in `server.js` reads
+  `STRIPE_SECRET_KEY` from env — sets to `'stripe'` if present, `'mock'`
+  otherwise. Mock path returns immediate paid status; Stripe path is a
+  `501` placeholder until `#STRIPE-1`.
+
+#### Tested
+- **114/114 unit tests pass** (3 new route presence checks).
+- Mobile-visual run will cover the new `/e/:slug/register` page.
+- Manual smoke deferred to live test (Railway) — dev server restart not
+  performed locally per the CLAUDE.md workflow.
+
+#### Next
+- Organizer dashboard (registrations list + revenue at a glance).
+- Stripe Checkout wire-up (`#STRIPE-1`) once the Stripe account exists.
+
+---
+
+## v3.30.0 — 2026-05-21
+### Session 45 — E1: organizer-side event site + packages editor
+
+Organizers can now edit their public event site and manage registration
+packages without touching the DB.
+
+#### What Changed
+- New page **`/admin/events/:id/site/edit`** — full editor: URL slug + publish
+  toggle, headline / subhead / date / location / hero image URL, About,
+  dynamic Schedule list (time/title/note rows, add/remove), Course info,
+  dynamic FAQ list (Q/A rows), Contact (name/email/phone), and a
+  Registration-packages panel with add / inline-edit / delete.
+- Six new admin endpoints (all `requireAuth + requireAdminOrSuper +
+  requireEventAccess`):
+  - `GET  /api/admin/events/:id/site`
+  - `PUT  /api/admin/events/:id/site`
+  - `POST /api/admin/events/:id/packages`
+  - `PATCH /api/admin/events/:id/packages/:pkgId`
+  - `DELETE /api/admin/events/:id/packages/:pkgId`
+- Slug validated (lowercase + hyphens, ≤80 chars) and uniqueness-checked
+  across events.
+- "Preview public site ↗" link in the editor header once a slug is set.
+- Sticky save bar with status.
+
+#### Tested
+- **111/111 unit tests pass** (6 new route presence checks).
+- End-to-end smoke: login → GET site → PUT update → public `/api/event-sites`
+  reflects the change → restore. Package CRUD round-trips (create / patch /
+  delete) all clean.
+
+#### Next
+- Registration flow + Stripe test-mode payment.
+- Organizer dashboard.
+
+---
+
+## v3.29.0 — 2026-05-21
+### Session 44 — E1: brandable public event site at /e/:slug
+
+The polished, professional standard event-site template — covers every section
+a charity tournament needs.
+
+#### What Changed
+- New tables `event_sites` (slug + content) and `registration_packages` (the
+  ticket types organizers sell).
+- New endpoint `GET /api/event-sites/:slug` — returns site + event branding +
+  packages + parsed schedule + parsed FAQ.
+- New page **`/e/:slug`** — full template: branded topbar, photo hero with
+  date/location pills, About, Schedule timeline, Course, **Register** package
+  grid, Sponsorship pitch, FAQ accordion (native `<details>`), Contact card,
+  "Powered by JORD Golf" footer. Hero falls back to a lifestyle photo when no
+  `hero_image` is set. The organizer's `brand_accent` (if any) is applied via
+  a CSS variable swap at render time.
+- `scripts/seed-event-site.js` — idempotent demo seeder. Run
+  `node scripts/seed-event-site.js` → demo lives at
+  `http://localhost:3000/e/fairway-fund-classic-2026`.
+- `#OAUTH-1` added to `TODO.md` — Google + Microsoft sign-in deferred until
+  OAuth Client IDs are provisioned.
+
+#### Tested
+- 105/105 unit tests pass.
+- API round-trip: 4 packages, 4 schedule items, 5 FAQs serialized correctly.
+- **Mobile-visual: `/e/:slug` clean on iPhone 14 (390px) + Pixel 7 (412px) —
+  0 layout issues** alongside the existing 16 pages.
+
+#### Next
+- Organizer-side UI to edit the event site + packages.
+- Then registration + Stripe test-mode payment + organizer dashboard.
+
+---
+
+## v3.28.0 — 2026-05-21
+### Session 43 — E1 cont.: handicap on signup + scorecard stroke-allocation
+
+#### What Changed
+- **Signup gets an optional Handicap Index** field — self-reported for now,
+  validated −10 to 54. `users.handicap_index` (REAL) + `users.ghin_id` (TEXT)
+  columns reserved for future USGA / GHIN sync.
+- **Scorecard now shows stroke-allocation dots** — for each player on the
+  current hole, a saffron `●` (or `●●` for 2 strokes) appears under their name
+  with `+N stroke(s)` text. Math mirrors `lib/handicap.js` (WHS: 1 stroke per
+  hole at SI 1…N; extra strokes on the hardest holes for N > 18).
+- Stroke allocation is what every handicapped scorecard marks — confirmed
+  against the [USGA Stroke Index Allocation rules](https://www.usga.org/content/usga/home-page/handicapping/roh/Content/rules/Appendix%20E%20Stroke%20Index%20Allocation.htm).
+- `GET /api/users/me` now returns `handicap_index` and `ghin_id`.
+
+#### Tested
+- **105/105 unit tests pass.**
+- Smoke: signup with `handicap_index: 14.3` → saved + readable via `/me`;
+  blank handicap → null (allowing scratch=0 to be saved is correct).
+- **Mobile-visual: `/login` clean on iPhone 14 + Pixel 7 — 0 layout issues**
+  with the new handicap field added.
+
+---
+
+## v3.27.0 — 2026-05-17
+### Session 42 — E1 cont.: user sign-up / log-in page
+
+#### What Changed
+- New page `/login` — combined Sign-in / Create-account on a single mobile-first
+  form, JORD-styled, tab toggle, inline errors, "already signed in" redirect.
+- `JORD.api` automatically sends `x-user-token` alongside `x-admin-token` so
+  both auth contexts work side-by-side.
+- `JORD.getUserToken / setUserToken / clearUserToken` helpers in `jord.js`.
+- `/login` added to the mobile-visual layout suite.
+
+#### Tested
+- **105/105 unit tests pass.**
+- API edge cases: duplicate email → 409, password < 8 → 400, wrong password → 401.
+- **Mobile-visual: `/login` clean on iPhone 14 (390px) and Pixel 7 (412px) —
+  0 layout issues**, no horizontal scroll, no off-viewport elements.
+
+---
+
+## v3.26.0 — 2026-05-17
+### Session 41 — Enterprise Tournament Platform: spec + E1 accounts foundation
+
+The enterprise charity-tournament product is now scoped end-to-end and the
+first foundational piece (user accounts) is in. See `ENTERPRISE-PLATFORM-SPEC.md`.
+
+#### What Changed
+
+##### Spec
+- New `ENTERPRISE-PLATFORM-SPEC.md` — competitive map vs. EventCaddy, the
+  architecture (existing `events` table as the unifying container), the free +
+  transaction-fee business model, and the **E1–E5 phased plan**.
+- Captures the full vision: brandable event sites · paid registration ·
+  check-in · sponsors (standard catalog + custom) · cash donations · silent
+  auction with donor-submitted items · event store · supplies marketplace
+  (JORD Shopify + partner gear + custom quotes) — *beyond EventCaddy, a JORD
+  edge.*
+
+##### E1 foundation — public user accounts
+- New `users` + `user_sessions` tables. **Separate** from the existing `admins`
+  system (which stays for organizers + JORD staff). `players.account_id` links
+  a Clubhouse player to a user.
+- `createUserSession` / `getSessionUser` / `requireUser` middleware. Token in
+  `x-user-token` header. 30-day expiry, scrypt password hashing.
+- Endpoints: `POST /api/users/signup`, `POST /api/users/login`,
+  `POST /api/users/logout`, `GET /api/users/me`.
+
+##### Tests
+- 105/105 pass (4 new route checks). Smoke-tested signup → login → /me → 401
+  without a token.
+
+##### Still ahead in E1
+- User signup/login pages.
+- Brandable public event site at `/e/:slug` (polished standard template).
+- Registration packages + Stripe test-mode payment flow.
+- Organizer dashboard.
+
+---
+
+## v3.25.0 — 2026-05-17
+### Session 40 — URL cleanup + in-app routing
+
+#### What Changed
+
+##### Meaningful URLs
+- The games hub moved `/tournaments` → **`/play`**.
+- Score entry moved `/play/:roundId` → **`/scorecard/:roundId`** (clearer, and
+  no longer clashes with the hub).
+- `/live/:roundId` and `/tournament/:id` unchanged.
+
+##### In-app routing — back/forward work
+- The `/play` hub now drives its views from the URL hash, so every screen is
+  addressable and the browser back/forward buttons work:
+  `#new/type` → `#new/course` → `#new/setup` → `#new/players` for the wizard,
+  `#game/:id` for a game's detail, and the bare hub for the games list.
+- Admin panel's "Live Leaderboards" link updated to `/play`.
+
+---
+
+## v3.24.0 — 2026-05-17
+### Session 39 — Wizard polish + the last 3 formats — all 20 formats playable
+
+#### What Changed
+
+##### Front-end polish (`tournaments.html`)
+- **Tooltips** — a tappable ⓘ info bubble on every setting (Course, holes,
+  format, rounds, flights, handicap index, tee) with plain-language copy.
+- **Playful UI** — bigger game-type cards with icon circles, format tiles with
+  a per-engine emoji, larger holes/nav/create buttons, hover-lift animations.
+- **Format picker** is now an always-visible grid of clickable blocks (no
+  "Change format" button) — the chosen block glows saffron and its description
+  shows below. Course selection is an autocomplete; already-imported courses
+  show "✓ Imported" in search.
+
+##### Last 3 formats — catalog complete
+- **Low Scratch/Net** (`lownet` engine) — each hole's team score is the best
+  gross + best net of the team.
+- **Irish Rumble** (`rumble` engine) — best-ball Stableford with an escalating
+  count (holes 1–6 best 1, 7–12 best 2, 13–17 best 3, 18 all).
+- **Duplicate Scramble** — runs on the existing duplicate engine over a
+  one-ball team card.
+- All **20 formats** are now `scored` and playable end-to-end.
+
+##### Tests
+- 101/101 pass. All three new formats smoke-tested.
+
+---
+
+## v3.23.0 — 2026-05-17
+### Session 38 — Live Leaderboard Phase 3D (part 3): Reds vs Blues — 3D complete
+
+#### What Changed
+
+##### Reds vs Blues
+- New tournament type `reds_blues` — two teams, Ryder Cup–style singles match play.
+- `round_entries` gains `side` (red/blue) and `match_no` — Red #1 plays Blue #1, etc.
+- `rvbLeaderboard` — every match is worth a point (½ each if halved), totalled
+  across rounds; reuses the match-play engine.
+- Wizard: a Reds vs Blues game has a two-panel team builder (🔴 Reds / 🔵 Blues).
+- `/tournament/:id` renders the Reds-vs-Blues scoreboard + match list.
+
+##### Tests
+- 99/99 pass. Reds vs Blues smoke-tested (match closeout → team point).
+
+##### Phase 3D complete
+- The live-leaderboard platform now spans: 18 game formats, the setup wizard,
+  per-round live leaderboards, match play, flights, multi-round tournaments,
+  and Reds vs Blues.
+
+---
+
+## v3.22.0 — 2026-05-17
+### Session 37 — Live Leaderboard Phase 3D (part 2): Multi-round tournaments
+
+#### What Changed
+
+##### Multi-round
+- Wizard: a "Tournament" game (individual format) can run 1–6 rounds.
+- `POST /api/tournaments/:id/field` — adds a player to every round at once.
+- `GET /api/tournaments/:id/leaderboard` — cumulative leaderboard summing each
+  player's score across all rounds, with a per-round breakdown.
+- New page `/tournament/:id` — the cumulative tournament leaderboard
+  (Pos · Player · R1…Rn · Total), auto-refreshing.
+- Tournament detail in `/tournaments` lists every round with its own Live and
+  score-entry links, plus a Tournament-leaderboard link for multi-round events.
+
+##### Tests
+- 99/99 pass. 3-round tournament smoke-tested — per-round + cumulative totals
+  verified.
+
+##### Still ahead in 3D
+- Reds vs Blues (two-team Ryder Cup match play).
+
+---
+
+## v3.21.0 — 2026-05-17
+### Session 36 — Live Leaderboard Phase 3D (part 1): Flights
+
+#### What Changed
+
+##### Flights
+- `lib/scoring.js` — `applyFlights`: splits a leaderboard into 1–5 handicap
+  flights (Flight 1 = lowest handicaps), renumbering positions within each.
+- Server applies flights to a round's leaderboard when the tournament has
+  flights enabled.
+- Wizard: a "Tournament" game offers a flights toggle + 2–5 flight count.
+- `/live` renders flighted leaderboards with per-flight sections.
+
+##### Tests
+- 2 new tests. 97/97 pass. Flighted tournament smoke-tested.
+
+##### Still ahead in 3D
+- Multi-round tournaments (cumulative leaderboard) and Reds vs Blues.
+
+---
+
+## v3.20.0 — 2026-05-17
+### Session 35 — Live Leaderboard Phase 3C (part 2): Match Play
+
+Match play is now playable — individual and the pair formats.
+
+#### What Changed
+
+##### Scoring engine — `lib/scoring.js`
+- **`scoreMatch`** — hole-by-hole: the lower net wins the hole; the match
+  standing is holes-up; closes out early ("3&2" = 3 up, 2 to play), reports
+  dormie and all-square (AS).
+- **`buildMatchPlay`** — two sides head to head. Each side is one entry
+  (individual / one-ball team card) or, for Match Play Better Ball, a team
+  whose hole score is the members' best ball. Leaderboard `scoreType: 'match'`.
+
+##### Server
+- One-ball detection generalised: scramble, foursomes and greensome all share
+  a single team card (was scramble-only). Match-play rounds gather two sides.
+
+##### UI
+- `/live` renders a **match card** for match-play rounds — the two sides with
+  the live standing ("2 UP", "DORMIE", "3&2", "AS").
+- 5 match-play formats now selectable: Individual, Better Ball, Foursomes,
+  Greensome, Scramble.
+
+##### Tests
+- 5 new tests (match closeout, all-square, match leaderboard). 95/95 pass.
+- Match Play Individual + Foursomes smoke-tested end-to-end.
+
+##### Still ahead
+- 3C tail: Low Scratch/Net, team exotics (Irish Rumble, Duplicate Scramble),
+  LD/CTP contests. Then 3D: multi-round, flights, Reds vs Blues.
+
+---
+
+## v3.19.0 — 2026-05-17
+### Session 34 — Live Leaderboard Phase 3C (part 1): Skins, Erado, Duplicate
+
+The individual exotic formats are now playable.
+
+#### What Changed
+
+##### Scoring engine — `lib/scoring.js`
+- **Skins** — the outright-low net score wins the hole; tied holes carry the
+  pot to the next hole. Ranked by skins won.
+- **Erado** — stroke play with the worst N holes erased (4 of 18, 2 of 9; the
+  final hole can't be erased).
+- **Duplicate** — individual Stableford with a frozen random 1×/2×/3× per-hole
+  multiplier; the last hole is always 2×.
+- New `rankBoard` helper; leaderboard `scoreType` gains `skins`.
+
+##### Server
+- `rounds.hole_multipliers` — Duplicate's multiplier array, generated once at
+  round creation and frozen for the round.
+- Leaderboard / SSE pass the round's scoring options (format + multipliers).
+
+##### UI
+- `/live` renders the Skins column ("N skins"); leaderboard labels adapt to
+  the format (Total / Points / Skins).
+- These three formats are now selectable in the wizard's format picker.
+
+##### Still ahead in 3C
+- Match Play (+ Foursomes / Greensome), Low Scratch/Net, the team exotics
+  (Irish Rumble, Duplicate Scramble), and LD/CTP contests on rounds.
+
+##### Tests
+- 4 new tests (Skins, Erado, Duplicate). 91/91 pass. All three smoke-tested
+  end-to-end.
+
+---
+
+## v3.18.0 — 2026-05-17
+### Session 33 — Live Leaderboard Phase 3B: team formats
+
+Scramble and best-ball/better-ball are now playable end-to-end.
+
+#### What Changed
+
+##### Selector highlight fix
+- Front 9 / Back 9 buttons now highlight when selected (`.btn-ghost` was
+  overriding `.btn-primary` on CSS order — they now swap). The format picker
+  stays open with the chosen card highlighted instead of collapsing.
+
+##### Team scoring
+- `lib/scoring.js` — best-ball engine: aggregates a team by taking the best
+  ball per hole (lowest net for stroke, highest points for Stableford).
+- `lib/handicap.js` — `teamHandicap` for scramble (35/15 and 25/20/15/10),
+  foursomes (50%) and greensome (60/40).
+- New tables: `round_teams`; `round_entries` gains `team_id` + `is_team_card`.
+
+##### Server
+- `POST /api/rounds/:roundId/teams` — creates a team with its players,
+  computes handicaps (one team handicap for scramble; per-player playing
+  handicaps for best ball).
+- `gatherRoundEntries` / score-entry payload are format-aware: scramble →
+  one shared team card; best ball → one card per player; individual → players.
+- Individual entries now apply the format's WHS allowance (e.g. net 95%).
+
+##### Wizard
+- Pair/Team formats are selectable; picking one swaps the Players step for a
+  **team-setup step** — add teams, add players to each, assign tees.
+- 6 team formats now playable: 2-/Multi-person Scramble, Better Ball
+  (stroke/Stableford), Best Ball (stroke/Stableford).
+
+##### Scope note
+- Foursomes, Greensome and Low Scratch/Net move to Phase 3C — Foursomes and
+  Greensome are match-play formats (need the match-play engine); Low Scratch/Net
+  needs its own gross+net aggregation.
+
+##### Tests
+- 4 new tests (best-ball, team route). 87/87 pass. Scramble + best-ball
+  smoke-tested end-to-end.
+
+---
+
+## v3.17.0 — 2026-05-16
+### Session 32 — Live Leaderboard Phase 3A: setup wizard + format catalog
+
+Reshaped from a 30-screenshot study of Golf Gamebook. `/tournaments` is now a
+guided wizard; the scoring engine is format-driven. See `LEADERBOARD-SPEC.md §15`.
+
+#### What Changed
+
+##### Format catalog — `lib/formats.js`
+- 20-format catalog across three tiers (Individual / Pair / Team). Each format
+  declares its scoring engine, net/gross, WHS handicap allowance, team size,
+  description, and a `scored` flag (live vs. coming soon).
+
+##### Scoring engine — `lib/scoring.js`
+- `buildLeaderboard` is now format-driven. Added **Stableford** (points per hole
+  vs net par — ranked high-wins) alongside stroke play. Scramble reuses the
+  stroke engine (a scramble entry is a team card). Result carries a `scoreType`
+  (`topar` | `points`) so clients render the right column.
+
+##### Handicap engine — `lib/handicap.js`
+- `teamHandicap` for pair/team formats: 2-person scramble 35/15, 3–5 person
+  scramble 25/20/15/10/5, foursomes 50% combined, greensome 60/40.
+
+##### Server
+- `GET /api/formats` — the catalog, grouped by tier.
+- `POST /api/tournaments` accepts `type` (`casual` | `tournament`) and a round
+  `holes_segment` (`all` | `front9` | `back9`).
+- SSE / leaderboard payloads now score for the round's own format
+  (`{ round, leaderboard }`) rather than a hardcoded gross/net pair.
+
+##### `/tournaments` rebuilt as a setup wizard
+- Step 1 game type (Normal Game / Tournament; Reds vs Blues coming soon) →
+  Step 2 course + holes (Full 18 / Front 9 / Back 9) → Step 3 game setup with
+  the tiered format picker → Step 4 players → create & start.
+- `/live` and `/play` updated: leaderboard renders to-par or Stableford points;
+  the score-entry card respects the round's hole segment.
+
+##### Scope note
+- Phase 3A makes **individual** formats fully playable end-to-end (Stroke Play
+  gross/net, Stableford). The **scramble** scoring + team-handicap engine is
+  built and unit-tested; team-based play (scramble, best ball, …) wires up in
+  Phase 3B, which builds the shared team-setup once.
+
+##### Tests
+- 11 new tests (format catalog, team handicaps, Stableford). 83/83 pass.
+- End-to-end smoke test verified a Stableford Front-9 casual game.
+
+---
+
+## v3.16.0 — 2026-05-16
+### Session 31 — Live Leaderboard Phase 1: full-round stroke-play scoring
+
+First phase of the Golf Genius / Gamebook-class tournament scoring system.
+Adds full 18-hole stroke-play scoring (gross + net) alongside the existing
+LD/CTP contests — a separate, data-only system (no maps). See
+`LEADERBOARD-SPEC.md` for the full feature spec and phased plan.
+
+#### What Changed
+
+##### Course data — golfcourseapi.com integration
+- New `lib/golfCourseApi.js` — client for golfcourseapi.com. `searchCourses`,
+  `getCourse`, and `normalizeCourse` (provider JSON → JORD's shape). Swapping to
+  iGolf later only touches this one file.
+- API key in `.env` as `GOLF_COURSE_API_KEY` (placeholder added to `.env.example`).
+- Cache-as-you-go: imported courses are stored locally; re-importing the same
+  course (matched by `external_id`) returns the cached copy instead of duplicating.
+- Manual scorecard entry available for any course not in the API.
+
+##### WHS handicaps — `lib/handicap.js`
+- `courseHandicap` (Index × Slope/113 + Course Rating − Par), `playingHandicap`
+  (× format allowance), `strokesPerHole` (allocates strokes by hole stroke index,
+  handles plus handicaps), `netTotal`. Pure functions, unit-tested.
+
+##### Scoring engine — `lib/scoring.js`
+- `buildLeaderboard` ranks a round gross or net by score-to-par for holes
+  played (standard live-leaderboard behavior). Golf-style tied positions (T1).
+  Pure functions, unit-tested.
+
+##### Database — 9 new tables
+- `players`, `courses`, `course_tees`, `tee_holes`, `tournaments`, `rounds`,
+  `score_groups`, `round_entries`, `scores`. Existing tables untouched.
+- Note: the table was named `tee_holes` (not `course_holes`) — an orphaned
+  legacy `course_holes` table already exists in the DB from an abandoned
+  scorecard experiment; it is referenced by no code and was left untouched.
+
+##### API routes (server.js)
+- Courses: list / search / import / manual-create / detail / delete.
+- Tournaments & rounds: create, list, detail, add rounds, round status.
+- Round entries: add player (computes WHS course handicap), remove.
+- Public score entry: round payload, batch score upsert, leaderboard JSON, SSE
+  stream (`/api/rounds/:roundId/stream`) — pushes gross + net on every change.
+
+##### New pages
+- `/tournaments` — admin: course setup (online search + manual entry) and
+  tournament/round/player management.
+- `/play/:roundId` — public score entry. Group-marker style, hole-by-hole
+  stepper, offline-capable (scores cached in `localStorage`, auto-sync on
+  reconnect), shared via a copyable link.
+- `/live/:roundId` — public live leaderboard, SSE-driven, gross/net toggle,
+  TV display mode.
+
+##### Admin panel hooks
+- "🏆 Live Leaderboards" link added to the events-list header → `/tournaments`.
+- LD contest setup: "🔍 Look up from course data" button beside the Hole
+  distance field — searches golfcourseapi.com and fills the real tee-to-pin
+  yardage for a chosen hole (more accurate OOB penalty math).
+
+##### Tests
+- 17 new unit tests for handicap + scoring logic and route presence. 72/72 pass.
+- End-to-end smoke test verified the full flow (course → tournament → entries
+  → scores → gross/net leaderboard).
+
+---
+
 ## v3.15.0 — 2026-05-15
 ### Session 30 — Course-map setup UX: per-game settings, tooltips, recenter, full-screen
 

@@ -49,6 +49,9 @@ const PAGES = [
   { name: 'about', path: '/about.html' },
   { name: 'signup', path: '/signup' },
   { name: 'admin-login', path: '/admin' },
+  { name: 'login', path: '/login' },
+  { name: 'event-site', path: '/e/fairway-fund-classic-2026' },
+  { name: 'event-register', path: '/e/fairway-fund-classic-2026/register' },
 ];
 
 if (EVENT_ID) {

@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Scorecard · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  .sc-wrap { max-width:560px; margin:0 auto; padding:0 var(--s-3) var(--s-8); }
+  .sc-head { text-align:center; padding:var(--s-5) 0 var(--s-3); }
+  .sc-head h1 { font-family:var(--font-display); font-size:1.5rem; letter-spacing:-0.02em; }
+  .sc-head .mini { color:var(--ink-2); font-size:13px; }
+  .hole-nav { display:flex; align-items:center; justify-content:space-between; gap:var(--s-2);
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); padding:var(--s-3) var(--s-4); margin-bottom:var(--s-4); }
+  .hole-nav .hole-no { font-family:var(--font-display); font-size:2.2rem; line-height:1; }
+  .hole-nav .hole-meta { font-size:12px; color:var(--ink-2); text-align:center; }
+  .hole-nav button { width:46px; height:46px; border-radius:50%; border:1px solid var(--border-2);
+    background:var(--surface); font-size:20px; cursor:pointer; }
+  .hole-nav button:disabled { opacity:.35; }
+  .p-row { display:flex; align-items:center; gap:var(--s-3); padding:12px 14px; border:1px solid var(--border);
+    border-radius:var(--r-sm); background:var(--surface); margin-bottom:var(--s-2); }
+  .p-row .p-name { flex:1; font-weight:600; }
+  .p-row .p-name small { display:block; font-weight:400; color:var(--ink-3); font-size:11px; }
+  .strokes { color:var(--accent); font-weight:700; letter-spacing:1px; }
+  .stepper { display:flex; align-items:center; gap:8px; }
+  .stepper button { width:40px; height:40px; border-radius:50%; border:1px solid var(--border-2);
+    background:var(--surface); font-size:20px; font-weight:700; cursor:pointer; }
+  .stepper .val { width:48px; text-align:center; font-family:var(--font-display); font-size:1.6rem; }
+  .stepper .val.empty { color:var(--ink-3); }
+  .vs-par { font-size:11px; font-weight:700; min-width:34px; text-align:center; }
+  .vs-par.under { color:#4A7A53; } .vs-par.over { color:var(--danger); }
+  .offline-banner { background:var(--danger); color:#fff; text-align:center; padding:8px; font-size:13px; font-weight:600; }
+  .sync-note { text-align:center; font-size:12px; color:var(--ink-3); margin-top:var(--s-3); }
+  .hole-dots { display:flex; flex-wrap:wrap; gap:5px; justify-content:center; margin-bottom:var(--s-4); }
+  .hole-dots span { width:22px; height:22px; border-radius:6px; font-size:11px; display:flex; align-items:center;
+    justify-content:center; border:1px solid var(--border); cursor:pointer; color:var(--ink-2); }
+  .hole-dots span.done { background:var(--primary); color:var(--primary-ink); border-color:var(--primary); }
+  .hole-dots span.current { outline:2px solid var(--accent); }
+  .gate { text-align:center; padding:var(--s-8) var(--s-4); }
+</style>
+</head>
+<body>
+<div id="offline" class="offline-banner" style="display:none">⚠ Offline — scores are saved on this phone and will sync automatically.</div>
+<div class="sc-wrap" id="app"></div>
+<script src="/js/jord.js"></script>
+<script>
+const $ = (s,r=document)=>r.querySelector(s);
+const esc = JORD.escapeHtml;
+const roundId = location.pathname.split('/').pop();
+const LS_KEY = 'jord_sc_'+roundId;
+
+const state = {
+  round:null, tournament:null, course:null, entries:[],
+  holes:[],            // par/SI per hole (from first entry's tee, fallback)
+  hole:1,
+  scores:{},           // { entryId: { hole: strokes } }
+  dirty:new Set(),     // "entryId|hole"
+};
+let syncTimer=null;
+
+/* ─── local persistence ───────────────────────────────────────────── */
+function saveLocal() {
+  localStorage.setItem(LS_KEY, JSON.stringify({ scores:state.scores, dirty:[...state.dirty] }));
+}
+function loadLocal() {
+  try {
+    const c = JSON.parse(localStorage.getItem(LS_KEY)||'{}');
+    if (c.scores) state.scores = c.scores;
+    if (c.dirty)  state.dirty  = new Set(c.dirty);
+  } catch {}
+}
+
+/* ─── sync ─────────────────────────────────────────────────────────── */
+async function sync() {
+  if (!state.dirty.size) return;
+  const batch = [...state.dirty].map(k => {
+    const [entry_id,hole] = k.split('|');
+    return { entry_id, hole_number:+hole, strokes: state.scores[entry_id]?.[hole] ?? null };
+  });
+  try {
+    await JORD.api(`/api/rounds/${roundId}/scores`,{method:'POST',body:{scores:batch,entered_by:'scorecard'}});
+    state.dirty.clear(); saveLocal();
+    $('#offline').style.display='none';
+    renderSyncNote();
+  } catch(e) {
+    $('#offline').style.display='block';   // keep dirty, retry later
+  }
+}
+function queueSync(){ clearTimeout(syncTimer); syncTimer=setTimeout(sync,700); }
+window.addEventListener('online', sync);
+setInterval(sync, 20000);
+
+/* ─── score helpers ────────────────────────────────────────────────── */
+function getScore(entryId,hole){ return state.scores[entryId]?.[hole] ?? null; }
+function setScore(entryId,hole,val) {
+  if (!state.scores[entryId]) state.scores[entryId]={};
+  if (val==null) delete state.scores[entryId][hole];
+  else state.scores[entryId][hole]=val;
+  state.dirty.add(entryId+'|'+hole);
+  saveLocal(); queueSync();
+}
+function holePar(hole){ const h=state.holes.find(x=>x.hole_number===hole); return h?h.par:4; }
+
+/* Strokes a player receives on one hole — WHS stroke-index allocation.
+   Matches lib/handicap.js. Positive courseHcp = strokes given to player on
+   hardest holes first; negative (plus handicap) = strokes given back on
+   easiest holes. */
+function strokesOnHole(courseHcp, strokeIndex, totalHoles) {
+  if (courseHcp == null || !totalHoles) return 0;
+  const sign = courseHcp >= 0 ? 1 : -1;
+  const abs  = Math.abs(courseHcp);
+  const base = Math.floor(abs / totalHoles);
+  const rem  = abs % totalHoles;
+  const si   = Number(strokeIndex) || totalHoles;
+  let extra = 0;
+  if (sign >= 0) { if (si <= rem) extra = 1; }
+  else            { if (si > totalHoles - rem) extra = 1; }
+  return sign * (base + extra);
+}
+
+/* ─── render ───────────────────────────────────────────────────────── */
+function renderGate(msg,icon){
+  $('#app').innerHTML = `<div class="gate"><div style="font-size:48px">${icon}</div>
+    <h1 style="font-family:var(--font-display);margin:var(--s-3) 0">${esc(msg)}</h1></div>`;
+}
+
+function render() {
+  const r=state.round, hole=state.hole, par=holePar(hole);
+  const h=state.holes.find(x=>x.hole_number===hole)||{};
+  const first=state.holes[0]?.hole_number||1, last=state.holes[state.holes.length-1]?.hole_number||18;
+  $('#app').innerHTML = `
+    <div class="sc-head">
+      <h1>${esc(state.tournament?.name||'Round')}</h1>
+      <div class="mini">${state.course?esc(state.course.name):''} · Round ${r.round_number}</div>
+    </div>
+    <div class="hole-dots" id="dots"></div>
+    <div class="hole-nav">
+      <button id="prev" ${hole<=first?'disabled':''}>‹</button>
+      <div><div class="hole-no" style="text-align:center">${hole}</div>
+        <div class="hole-meta">PAR ${par}${h.stroke_index?` · SI ${h.stroke_index}`:''}${h.yardage?` · ${h.yardage} yds`:''}</div></div>
+      <button id="next" ${hole>=last?'disabled':''}>›</button>
+    </div>
+    <div id="players"></div>
+    <div class="sync-note" id="syncNote"></div>`;
+
+  $('#prev').onclick=()=>{ state.hole=Math.max(first,hole-1); render(); };
+  $('#next').onclick=()=>{ state.hole=Math.min(last,hole+1); render(); };
+  renderDots(); renderPlayers(); renderSyncNote();
+}
+
+function renderDots() {
+  $('#dots').innerHTML = state.holes.map(h=>{
+    const done = state.entries.every(e=>getScore(e.id,h.hole_number)!=null);
+    return `<span class="${done?'done':''} ${h.hole_number===state.hole?'current':''}" data-h="${h.hole_number}">${h.hole_number}</span>`;
+  }).join('');
+  $('#dots').querySelectorAll('[data-h]').forEach(s=>s.onclick=()=>{ state.hole=+s.dataset.h; render(); });
+}
+
+function renderPlayers() {
+  const hole=state.hole, par=holePar(hole);
+  const h = state.holes.find(x=>x.hole_number===hole) || {};
+  const totalHoles = state.holes.length || 18;
+  $('#players').innerHTML = state.entries.map(e=>{
+    const v=getScore(e.id,hole);
+    const diff = v!=null ? v-par : null;
+    const diffTxt = diff==null?'':(diff===0?'E':(diff>0?'+'+diff:diff));
+    const stk = strokesOnHole(e.course_handicap, h.stroke_index, totalHoles);
+    const dots = stk > 0 ? '●'.repeat(Math.min(stk,3)) : '';
+    const strokeMeta = stk > 0
+      ? `<span class="strokes" title="Player gets ${stk} handicap stroke${stk>1?'s':''} on this hole">${dots} +${stk}</span>` : '';
+    const groupPart = e.group_name ? esc(e.group_name) : '';
+    return `<div class="p-row">
+      <div class="p-name">${esc(e.player_name)}<small>${groupPart}${groupPart && strokeMeta ? ' · ' : ''}${strokeMeta}</small></div>
+      <div class="vs-par ${diff<0?'under':diff>0?'over':''}">${diffTxt}</div>
+      <div class="stepper">
+        <button data-dec="${e.id}">−</button>
+        <div class="val ${v==null?'empty':''}">${v==null?'–':v}</div>
+        <button data-inc="${e.id}">+</button>
+      </div>
+    </div>`;
+  }).join('');
+  $('#players').querySelectorAll('[data-inc]').forEach(b=>b.onclick=()=>{
+    const v=getScore(b.dataset.inc,hole);
+    setScore(b.dataset.inc,hole, v==null?par:Math.min(20,v+1)); renderPlayers(); renderDots();
+  });
+  $('#players').querySelectorAll('[data-dec]').forEach(b=>b.onclick=()=>{
+    const v=getScore(b.dataset.dec,hole);
+    if (v==null) return;
+    setScore(b.dataset.dec,hole, v<=1?null:v-1); renderPlayers(); renderDots();
+  });
+}
+
+function renderSyncNote() {
+  const n=$('#syncNote'); if(!n) return;
+  n.textContent = state.dirty.size ? `Saving ${state.dirty.size} change(s)…` : 'All scores saved ✓';
+}
+
+/* ─── boot ─────────────────────────────────────────────────────────── */
+async function init() {
+  loadLocal();
+  let data;
+  try { data = await JORD.api('/api/rounds/'+roundId); }
+  catch(e){ renderGate('Round not found','🔍'); return; }
+
+  state.round=data.round; state.tournament=data.tournament;
+  state.course=data.course; state.entries=data.entries;
+
+  if (data.round.status==='setup'){ renderGate('This round hasn’t started yet','⛳'); return; }
+  if (data.round.status==='ended'){ renderGate('This round has ended','🏁'); }
+
+  // holes come from any entry's tee, else the course's first tee —
+  // narrowed to the round's segment (Full 18 / Front 9 / Back 9).
+  const tee = state.course?.tees?.[0];
+  let allHoles = tee?.holes?.length ? tee.holes
+    : Array.from({length:18},(_,i)=>({hole_number:i+1,par:4}));
+  const seg = data.round.holes_segment;
+  if (seg==='front9')      allHoles = allHoles.filter(h=>h.hole_number<=9);
+  else if (seg==='back9')  allHoles = allHoles.filter(h=>h.hole_number>=10);
+  state.holes = allHoles;
+  state.hole = allHoles[0]?.hole_number || 1;
+
+  // server scores are the baseline; locally-pending (dirty) edits win
+  for (const e of state.entries) {
+    for (const [hole,strokes] of Object.entries(e.scores||{})) {
+      if (state.dirty.has(e.id+'|'+hole)) continue;
+      if (!state.scores[e.id]) state.scores[e.id]={};
+      state.scores[e.id][hole]=strokes;
+    }
+  }
+  saveLocal();
+  if (data.round.status==='ended') return;
+  render();
+  sync();
+}
+init();
+</script>
+</body>
+</html>

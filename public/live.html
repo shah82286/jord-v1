@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Live Leaderboard · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  .lb-wrap { max-width:720px; margin:0 auto; padding:0 var(--s-3) var(--s-8); }
+  .lb-head { text-align:center; padding:var(--s-5) 0 var(--s-3); }
+  .lb-head .eyebrow { font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--ink-3); font-weight:700; }
+  .lb-head h1 { font-family:var(--font-display); font-size:clamp(1.6rem,5vw,2.4rem); letter-spacing:-0.02em; margin-top:6px; }
+  .lb-head .mini { color:var(--ink-2); font-size:13px; margin-top:4px; }
+  .lb-controls { display:flex; justify-content:center; margin-bottom:var(--s-4); }
+  .lb-row { display:grid; grid-template-columns:54px 1fr 64px 78px; gap:var(--s-2); align-items:center;
+    padding:14px 16px; border-bottom:1px solid var(--border); }
+  .lb-row.head { font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-3);
+    font-weight:700; border-bottom:2px solid var(--border); padding:8px 16px; }
+  .lb-row .pos { font-family:var(--font-display); font-size:1.3rem; }
+  .lb-row .nm { font-weight:600; }
+  .lb-row .nm small { display:block; font-weight:400; color:var(--ink-3); font-size:11px; }
+  .lb-row .thru { text-align:center; font-size:13px; color:var(--ink-2); }
+  .lb-row .tot { text-align:right; font-family:var(--font-display); font-size:1.3rem; }
+  .lb-row .tot.under { color:#4A7A53; } .lb-row .tot.over { color:var(--danger); }
+  .lb-row.is-leader { background:linear-gradient(90deg,var(--accent),var(--accent-2)); color:#FBF9F4; }
+  .lb-row.is-leader .pos,.lb-row.is-leader .tot,.lb-row.is-leader .nm small { color:#FBF9F4; }
+  .gate { text-align:center; padding:var(--s-8) var(--s-4); }
+  .flight-head { font-size:11px; letter-spacing:.14em; text-transform:uppercase; font-weight:700;
+    color:var(--ink-3); padding:var(--s-4) 16px 6px; border-bottom:1px solid var(--border); }
+  .match-card { display:grid; grid-template-columns:1fr auto 1fr; gap:var(--s-3); align-items:center;
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); padding:var(--s-6) var(--s-4); }
+  .match-side { font-family:var(--font-display); font-size:1.15rem; text-align:center; }
+  .match-side.win { color:var(--accent); }
+  .match-status { text-align:center; }
+  .match-status .big { font-family:var(--font-display); font-size:1.9rem; line-height:1; }
+  .match-status .sub { font-size:12px; color:var(--ink-2); margin-top:6px; }
+  body.theme-dark .lb-row { border-color:rgba(255,255,255,.1); }
+  .live-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#4A7A53; margin-right:5px;
+    animation:pulse 1.6s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+</style>
+</head>
+<body>
+<div class="lb-wrap" id="app"></div>
+<script src="/js/jord.js"></script>
+<script>
+const $ = (s,r=document)=>r.querySelector(s);
+const esc = JORD.escapeHtml;
+const roundId = location.pathname.split('/').pop();
+const state = { round:null, leaderboard:null, tv:false };
+
+function toParText(n){ return n==null?'—':(n===0?'E':(n>0?'+'+n:''+n)); }
+
+function render() {
+  const r = state.round, lb = state.leaderboard;
+  if (!r) { $('#app').innerHTML = `<div class="gate"><div style="font-size:48px">🔍</div>
+    <h1 style="font-family:var(--font-display)">Round not found</h1></div>`; return; }
+
+  if (lb && lb.scoreType === 'match') return renderMatch(r, lb);
+  const st = lb ? lb.scoreType : 'topar';
+  const lowWins = st === 'topar';
+  const unit = st==='skins' ? 'skins' : st==='points' ? 'pts' : '';
+  const headLabel = st==='skins' ? 'Skins' : st==='points' ? 'Points' : 'Total';
+  const subLabel = st==='skins' ? 'Skins won' : st==='points' ? 'Stableford — points' : 'Strokes to par';
+  const rows = lb ? lb.rows : [];
+  $('#app').innerHTML = `
+    <div class="lb-head">
+      <div class="eyebrow"><span class="live-dot"></span>${r.status==='active'?'Live':esc(r.status)}</div>
+      <h1>Leaderboard</h1>
+      <div class="mini">Round ${r.round_number} · ${subLabel}</div>
+    </div>
+    <div class="lb-controls"><button class="btn btn-ghost" id="tvBtn">${state.tv?'Exit TV':'📺 TV mode'}</button></div>
+    <div class="lb-row head"><div>Pos</div><div>Player</div><div class="thru">Thru</div>
+      <div class="tot">${headLabel}</div></div>
+    <div id="rows"></div>`;
+  $('#tvBtn').onclick = () => { state.tv=!state.tv; document.body.classList.toggle('theme-dark',state.tv); render(); };
+
+  if (!rows.length) { $('#rows').innerHTML =
+    '<p style="text-align:center;color:var(--ink-3);padding:var(--s-6)">No players yet.</p>'; return; }
+  const rowHtml = row => {
+    const t = row.total;
+    const totText = lowWins ? toParText(t) : (t==null?'—':t+(unit?' '+unit:''));
+    const cls = lowWins ? (t<0?'under':t>0?'over':'') : '';
+    const sub = row.score!=null
+      ? (lowWins ? row.score+' strokes' : row.score+(unit?' '+unit:''))
+      : 'not started';
+    const pos = lb.flighted ? row.flightPosition : row.position;
+    return `<div class="lb-row ${pos===1&&t!=null?'is-leader':''}">
+      <div class="pos">${row.thru?((row.tied&&!lb.flighted?'T':'')+pos):'–'}</div>
+      <div class="nm">${esc(row.playerName)}<small>${sub}</small></div>
+      <div class="thru">${row.thru?(row.thru>=18?'F':row.thru):'–'}</div>
+      <div class="tot ${cls}">${totText}</div>
+    </div>`;
+  };
+  if (lb.flighted) {
+    let html = '';
+    for (let f=1; f<=lb.flighted; f++) {
+      const fr = rows.filter(r=>r.flight===f);
+      if (fr.length) html += `<div class="flight-head">Flight ${f}</div>` + fr.map(rowHtml).join('');
+    }
+    $('#rows').innerHTML = html;
+  } else {
+    $('#rows').innerHTML = rows.map(rowHtml).join('');
+  }
+}
+
+function renderMatch(r, lb) {
+  const m = lb.match, rows = lb.rows || [];
+  const a = rows[0] || { playerName:'—' }, b = rows[1] || { playerName:'—' };
+  let big, sub;
+  if (!m) { big = '—'; sub = 'Add two competitors'; }
+  else if (m.status === 'closed') {
+    big = m.result;
+    sub = m.standing === 0 ? 'Match halved' : esc(a.playerName) + ' won';
+  } else if (m.status === 'dormie') {
+    big = 'DORMIE'; sub = esc(a.playerName) + ' · thru ' + m.played;
+  } else {
+    big = m.standing === 0 ? 'ALL SQUARE' : Math.abs(m.standing) + ' UP';
+    sub = (m.standing === 0 ? '' : esc(a.playerName) + ' · ') + 'thru ' + m.played;
+  }
+  $('#app').innerHTML = `
+    <div class="lb-head">
+      <div class="eyebrow"><span class="live-dot"></span>${r.status==='active'?'Live':esc(r.status)}</div>
+      <h1>Match Play</h1>
+      <div class="mini">Round ${r.round_number}</div>
+    </div>
+    <div class="lb-controls"><button class="btn btn-ghost" id="tvBtn">${state.tv?'Exit TV':'📺 TV mode'}</button></div>
+    <div class="match-card">
+      <div class="match-side ${m&&m.standing>0?'win':''}">${esc(a.playerName)}</div>
+      <div class="match-status"><div class="big">${esc(String(big))}</div><div class="sub">${sub}</div></div>
+      <div class="match-side ${m&&m.standing<0?'win':''}">${esc(b.playerName)}</div>
+    </div>`;
+  $('#tvBtn').onclick = () => { state.tv=!state.tv; document.body.classList.toggle('theme-dark',state.tv); render(); };
+}
+
+function apply(payload){
+  state.round = payload.round;
+  state.leaderboard = payload.leaderboard;
+  render();
+}
+
+function connect(){
+  const es = new EventSource('/api/rounds/'+roundId+'/stream');
+  es.onmessage = e => { try { apply(JSON.parse(e.data)); } catch {} };
+  es.onerror = () => {};   // EventSource auto-reconnects
+}
+
+(async function init(){
+  try {
+    const data = await JORD.api('/api/rounds/'+roundId);
+    state.round = data.round;
+  } catch { render(); return; }
+  render();
+  connect();
+})();
+</script>
+</body>
+</html>

@@ -163,6 +163,224 @@ const src=require('fs').readFileSync('./server.js','utf8');
  ['GET','/api/dashboard/:eventId/:code'],['GET','/api/events/:eventId/export.csv'],
 ].forEach(([m,p])=> test(`${m} ${p}`, ()=>assert(src.includes(`app.${m.toLowerCase()}('${p}'`),`Missing`)));
 
+console.log('\n⛳ WHS Handicap (lib/handicap.js)\n');
+const handicap = require('../lib/handicap');
+test('Course handicap = index when slope/rating absent', ()=>assert(handicap.courseHandicap(14,null,null,null)===14));
+test('Course handicap: index 10 on 113-slope course = 10', ()=>assert(handicap.courseHandicap(10,113,72,72)===10));
+test('Course handicap: index 18 / slope 125 / CR 71.2 / par 72 = 19', ()=>assert(handicap.courseHandicap(18,125,71.2,72)===19));
+test('Playing handicap applies allowance (20 × 0.95 = 19)', ()=>assert(handicap.playingHandicap(20,0.95)===19));
+{
+  const holes = Array.from({length:18},(_,i)=>({hole_number:i+1,stroke_index:i+1}));
+  const s18 = handicap.strokesPerHole(18,holes);
+  test('Strokes per hole: CH 18 = 1 stroke on every hole', ()=>assert(Object.values(s18).every(v=>v===1)));
+  const s20 = handicap.strokesPerHole(20,holes);
+  test('Strokes per hole: CH 20 totals 20', ()=>assert(Object.values(s20).reduce((a,b)=>a+b,0)===20));
+  test('Strokes per hole: CH 20 puts 2 on the hardest hole (SI 1)', ()=>assert(s20[1]===2));
+  const sPlus = handicap.strokesPerHole(-3,holes);
+  test('Plus handicap removes strokes from easiest holes', ()=>assert(sPlus[18]===-1 && sPlus[1]===0));
+  test('Strokes per hole: CH 0 = no strokes', ()=>assert(Object.values(handicap.strokesPerHole(0,holes)).every(v=>v===0)));
+}
+
+console.log('\n🏌️ Stroke-Play Scoring (lib/scoring.js)\n');
+const scoring = require('../lib/scoring');
+{
+  const holes = [{hole_number:1,par:4,stroke_index:1},{hole_number:2,par:4,stroke_index:2}];
+  const entries = [
+    { entryId:'A', playerName:'Ann', courseHandicap:2, holes, scores:{1:4,2:4} },  // even par
+    { entryId:'B', playerName:'Bob', courseHandicap:0, holes, scores:{1:5,2:5} },  // +2
+    { entryId:'C', playerName:'Cy',  courseHandicap:0, holes, scores:{} },         // not started
+  ];
+  const gross = scoring.buildLeaderboard(entries,{format:'stroke_gross'});
+  test('Gross leaderboard ranks lower to-par first', ()=>assert(gross.rows[0].playerName==='Ann' && gross.rows[0].position===1));
+  test('Gross to-par computed for holes played', ()=>assert(gross.rows[0].total===0 && gross.rows[1].total===2));
+  test('Not-started player sinks to the bottom', ()=>assert(gross.rows[2].playerName==='Cy' && gross.rows[2].thru===0));
+  const net = scoring.buildLeaderboard(entries,{format:'stroke_net'});
+  test('Net subtracts handicap strokes (Ann 8 gross − 2 = 6 net)', ()=>assert(net.rows[0].score===6 && net.rows[0].total===-2));
+  const tied = scoring.buildLeaderboard([
+    { entryId:'X',playerName:'X',courseHandicap:0,holes,scores:{1:4,2:4} },
+    { entryId:'Y',playerName:'Y',courseHandicap:0,holes,scores:{1:4,2:4} },
+  ],{format:'stroke_gross'});
+  test('Tied players share a position', ()=>assert(tied.rows[0].position===1 && tied.rows[1].position===1 && tied.rows[1].tied));
+}
+
+console.log('\n🎮 Game Formats (lib/formats.js)\n');
+const fmts = require('../lib/formats');
+test('Catalog spans individual / pair / team tiers', ()=>{
+  const t = fmts.formatsByTier();
+  assert(fmts.FORMATS.length>=19 && t.individual.length && t.pair.length && t.team.length);
+});
+test('getFormat marks stroke_net as a net format', ()=>assert(fmts.getFormat('stroke_net').net===true));
+test('Stroke (gross/net), Stableford, scramble are scored', ()=>
+  ['stroke_gross','stroke_net','stableford','scramble_team'].forEach(id=>assert(fmts.isScored(id),id)));
+test('Skins / Erado / Duplicate are now scored', ()=>
+  ['skins','erado','duplicate'].forEach(id=>assert(fmts.isScored(id),id)));
+test('Match play formats are scored', ()=>
+  ['match_individual','match_foursome','match_better_ball'].forEach(id=>assert(fmts.isScored(id),id)));
+test('Every catalog format is now playable', ()=>fmts.FORMATS.forEach(f=>assert(f.scored,f.id)));
+
+console.log('\n🏇 Team Handicaps (lib/handicap.js)\n');
+test('2-person scramble 35/15 (8,21 → 6)',          ()=>assert(handicap.teamHandicap([8,21],'scramble2')===6));
+test('4-person scramble 25/20/15/10 (5,12,18,24 → 9)',()=>assert(handicap.teamHandicap([5,12,18,24],'scramble4')===9));
+test('Foursomes = 50% of combined (10,14 → 12)',    ()=>assert(handicap.teamHandicap([10,14],'foursomes')===12));
+test('Greensome = 60% low + 40% high (6,20 → 12)',  ()=>assert(handicap.teamHandicap([6,20],'greensome')===12));
+
+console.log('\n🐎 Stableford Scoring (lib/scoring.js)\n');
+test('Points: birdie 3, par 2, bogey 1, double bogey 0', ()=>
+  assert(scoring.stablefordPoints(3,4)===3 && scoring.stablefordPoints(4,4)===2
+      && scoring.stablefordPoints(5,4)===1 && scoring.stablefordPoints(6,4)===0));
+{
+  const holes=[{hole_number:1,par:4,stroke_index:1},{hole_number:2,par:3,stroke_index:2}];
+  const lb = scoring.buildLeaderboard([
+    {entryId:'A',playerName:'Ann',courseHandicap:0,holes,scores:{1:3,2:3}},  // birdie+par = 5 pts
+    {entryId:'B',playerName:'Bo', courseHandicap:0,holes,scores:{1:4,2:4}},  // par+bogey  = 3 pts
+  ],{format:'stableford'});
+  test('Stableford leaderboard ranks by points (high wins)', ()=>
+    assert(lb.scoreType==='points' && lb.rows[0].playerName==='Ann' && lb.rows[0].total===5));
+}
+
+console.log('\n👥 Team Best-Ball Scoring (lib/scoring.js)\n');
+{
+  const holes=[{hole_number:1,par:4,stroke_index:1},{hole_number:2,par:4,stroke_index:2}];
+  const team=[
+    {entryId:'A',playerName:'A',teamId:'T1',teamName:'Aces',courseHandicap:0,holes,scores:{1:4,2:6}},
+    {entryId:'B',playerName:'B',teamId:'T1',teamName:'Aces',courseHandicap:0,holes,scores:{1:5,2:4}},
+  ];
+  const lb=scoring.buildLeaderboard(team,{format:'better_ball_stroke'});
+  test('Best ball takes the lower score per hole (team net 8, E)', ()=>
+    assert(lb.rows.length===1 && lb.rows[0].score===8 && lb.rows[0].total===0));
+  const sf=scoring.buildLeaderboard(team,{format:'better_ball_stableford'});
+  test('Best ball Stableford takes the higher points per hole (4 pts)', ()=>
+    assert(sf.scoreType==='points' && sf.rows[0].total===4));
+  test('Team leaderboard shows one row per team, ranked', ()=>{
+    const two=scoring.buildLeaderboard([...team,
+      {entryId:'C',playerName:'C',teamId:'T2',teamName:'Birds',courseHandicap:0,holes,scores:{1:3,2:3}}],
+      {format:'better_ball_stroke'});
+    assert(two.rows.length===2 && two.rows[0].teamName==='Birds');
+  });
+}
+
+console.log('\n🎲 Exotic Formats — Skins / Erado / Duplicate (lib/scoring.js)\n');
+{
+  const h3=[{hole_number:1,par:4,stroke_index:1},{hole_number:2,par:4,stroke_index:2},{hole_number:3,par:4,stroke_index:3}];
+  const sk=scoring.buildLeaderboard([
+    {entryId:'A',playerName:'A',courseHandicap:0,holes:h3,scores:{1:3,2:4,3:3}},
+    {entryId:'B',playerName:'B',courseHandicap:0,holes:h3,scores:{1:4,2:4,3:5}},
+  ],{format:'skins'});
+  test('Skins: outright low wins the hole; tied holes carry over', ()=>
+    assert(sk.scoreType==='skins' && sk.rows[0].playerName==='A' && sk.rows[0].total===3 && sk.rows[1].total===0));
+
+  const er=scoring.buildLeaderboard([
+    {entryId:'E',playerName:'E',courseHandicap:0,scores:{1:4,2:9,3:4,4:4},holes:[
+      {hole_number:1,par:4,stroke_index:1},{hole_number:2,par:4,stroke_index:2},
+      {hole_number:3,par:4,stroke_index:3},{hole_number:4,par:4,stroke_index:4}]},
+  ],{format:'erado'});
+  test('Erado erases the worst holes from the total', ()=>
+    assert(er.rows[0].score===8 && er.rows[0].total===0));
+
+  const du=scoring.buildLeaderboard([
+    {entryId:'D',playerName:'D',courseHandicap:0,holes:h3,scores:{1:3,2:4,3:3}},
+  ],{format:'duplicate',multipliers:[3,1,2]});
+  test('Duplicate multiplies Stableford points per hole (9+2+6=17)', ()=>
+    assert(du.scoreType==='points' && du.rows[0].total===17));
+}
+
+console.log('\n🏆 Team Exotics — Low Scratch/Net + Irish Rumble (lib/scoring.js)\n');
+{
+  const h2=[{hole_number:1,par:4,stroke_index:1},{hole_number:2,par:4,stroke_index:2}];
+  const team=[
+    {entryId:'A',playerName:'A',teamId:'T1',teamName:'Aces',courseHandicap:0,holes:h2,scores:{1:4,2:5}},
+    {entryId:'B',playerName:'B',teamId:'T1',teamName:'Aces',courseHandicap:0,holes:h2,scores:{1:5,2:4}},
+  ];
+  const ln=scoring.buildLeaderboard(team,{format:'low_scratch_net'});
+  test('Low Scratch/Net combines best gross + best net per hole', ()=>
+    assert(ln.rows[0].score===16 && ln.rows[0].total===0));
+  const ir=scoring.buildLeaderboard(team,{format:'irish_rumble'});
+  test('Irish Rumble counts best-1 Stableford on early holes', ()=>
+    assert(ir.scoreType==='points' && ir.rows[0].total===4));
+}
+
+console.log('\n🥊 Match Play (lib/scoring.js)\n');
+{
+  const aN={}, bN={};
+  for(let h=1;h<=16;h++){ aN[h]=h<=3?3:4; bN[h]=4; }   // A wins 1-3, halves 4-16
+  const m=scoring.scoreMatch(aN,bN,18);
+  test('Match closes out: 3 up with 2 to play → 3&2', ()=>
+    assert(m.status==='closed' && m.result==='3&2'));
+  test('All-square match when both sides level', ()=>{
+    const e={}; for(let h=1;h<=18;h++) e[h]=4;
+    const sq=scoring.scoreMatch(e,{...e},18);
+    assert(sq.standing===0 && sq.result==='AS');
+  });
+  const holes=Array.from({length:18},(_,i)=>({hole_number:i+1,par:4,stroke_index:i+1}));
+  const mk=arr=>Object.fromEntries(arr.map((s,i)=>[i+1,s]));
+  const lb=scoring.buildLeaderboard([
+    {entryId:'P1',playerName:'Pat',courseHandicap:0,holes,scores:mk([3,3,3,4,4,4,4,4,4])},
+    {entryId:'P2',playerName:'Sam',courseHandicap:0,holes,scores:mk([4,4,4,4,4,4,4,4,4])},
+  ],{format:'match_individual'});
+  test('Match-play leaderboard: leader first, scoreType match', ()=>
+    assert(lb.scoreType==='match' && lb.rows[0].playerName==='Pat'
+        && lb.match.standing===3 && lb.match.status==='in_progress'));
+}
+
+console.log('\n🏁 Flights (lib/scoring.js)\n');
+{
+  const holes=Array.from({length:18},(_,i)=>({hole_number:i+1,par:4,stroke_index:i+1}));
+  const mk=(hcp,id)=>({entryId:id,playerName:id,courseHandicap:hcp,holes,scores:{1:4}});
+  const lb=scoring.buildLeaderboard([mk(2,'a'),mk(8,'b'),mk(14,'c'),mk(20,'d')],{format:'stroke_net'});
+  scoring.applyFlights(lb,2);
+  test('Flights split the field by handicap (low hcp → Flight 1)', ()=>{
+    const byId=Object.fromEntries(lb.rows.map(r=>[r.entryId,r.flight]));
+    assert(lb.flighted===2 && byId.a===1 && byId.b===1 && byId.c===2 && byId.d===2);
+  });
+  test('Flight positions renumber within each flight', ()=>
+    assert(lb.rows.every(r=>r.flightPosition>=1 && r.flightPosition<=2)));
+}
+
+console.log('\n💳 Stripe Helper (lib/stripe.js)\n');
+{
+  const sh = require('../lib/stripe');
+  test('mode is "mock" when STRIPE_SECRET_KEY is not set',
+    () => assert(process.env.STRIPE_SECRET_KEY || sh.mode === 'mock', 'expected mock mode without key'));
+  test('feeCents() returns 3% of amount (default 300 bps)',
+    () => assert(sh.feeCents(10000) === 300, `expected 300, got ${sh.feeCents(10000)}`));
+  test('feeCents() rounds to nearest cent',
+    () => assert(sh.feeCents(22500) === 675, `expected 675, got ${sh.feeCents(22500)}`));
+  test('feeCents(0) === 0',
+    () => assert(sh.feeCents(0) === 0));
+  test('mapAccountStatus → active when charges+payouts enabled', () => {
+    const s = sh.mapAccountStatus({ charges_enabled:true, payouts_enabled:true, details_submitted:true });
+    assert(s.stripe_account_status === 'active', `got ${s.stripe_account_status}`);
+  });
+  test('mapAccountStatus → pending when details submitted but not charged', () => {
+    const s = sh.mapAccountStatus({ charges_enabled:false, payouts_enabled:false, details_submitted:true });
+    assert(s.stripe_account_status === 'pending', `got ${s.stripe_account_status}`);
+  });
+  test('mapAccountStatus → restricted when details not submitted', () => {
+    const s = sh.mapAccountStatus({ charges_enabled:false, payouts_enabled:false, details_submitted:false });
+    assert(s.stripe_account_status === 'restricted', `got ${s.stripe_account_status}`);
+  });
+}
+
+console.log('\n🔌 Tournament Scoring Routes\n');
+[['GET','/api/courses'],['GET','/api/courses/online-search'],['POST','/api/courses/import'],
+ ['POST','/api/courses'],['GET','/api/formats'],['GET','/api/tournaments'],['POST','/api/tournaments'],
+ ['POST','/api/users/signup'],['POST','/api/users/login'],['POST','/api/users/logout'],['GET','/api/users/me'],
+ ['GET','/api/event-sites/:slug'],
+ ['GET','/api/admin/events/:id/site'],['PUT','/api/admin/events/:id/site'],
+ ['POST','/api/admin/events/:id/packages'],['PATCH','/api/admin/events/:id/packages/:pkgId'],
+ ['DELETE','/api/admin/events/:id/packages/:pkgId'],
+ ['POST','/api/registrations'],['GET','/api/registrations/:id'],
+ ['GET','/api/admin/events/:id/registrations'],
+ ['POST','/api/stripe/webhook'],
+ ['GET','/api/admin/stripe/account'],
+ ['POST','/api/admin/stripe/connect/onboard'],
+ ['POST','/api/admin/stripe/connect/sync'],
+ ['POST','/api/tournaments/:id/field'],['GET','/api/tournaments/:id/leaderboard'],
+ ['POST','/api/rounds/:roundId/entries'],['POST','/api/rounds/:roundId/teams'],
+ ['POST','/api/rounds/:roundId/scores'],
+ ['GET','/api/rounds/:roundId/leaderboard'],['GET','/api/rounds/:roundId/stream'],
+].forEach(([m,p])=> test(`${m} ${p}`, ()=>assert(src.includes(`app.${m.toLowerCase()}('${p}'`),'Missing')));
+
 console.log('\n'+'─'.repeat(52));
 console.log(`\n📊  ${passed}/${total} passed  |  ${failed} failed\n`);
 if(!failed) console.log('🎉 All tests passing — system ready to deploy!\n');

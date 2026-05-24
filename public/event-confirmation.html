@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>You're registered · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  body { background: var(--bg); }
+
+  .cf-wrap { max-width:640px; margin:0 auto; padding:var(--s-6) var(--s-4) var(--s-8); }
+  .cf-check { width:64px; height:64px; border-radius:50%; background:var(--accent); color:var(--bg);
+    display:flex; align-items:center; justify-content:center; font-size:32px; margin:0 auto var(--s-3); font-weight:700; }
+  .cf-eyebrow { font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--ink-3); font-weight:700; text-align:center; }
+  .cf-wrap h1 { font-family:var(--font-display); font-size:clamp(2rem,5vw,2.6rem);
+    letter-spacing:-0.02em; text-align:center; margin:8px 0 var(--s-2); }
+  .cf-wrap h1 em { font-style:italic; color:var(--accent); }
+  .cf-wrap .lead { text-align:center; color:var(--ink-2); font-size:16px; line-height:1.5; margin-bottom:var(--s-5); }
+
+  .cf-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+    padding:var(--s-4); margin-bottom:var(--s-3); }
+  .cf-card h2 { font-family:var(--font-display); font-size:1.3rem; margin-bottom:var(--s-3); }
+  .cf-card .row { display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border); font-size:14px; }
+  .cf-card .row:last-child { border-bottom:none; }
+  .cf-card .row .k { color:var(--ink-3); }
+  .cf-card .row .v { color:var(--ink); font-weight:600; text-align:right; }
+  .cf-card .total { font-family:var(--font-display); font-size:1.4rem; }
+
+  .cf-players { padding:0; margin:0; list-style:none; }
+  .cf-players li { padding:10px 0; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; }
+  .cf-players li:last-child { border-bottom:none; }
+  .cf-players .num { width:26px; height:26px; border-radius:50%; background:var(--surface-2);
+    color:var(--ink-2); display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12px; flex-shrink:0; }
+
+  .cf-cta { padding:16px 24px; font-size:16px; font-weight:700; width:100%; }
+
+  .cf-pill { display:inline-block; padding:4px 12px; border-radius:999px;
+    font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase; }
+  .cf-pill.paid { background:rgba(46,160,67,0.12); color:#1f7e2a; border:1px solid rgba(46,160,67,0.3); }
+  .cf-pill.mock { background:rgba(184,136,77,0.12); color:var(--accent); border:1px solid rgba(184,136,77,0.35); }
+
+  .gate { text-align:center; padding:var(--s-8) var(--s-4); }
+</style>
+</head>
+<body>
+
+<div id="app"><div class="gate"><p>Loading your registration…</p></div></div>
+
+<script src="/js/jord.js"></script>
+<script>
+const esc = JORD.escapeHtml;
+const parts = location.pathname.split('/').filter(Boolean);
+const slug = parts[1];
+const regId = parts[3];
+const sessionId = new URLSearchParams(location.search).get('session_id');
+
+function fmtPrice(cents) {
+  const n = (Number(cents) || 0) / 100;
+  return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtDate(s) {
+  if (!s) return '';
+  const d = new Date(s);
+  if (isNaN(d)) return s;
+  return d.toLocaleDateString(undefined, { month:'long', day:'numeric', year:'numeric' });
+}
+
+function render(r) {
+  document.title = `You're registered · ${esc(r.event_name || 'Event')} · JORD Golf`;
+
+  const isPaid = r.payment_status === 'paid';
+  const isPending = r.payment_status === 'pending';
+  const fee = r.platform_fee_cents || 0;
+  const total = (r.amount_cents || 0) + fee;
+  const playersHtml = (r.players && r.players.length)
+    ? `<ul class="cf-players">${r.players.map((p, i) => `
+        <li><div class="num">${i+1}</div><div>${esc(p.name)}</div></li>
+      `).join('')}</ul>`
+    : '<p style="color:var(--ink-3);font-size:14px">No player roster supplied.</p>';
+
+  document.getElementById('app').innerHTML = `
+    <div class="cf-wrap">
+      <div class="cf-check" ${isPending ? 'style="background:var(--ink-3)"' : ''}>${isPending ? '⏳' : '✓'}</div>
+      <div class="cf-eyebrow">${esc(r.event_headline || r.event_name || 'Event')}</div>
+      <h1>${isPending ? 'Almost <em>there</em>' : 'You\\'re <em>registered</em>'}</h1>
+      <p class="lead">
+        ${isPending
+          ? 'We\\'re waiting on Stripe to confirm your payment. This usually takes a few seconds — refresh this page if it doesn\\'t update.'
+          : `A confirmation has been sent to <strong>${esc(r.buyer_email)}</strong>.${r.payment_mode === 'mock' ? ' This is a test-mode registration — no card was charged.' : ''}`}
+      </p>
+
+      <div class="cf-card">
+        <h2>Registration</h2>
+        <div class="row"><span class="k">Confirmation #</span><span class="v" style="font-family:'JetBrains Mono',monospace">${esc(r.id)}</span></div>
+        <div class="row"><span class="k">Event</span><span class="v">${esc(r.event_name || '')}</span></div>
+        ${r.event_venue ? `<div class="row"><span class="k">Venue</span><span class="v">${esc(r.event_venue)}</span></div>` : ''}
+        <div class="row"><span class="k">Package</span><span class="v">${esc(r.package_name || '')}</span></div>
+        <div class="row"><span class="k">Date</span><span class="v">${esc(fmtDate(r.paid_at || r.created_at))}</span></div>
+        <div class="row"><span class="k">Status</span><span class="v">
+          <span class="cf-pill ${isPaid ? 'paid' : 'mock'}">${esc(r.payment_status)}</span>
+          ${r.payment_mode === 'mock' ? '<span class="cf-pill mock" style="margin-left:6px">Test mode</span>' : ''}
+        </span></div>
+      </div>
+
+      <div class="cf-card">
+        <h2>Players</h2>
+        ${playersHtml}
+      </div>
+
+      <div class="cf-card">
+        <h2>Payment</h2>
+        <div class="row"><span class="k">Package price</span><span class="v">${fmtPrice(r.amount_cents)}</span></div>
+        ${fee > 0 ? `<div class="row"><span class="k">Service fee</span><span class="v">${fmtPrice(fee)}</span></div>` : ''}
+        <div class="row total"><span>Total ${isPaid ? 'paid' : ''}</span><span>${fmtPrice(total)}</span></div>
+      </div>
+
+      <a class="btn btn-primary cf-cta" href="/e/${encodeURIComponent(slug)}" style="text-align:center;display:block">Back to event page</a>
+      ${r.support_email ? `<p style="text-align:center;margin-top:var(--s-4);color:var(--ink-3);font-size:13px">Questions? Email <a href="mailto:${esc(r.support_email)}" style="color:var(--ink)">${esc(r.support_email)}</a></p>` : ''}
+    </div>
+  `;
+}
+
+async function fetchReg() {
+  const q = sessionId ? `?session_id=${encodeURIComponent(sessionId)}` : '';
+  return JORD.api('/api/registrations/' + encodeURIComponent(regId) + q);
+}
+
+(async () => {
+  try {
+    let r = await fetchReg();
+    render(r);
+    // If the Stripe webhook hasn't fired yet, the row is still 'pending'.
+    // Poll briefly so the buyer sees the paid state without manual refresh.
+    if (r.payment_status === 'pending' && sessionId) {
+      let tries = 0;
+      const iv = setInterval(async () => {
+        tries++;
+        try {
+          const r2 = await fetchReg();
+          if (r2.payment_status !== 'pending' || tries >= 10) {
+            clearInterval(iv);
+            render(r2);
+          }
+        } catch { /* keep polling */ }
+      }, 1500);
+    }
+  } catch (e) {
+    document.getElementById('app').innerHTML =
+      `<div class="gate"><div style="font-size:48px">🔍</div>
+       <h1 style="font-family:var(--font-display)">Registration not found</h1>
+       <p style="color:var(--ink-2)">The link may be wrong or the registration has been removed.</p>
+       <a href="/e/${encodeURIComponent(slug)}" class="btn btn-primary" style="margin-top:var(--s-4)">Back to event</a></div>`;
+  }
+})();
+</script>
+</body>
+</html>

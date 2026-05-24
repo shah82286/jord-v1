@@ -276,6 +276,8 @@
           <button class="btn btn-ghost hidden" id="btn-manage-admins">👤 Manage Admins</button>
           <button class="btn btn-ghost hidden" id="btn-manage-reps">🎽 Manage Reps</button>
           <button class="btn btn-ghost hidden" id="btn-manage-backups">💾 Backups</button>
+          <a class="btn btn-ghost" href="/admin/stripe-connect" id="btn-stripe-connect">💳 Stripe</a>
+          <a class="btn btn-ghost" href="/clubhouse" id="btn-tournaments">🏆 Clubhouse</a>
           <button class="btn btn-primary" id="btn-new-event">＋ New event</button>
         </div>
       </div>
@@ -391,7 +393,8 @@
                 <div class="field">
                   <label>Hole distance (yards)</label>
                   <input class="input" type="number" name="hole_distance_yards" min="0" value="300" title="Measure the straight-line distance from the tee box to the pin in yards. Used to calculate the 'half hole' OOB penalty. Walk it off or use a rangefinder on the day.">
-                  <div class="hint">Measure tee-to-pin with a rangefinder. Used for OOB penalty calculation.</div>
+                  <div class="hint">Measure tee-to-pin with a rangefinder, or look it up from course data.</div>
+                  <button type="button" class="btn btn-ghost" style="margin-top:6px;font-size:12px;padding:5px 10px" onclick="lookupHoleDistance()">🔍 Look up from course data</button>
                 </div>
               </div>
 
@@ -1620,6 +1623,60 @@
     /* Admin-only zone view toggles default to all on when opening editor */
     document.querySelectorAll('[data-admin-zone-toggle]').forEach(cb => { cb.checked = true; });
   }
+
+  /* Look up a hole's real tee-to-pin yardage from golfcourseapi.com and drop it
+     into the Hole distance field. Wired via inline onclick on the Settings tab. */
+  window.lookupHoleDistance = function () {
+    const m = JORD.modal({
+      title: 'Look up hole distance',
+      lg: true,
+      body: `<div class="field"><label>Course name</label>
+        <div class="row gap-2">
+          <input class="input" id="hd-q" placeholder="e.g. Pebble Beach" />
+          <button class="btn btn-accent" id="hd-go" type="button">Search</button>
+        </div>
+        <div class="hint">Tee-to-pin yardage from golfcourseapi.com.</div></div>
+        <div id="hd-results"></div>`,
+    });
+    const bd = m.body;
+    const esc = JORD.escapeHtml;
+
+    async function search() {
+      const q = bd.querySelector('#hd-q').value.trim();
+      if (!q) return;
+      const box = bd.querySelector('#hd-results');
+      box.innerHTML = '<p class="hint">Searching…</p>';
+      try {
+        const res = await JORD.api('/api/courses/online-search?q=' + encodeURIComponent(q));
+        if (!res.length) { box.innerHTML = '<p class="hint">No matches.</p>'; return; }
+        box.innerHTML = res.slice(0, 12).map((c, i) =>
+          `<button type="button" class="btn btn-ghost" data-c="${i}" style="display:block;width:100%;text-align:left;margin-bottom:4px">
+            ${esc(c.name)} — ${esc([c.city, c.state].filter(Boolean).join(', '))}</button>`).join('');
+        box.querySelectorAll('[data-c]').forEach(b => b.onclick = () => pickCourse(res[+b.dataset.c]));
+      } catch (e) { box.innerHTML = '<p class="hint">Search failed: ' + esc(e.message) + '</p>'; }
+    }
+
+    function pickCourse(c) {
+      const tee = c.tees && c.tees[0];
+      const box = bd.querySelector('#hd-results');
+      if (!tee || !tee.holes.length) { box.innerHTML = '<p class="hint">No hole data for this course.</p>'; return; }
+      box.innerHTML = `<p class="hint">${esc(c.name)} (${esc(tee.name)} tee) — pick the contest hole:</p>
+        <div id="hd-holes" style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px"></div>`;
+      box.querySelector('#hd-holes').innerHTML = tee.holes.map(h =>
+        `<button type="button" class="btn btn-ghost" data-y="${h.yardage || ''}" style="font-size:11px;padding:6px 2px">
+          H${h.hole_number}<br><strong>${h.yardage || '?'}</strong></button>`).join('');
+      box.querySelectorAll('[data-y]').forEach(b => b.onclick = () => {
+        const y = b.dataset.y;
+        if (!y) { JORD.warn('No yardage listed for that hole'); return; }
+        document.querySelector('#form-settings [name="hole_distance_yards"]').value = y;
+        m.close();
+        JORD.success('Hole distance set to ' + y + ' yds — click Save settings to keep it');
+      });
+    }
+
+    bd.querySelector('#hd-go').onclick = search;
+    bd.querySelector('#hd-q').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); search(); } });
+  };
   $('#form-settings').addEventListener('submit', async (e) => {
     e.preventDefault();
     const f = e.target;

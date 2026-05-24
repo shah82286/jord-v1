@@ -14,6 +14,11 @@ const crypto   = require('crypto');
 const fs       = require('fs');
 const nodemailer = require('nodemailer');
 const backup    = require('./scripts/backup');
+const golfApi   = require('./lib/golfCourseApi');   // golfcourseapi.com client
+const handicap  = require('./lib/handicap');         // WHS handicap math
+const scoring   = require('./lib/scoring');          // scoring engine
+const formats   = require('./lib/formats');          // game-format catalog
+const stripeHelper = require('./lib/stripe');        // Stripe Connect + Checkout
 
 // Railway's container network has no working IPv6 outbound. Node 17+ resolves
 // DNS "verbatim" (IPv6 first), so smtp.gmail.com → an IPv6 address → ENETUNREACH.
@@ -46,6 +51,7 @@ const SMTP_PORT      = parseInt(env.SMTP_PORT || process.env.SMTP_PORT || '587')
 const SMTP_USER      = env.SMTP_USER      || process.env.SMTP_USER       || '';
 const SMTP_PASS      = env.SMTP_PASS      || process.env.SMTP_PASS       || '';
 const SUPPORT_EMAIL  = env.SUPPORT_EMAIL  || process.env.SUPPORT_EMAIL   || 'support@jordgolf.com';
+const GOLF_COURSE_API_KEY = env.GOLF_COURSE_API_KEY || process.env.GOLF_COURSE_API_KEY || '';
 
 const app = express();
 
@@ -310,6 +316,24 @@ try { db.exec("ALTER TABLE admins ADD COLUMN perm_players_teams INTEGER DEFAULT 
 db.prepare("UPDATE admins SET perm_resolve_alerts=1, perm_reset_scans=1, perm_register_walkups=1 WHERE role IN ('super','admin')").run();
 // Super/admin always have full leaderboard/ball-code/player visibility (level 2).
 db.prepare("UPDATE admins SET perm_view_leaderboard=1, perm_ball_codes=2, perm_players_teams=2 WHERE role IN ('super','admin')").run();
+
+// ─── Stripe Connect (v3.31) ───────────────────────────────────────────────────
+// Each organizer onboards their own Stripe Connect Express account. Funds for
+// their events flow directly to that account; JORD takes a platform fee
+// (STRIPE_PLATFORM_FEE_BPS, default 300bp = 3%) via Stripe's
+// `application_fee_amount` on the Checkout Session.
+//   stripe_account_id        — acct_… returned by stripe.accounts.create
+//   stripe_account_status    — 'pending' | 'active' | 'restricted'
+//   stripe_charges_enabled   — 1 if Stripe will accept charges for this account
+//   stripe_payouts_enabled   — 1 if Stripe will pay out to the connected bank
+//   stripe_details_submitted — 1 once organizer finishes onboarding form
+//   stripe_connected_at      — first time the account became active
+try { db.exec("ALTER TABLE admins ADD COLUMN stripe_account_id TEXT"); } catch {}
+try { db.exec("ALTER TABLE admins ADD COLUMN stripe_account_status TEXT"); } catch {}
+try { db.exec("ALTER TABLE admins ADD COLUMN stripe_charges_enabled INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE admins ADD COLUMN stripe_payouts_enabled INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE admins ADD COLUMN stripe_details_submitted INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE admins ADD COLUMN stripe_connected_at DATETIME"); } catch {}
 // Per-event rep assignments (many-to-many)
 db.exec(`
   CREATE TABLE IF NOT EXISTS event_reps (
@@ -351,6 +375,232 @@ try { db.exec("ALTER TABLE events ADD COLUMN brand_enabled INTEGER DEFAULT 0"); 
 try { db.exec("ALTER TABLE events ADD COLUMN brand_logo TEXT"); } catch {}               // base64 data URL
 try { db.exec("ALTER TABLE events ADD COLUMN brand_accent TEXT"); } catch {}             // hex color
 try { db.exec("ALTER TABLE events ADD COLUMN brand_url TEXT"); } catch {}
+
+// ═══ TOURNAMENT SCORING — Live Leaderboard (Phase 1) ═════════════════════════
+// Full-round stroke-play scoring, separate from the LD/CTP contest system.
+// A `round` is the core unit; a `tournament` wraps one or more rounds. Casual
+// buddy rounds reuse the same tables with type='casual'. Pure data — no maps.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS players (
+    id              TEXT PRIMARY KEY,
+    name            TEXT NOT NULL,
+    phone           TEXT,
+    email           TEXT,
+    handicap_index  REAL,
+    account_id      TEXT,                       -- reserved for future app accounts
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS courses (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    club_name     TEXT,
+    city          TEXT,
+    state         TEXT,
+    country       TEXT,
+    lat           REAL,
+    lon           REAL,
+    num_holes     INTEGER DEFAULT 18,
+    source        TEXT DEFAULT 'manual',        -- manual | golfcourseapi | igolf
+    external_id   TEXT,                         -- provider course id (cache key)
+    created_by    TEXT,
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS course_tees (
+    id              TEXT PRIMARY KEY,
+    course_id       TEXT NOT NULL,
+    name            TEXT NOT NULL,              -- "Blue", "White", "Gold"
+    gender          TEXT DEFAULT 'male',        -- male | female
+    par_total       INTEGER,
+    yardage_total   INTEGER,
+    course_rating   REAL,
+    slope_rating    INTEGER,
+    FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS tee_holes (
+    id              TEXT PRIMARY KEY,
+    tee_id          TEXT NOT NULL,
+    hole_number     INTEGER NOT NULL,
+    par             INTEGER NOT NULL,
+    stroke_index    INTEGER,                    -- 1..18, handicap-stroke allocation
+    yardage         INTEGER,
+    FOREIGN KEY (tee_id) REFERENCES course_tees(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS tournaments (
+    id              TEXT PRIMARY KEY,
+    type            TEXT DEFAULT 'tournament',  -- tournament | casual
+    name            TEXT NOT NULL,
+    admin_id        TEXT,                       -- null for casual rounds
+    event_id        TEXT,                       -- optional link to events table
+    default_format  TEXT DEFAULT 'stroke_gross',
+    num_rounds      INTEGER DEFAULT 1,
+    flights_enabled INTEGER DEFAULT 0,
+    num_flights     INTEGER DEFAULT 1,
+    banter_enabled  INTEGER DEFAULT 1,
+    status          TEXT DEFAULT 'setup',       -- setup | active | ended
+    share_code      TEXT,                       -- short code for the join link
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS rounds (
+    id              TEXT PRIMARY KEY,
+    tournament_id   TEXT NOT NULL,
+    round_number    INTEGER DEFAULT 1,
+    course_id       TEXT,
+    round_date      TEXT,
+    format          TEXT DEFAULT 'stroke_gross',
+    status          TEXT DEFAULT 'setup',       -- setup | active | ended
+    FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS score_groups (
+    id              TEXT PRIMARY KEY,
+    round_id        TEXT NOT NULL,
+    name            TEXT,                       -- "Group 1"
+    tee_time        TEXT,
+    starting_hole   INTEGER DEFAULT 1,
+    FOREIGN KEY (round_id) REFERENCES rounds(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS round_entries (
+    id              TEXT PRIMARY KEY,
+    round_id        TEXT NOT NULL,
+    player_id       TEXT NOT NULL,
+    tee_id          TEXT,
+    group_id        TEXT,
+    course_handicap INTEGER,                    -- computed at setup from WHS
+    FOREIGN KEY (round_id) REFERENCES rounds(id) ON DELETE CASCADE
+  );
+
+  CREATE TABLE IF NOT EXISTS scores (
+    id              TEXT PRIMARY KEY,
+    round_entry_id  TEXT NOT NULL,
+    hole_number     INTEGER NOT NULL,
+    strokes         INTEGER,
+    entered_by      TEXT,
+    entered_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(round_entry_id, hole_number),
+    FOREIGN KEY (round_entry_id) REFERENCES round_entries(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS idx_course_tees_course  ON course_tees(course_id);
+  CREATE INDEX IF NOT EXISTS idx_tee_holes_tee    ON tee_holes(tee_id);
+  CREATE INDEX IF NOT EXISTS idx_rounds_tournament   ON rounds(tournament_id);
+  CREATE INDEX IF NOT EXISTS idx_round_entries_round ON round_entries(round_id);
+  CREATE INDEX IF NOT EXISTS idx_scores_entry        ON scores(round_entry_id);
+`);
+
+// Which holes a round plays — all 18, front 9, or back 9.
+try { db.exec("ALTER TABLE rounds ADD COLUMN holes_segment TEXT DEFAULT 'all'"); } catch {}
+// Per-hole point multipliers (Duplicate format) — JSON array of 18 values.
+try { db.exec("ALTER TABLE rounds ADD COLUMN hole_multipliers TEXT"); } catch {}
+
+// Phase 3B — team formats: a competitor can be a team of players.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS round_teams (
+    id            TEXT PRIMARY KEY,
+    round_id      TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    team_handicap INTEGER,
+    FOREIGN KEY (round_id) REFERENCES rounds(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_round_teams_round ON round_teams(round_id);
+`);
+// team_id groups a player entry into a team; is_team_card flags the single
+// shared scorecard used by one-ball formats (scramble / foursomes / greensome).
+try { db.exec("ALTER TABLE round_entries ADD COLUMN team_id TEXT"); } catch {}
+try { db.exec("ALTER TABLE round_entries ADD COLUMN is_team_card INTEGER DEFAULT 0"); } catch {}
+// Reds vs Blues: which side a player is on, and the match number that pairs a
+// Red competitor against a Blue one.
+try { db.exec("ALTER TABLE round_entries ADD COLUMN side TEXT"); } catch {}
+try { db.exec("ALTER TABLE round_entries ADD COLUMN match_no INTEGER"); } catch {}
+
+// ═══ ENTERPRISE TOURNAMENT PLATFORM — Phase E1 ══════════════════════════════
+// Personal user accounts (for players). Separate from `admins` (the organizer
+// + staff system) — see ENTERPRISE-PLATFORM-SPEC.md §10.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS users (
+    id            TEXT PRIMARY KEY,
+    name          TEXT NOT NULL,
+    email         TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE TABLE IF NOT EXISTS user_sessions (
+    token       TEXT PRIMARY KEY,
+    user_id     TEXT NOT NULL,
+    expires_at  DATETIME NOT NULL,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_user_sessions_user ON user_sessions(user_id);
+`);
+// Optional self-reported WHS handicap index; ghin_id reserved for USGA / GHIN sync.
+try { db.exec("ALTER TABLE users ADD COLUMN handicap_index REAL"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN ghin_id TEXT"); } catch {}
+
+// Public event site (the brandable sign-up page at /e/:slug) and the
+// ticket types the organizer sells.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS event_sites (
+    event_id      TEXT PRIMARY KEY,
+    slug          TEXT NOT NULL UNIQUE,
+    headline      TEXT,
+    subhead       TEXT,
+    hero_image    TEXT,
+    starts_at     TEXT,
+    location_name TEXT,
+    about_html    TEXT,
+    schedule_json TEXT,
+    course_info   TEXT,
+    faq_json      TEXT,
+    contact_name  TEXT,
+    contact_email TEXT,
+    contact_phone TEXT,
+    published     INTEGER DEFAULT 1,
+    created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_event_sites_slug ON event_sites(slug);
+
+  CREATE TABLE IF NOT EXISTS registration_packages (
+    id               TEXT PRIMARY KEY,
+    event_id         TEXT NOT NULL,
+    name             TEXT NOT NULL,
+    description      TEXT,
+    price_cents      INTEGER NOT NULL DEFAULT 0,
+    includes_players INTEGER DEFAULT 1,
+    quantity_limit   INTEGER,
+    sort_order       INTEGER DEFAULT 0,
+    active           INTEGER DEFAULT 1,
+    created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_packages_event ON registration_packages(event_id, sort_order);
+
+  CREATE TABLE IF NOT EXISTS registrations (
+    id                  TEXT PRIMARY KEY,
+    event_id            TEXT NOT NULL,
+    package_id          TEXT NOT NULL,
+    buyer_name          TEXT NOT NULL,
+    buyer_email         TEXT NOT NULL,
+    buyer_phone         TEXT,
+    players_json        TEXT,                     -- JSON: [{name}, ...]
+    amount_cents        INTEGER NOT NULL DEFAULT 0,
+    platform_fee_cents  INTEGER DEFAULT 0,
+    payment_status      TEXT DEFAULT 'pending',   -- pending | paid | refunded | failed
+    payment_mode        TEXT,                     -- mock | stripe
+    stripe_session_id   TEXT,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+    paid_at             DATETIME,
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_registrations_event ON registrations(event_id, created_at DESC);
+`);
 
 // ─── AUTH HELPERS ────────────────────────────────────────────────────────────
 
@@ -418,6 +668,71 @@ app.use((req, res, next) => {
     return res.redirect(301, `https://${req.header('host')}${req.url}`);
   }
   next();
+});
+
+// ─── STRIPE WEBHOOK (raw body — MUST be before express.json) ─────────────────
+// Stripe signs the raw request body. Once express.json() parses it, the bytes
+// no longer match the signature and `constructEvent` rejects every request.
+// Register this route with `express.raw` BEFORE the json middleware below.
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+  if (stripeHelper.mode !== 'stripe') return res.status(503).send('Stripe not configured');
+  const sig = req.headers['stripe-signature'];
+  let event;
+  try {
+    event = stripeHelper.verifyWebhook(req.body, sig);
+  } catch (e) {
+    console.error('[Stripe webhook] signature failed:', e.message);
+    return res.status(400).send(`Webhook Error: ${e.message}`);
+  }
+
+  try {
+    switch (event.type) {
+      case 'checkout.session.completed': {
+        const session = event.data.object;
+        const regId = session.metadata && session.metadata.registration_id;
+        if (regId) {
+          db.prepare(`UPDATE registrations
+                      SET payment_status='paid',
+                          payment_mode='stripe',
+                          stripe_session_id=?,
+                          paid_at=CURRENT_TIMESTAMP
+                      WHERE id=? AND payment_status!='paid'`)
+            .run(session.id, regId);
+          console.log(`[Stripe] Registration ${regId} marked paid (session ${session.id})`);
+        }
+        break;
+      }
+      case 'account.updated': {
+        const account = event.data.object;
+        const adminId = account.metadata && account.metadata.jord_admin_id;
+        if (adminId) {
+          const s = stripeHelper.mapAccountStatus(account);
+          const wasActive = db.prepare('SELECT stripe_account_status FROM admins WHERE id=?').get(adminId)?.stripe_account_status === 'active';
+          db.prepare(`UPDATE admins SET
+                        stripe_account_status=?,
+                        stripe_charges_enabled=?,
+                        stripe_payouts_enabled=?,
+                        stripe_details_submitted=?,
+                        stripe_connected_at = COALESCE(stripe_connected_at, CASE WHEN ?='active' THEN CURRENT_TIMESTAMP END)
+                      WHERE id=?`).run(
+            s.stripe_account_status, s.stripe_charges_enabled, s.stripe_payouts_enabled,
+            s.stripe_details_submitted, s.stripe_account_status, adminId
+          );
+          if (!wasActive && s.stripe_account_status === 'active') {
+            console.log(`[Stripe] Admin ${adminId} Connect account ACTIVATED`);
+          }
+        }
+        break;
+      }
+      default:
+        // No-op for events we don't care about.
+        break;
+    }
+    res.json({ received: true });
+  } catch (e) {
+    console.error('[Stripe webhook] handler failed:', e);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // 2mb limit so base64-encoded logo uploads (signup + accept) fit in the JSON body.
@@ -517,6 +832,30 @@ function requirePermLevel(perm, minLevel) {
     if ((req.admin[perm] || 0) >= minLevel) return next();
     return res.status(403).json({ error: 'Permission denied' });
   };
+}
+
+// ─── USER (personal) AUTH ─────────────────────────────────────────────────────
+// Separate from the admin/organizer system above. Token in `x-user-token` header.
+function createUserSession(userId) {
+  const token = crypto.randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+  db.prepare('INSERT INTO user_sessions (token,user_id,expires_at) VALUES (?,?,?)').run(token, userId, expires);
+  return token;
+}
+function getSessionUser(token) {
+  if (!token) return null;
+  return db.prepare(`
+    SELECT u.* FROM user_sessions s
+    JOIN users u ON u.id=s.user_id
+    WHERE s.token=? AND s.expires_at > datetime('now')
+  `).get(token) || null;
+}
+function requireUser(req, res, next) {
+  const token = req.headers['x-user-token'] || req.query.user_token;
+  const user = getSessionUser(token);
+  if (!user) return res.status(401).json({ error: 'Sign in required' });
+  req.user = user;
+  next();
 }
 
 // The ball roster powers both the Ball Codes and Players & Teams rep panels,
@@ -3457,6 +3796,985 @@ app.post('/api/test/registration-email', requireAuth, requireSuper, async (req, 
   res.json({ sent: !!transporter, to, mock: !transporter });
 });
 
+// ═══ TOURNAMENT SCORING ROUTES — Live Leaderboard (Phase 1) ══════════════════
+// Full-round stroke-play scoring. Course/tournament setup needs an admin login;
+// score entry + the live leaderboard are public (gated by knowing the round id),
+// the same model as the existing player register/scan pages.
+
+// --- helpers -----------------------------------------------------------------
+
+/** Load a course with its tees and each tee's holes. */
+function loadCourseFull(courseId) {
+  const course = db.prepare('SELECT * FROM courses WHERE id=?').get(courseId);
+  if (!course) return null;
+  const tees = db.prepare('SELECT * FROM course_tees WHERE course_id=? ORDER BY rowid').all(courseId);
+  for (const t of tees) {
+    t.holes = db.prepare(
+      'SELECT hole_number,par,stroke_index,yardage FROM tee_holes WHERE tee_id=? ORDER BY hole_number'
+    ).all(t.id);
+  }
+  return { ...course, tees };
+}
+
+/** Insert a normalized course (from the API or manual entry). Returns course id. */
+function insertCourse(c, createdBy) {
+  const courseId = uid('CRS');
+  db.prepare(`INSERT INTO courses
+    (id,name,club_name,city,state,country,lat,lon,num_holes,source,external_id,created_by)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+    courseId, c.name, c.club_name || null, c.city || null, c.state || null,
+    c.country || null, c.lat ?? null, c.lon ?? null, c.num_holes || 18,
+    c.source || 'manual', c.external_id || null, createdBy || null);
+  for (const t of c.tees || []) {
+    const teeId = uid('TEE');
+    db.prepare(`INSERT INTO course_tees
+      (id,course_id,name,gender,par_total,yardage_total,course_rating,slope_rating)
+      VALUES (?,?,?,?,?,?,?,?)`).run(
+      teeId, courseId, t.name || 'Tee', t.gender || 'male',
+      t.par_total ?? null, t.yardage_total ?? null,
+      t.course_rating ?? null, t.slope_rating ?? null);
+    (t.holes || []).forEach((h, i) => {
+      db.prepare(`INSERT INTO tee_holes (id,tee_id,hole_number,par,stroke_index,yardage)
+        VALUES (?,?,?,?,?,?)`).run(
+        uid('CH'), teeId, h.hole_number || i + 1, Number(h.par) || 0,
+        h.stroke_index ?? null, h.yardage ?? null);
+    });
+  }
+  return courseId;
+}
+
+const _holesCache = {};
+function teeHoles(teeId) {
+  if (!teeId) return [];
+  if (!_holesCache[teeId]) _holesCache[teeId] = db.prepare(
+    'SELECT hole_number,par,stroke_index FROM tee_holes WHERE tee_id=? ORDER BY hole_number'
+  ).all(teeId);
+  return _holesCache[teeId];
+}
+function entryScores(entryId) {
+  const scores = {};
+  for (const s of db.prepare('SELECT hole_number,strokes FROM scores WHERE round_entry_id=?').all(entryId)) {
+    if (s.strokes != null) scores[s.hole_number] = s.strokes;
+  }
+  return scores;
+}
+
+/**
+ * Gather a round's entries in the shape the scoring engine expects.
+ * Scramble → one team card per team; best ball → one entry per player
+ * (carrying team info for aggregation); individual → one entry per player.
+ */
+function gatherRoundEntries(roundId) {
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(roundId);
+  if (!round) return [];
+  const fmt = formats.getFormat(round.format);
+  // "one-ball" formats (scramble / foursomes / greensome) share one team card
+  const isTeamCard = (fmt && typeof fmt.allowance === 'string') ? 1 : 0;
+  const rows = db.prepare(`
+    SELECT re.id, re.tee_id, re.course_handicap, re.team_id, re.side, re.match_no,
+           p.name AS player_name, rt.name AS team_name
+    FROM round_entries re
+    JOIN players p ON p.id=re.player_id
+    LEFT JOIN round_teams rt ON rt.id=re.team_id
+    WHERE re.round_id=? AND re.is_team_card=? ORDER BY re.rowid`).all(roundId, isTeamCard);
+  return rows.map(e => ({
+    entryId:        e.id,
+    playerName:     isTeamCard ? (e.team_name || 'Team') : e.player_name,
+    teamId:         e.team_id,
+    teamName:       e.team_name,
+    side:           e.side,
+    matchNo:        e.match_no,
+    courseHandicap: e.course_handicap,
+    holes:          teeHoles(e.tee_id),
+    scores:         entryScores(e.id),
+  }));
+}
+
+/** Scorecards for the score-entry page — team cards for scramble, else players. */
+function roundScoreCards(round) {
+  const fmt = formats.getFormat(round.format);
+  // "one-ball" formats (scramble / foursomes / greensome) share one team card
+  const isTeamCard = (fmt && typeof fmt.allowance === 'string') ? 1 : 0;
+  const rows = db.prepare(`
+    SELECT re.id, re.tee_id, re.course_handicap, re.team_id,
+           p.name AS player_name, rt.name AS team_name
+    FROM round_entries re
+    JOIN players p ON p.id=re.player_id
+    LEFT JOIN round_teams rt ON rt.id=re.team_id
+    WHERE re.round_id=? AND re.is_team_card=? ORDER BY re.rowid`).all(round.id, isTeamCard);
+  return rows.map(e => ({
+    id:              e.id,
+    player_name:     isTeamCard ? (e.team_name || 'Team') : e.player_name,
+    group_name:      e.team_name || null,
+    course_handicap: e.course_handicap,
+    scores:          entryScores(e.id),
+  }));
+}
+
+// Duplicate format: a frozen array of random 1×/2×/3× per-hole multipliers,
+// last hole always 2×. Generated once at round creation; null for other formats.
+function holeMultipliers(formatId) {
+  const fmt = formats.getFormat(formatId);
+  if (!fmt || fmt.engine !== 'duplicate') return null;
+  const m = [];
+  for (let i = 1; i <= 18; i++) m.push(i === 18 ? 2 : 1 + Math.floor(Math.random() * 3));
+  return JSON.stringify(m);
+}
+
+// Scoring options for a round (format + any frozen multipliers).
+function roundScoringOpts(round) {
+  return {
+    format: round.format,
+    multipliers: round.hole_multipliers ? JSON.parse(round.hole_multipliers) : null,
+  };
+}
+
+// Leaderboard payload for a round — scored for the round's own format, then
+// split into handicap flights if the tournament has flights enabled.
+function roundLeaderboardPayload(roundId) {
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(roundId);
+  if (!round) return null;
+  const lb = scoring.buildLeaderboard(gatherRoundEntries(roundId), roundScoringOpts(round));
+  const tour = db.prepare('SELECT flights_enabled,num_flights FROM tournaments WHERE id=?')
+    .get(round.tournament_id);
+  if (tour && tour.flights_enabled && lb.rows && lb.rows.length) {
+    scoring.applyFlights(lb, tour.num_flights || 1);
+  }
+  return { round, leaderboard: lb };
+}
+
+// SSE for live leaderboard / scorecard — keyed by round id.
+const roundSseClients = new Map();
+function broadcastRound(roundId) {
+  const clients = roundSseClients.get(roundId);
+  if (!clients?.size) return;
+  const payload = roundLeaderboardPayload(roundId);
+  if (!payload) return;
+  const data = JSON.stringify(payload);
+  for (const res of clients) res.write(`data: ${data}\n\n`);
+}
+
+// --- course endpoints --------------------------------------------------------
+
+app.get('/api/courses', requireAuth, (req, res) => {
+  res.json(db.prepare('SELECT * FROM courses ORDER BY name').all());
+});
+
+// Note: /api/courses/search already exists (CSV venue autocomplete) — this
+// scorecard-data lookup uses a distinct path so both coexist.
+app.get('/api/courses/online-search', requireAuth, requireAdminOrSuper, async (req, res) => {
+  if (!GOLF_COURSE_API_KEY) return res.status(503).json({ error: 'Course API key not configured' });
+  try {
+    const results = await golfApi.searchCourses(req.query.q || '', GOLF_COURSE_API_KEY);
+    res.json(results.map(golfApi.normalizeCourse));
+  } catch (err) {
+    console.error('[Courses] search failed:', err.message);
+    res.status(502).json({ error: 'Course search failed' });
+  }
+});
+
+// Import a course from the API. Cache-as-you-go: an already-imported course
+// (same external_id) is returned as-is instead of duplicated.
+app.post('/api/courses/import', requireAuth, requireAdminOrSuper, (req, res) => {
+  const normalized = req.body && req.body.tees ? req.body : null;
+  if (!normalized || !normalized.name) return res.status(400).json({ error: 'normalized course required' });
+  if (normalized.external_id) {
+    const existing = db.prepare('SELECT id FROM courses WHERE source=? AND external_id=?')
+      .get(normalized.source || 'golfcourseapi', normalized.external_id);
+    if (existing) return res.json({ id: existing.id, cached: true });
+  }
+  const id = insertCourse(normalized, req.admin.id);
+  res.json({ id, cached: false });
+});
+
+// Manual scorecard entry — { name, city, state, tees:[{ name, gender,
+// course_rating, slope_rating, holes:[{ par, stroke_index, yardage }] }] }
+app.post('/api/courses', requireAuth, requireAdminOrSuper, (req, res) => {
+  const c = req.body || {};
+  if (!c.name || !Array.isArray(c.tees) || !c.tees.length) {
+    return res.status(400).json({ error: 'name and at least one tee required' });
+  }
+  for (const t of c.tees) {
+    t.par_total = (t.holes || []).reduce((s, h) => s + (Number(h.par) || 0), 0);
+    t.yardage_total = (t.holes || []).reduce((s, h) => s + (Number(h.yardage) || 0), 0) || null;
+  }
+  c.source = 'manual';
+  c.num_holes = c.tees[0]?.holes?.length || 18;
+  res.json({ id: insertCourse(c, req.admin.id) });
+});
+
+app.get('/api/courses/:id', requireAuth, (req, res) => {
+  const course = loadCourseFull(req.params.id);
+  if (!course) return res.status(404).json({ error: 'Course not found' });
+  res.json(course);
+});
+
+app.delete('/api/courses/:id', requireAuth, requireAdminOrSuper, (req, res) => {
+  const inUse = db.prepare('SELECT 1 FROM rounds WHERE course_id=?').get(req.params.id);
+  if (inUse) return res.status(409).json({ error: 'Course is used by a round' });
+  db.prepare('DELETE FROM courses WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// --- tournament + round endpoints --------------------------------------------
+
+// Game-format catalog — drives the setup wizard's format picker.
+app.get('/api/formats', requireAuth, (req, res) => {
+  res.json(formats.formatsByTier());
+});
+
+app.get('/api/tournaments', requireAuth, (req, res) => {
+  const all = req.admin.role === 'super';
+  const rows = all
+    ? db.prepare('SELECT * FROM tournaments ORDER BY created_at DESC').all()
+    : db.prepare('SELECT * FROM tournaments WHERE admin_id=? ORDER BY created_at DESC').all(req.admin.id);
+  for (const t of rows) t.rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
+  res.json(rows);
+});
+
+app.post('/api/tournaments', requireAuth, requireAdminOrSuper, (req, res) => {
+  const { name, type, course_id, round_date, format, holes_segment,
+          flights_enabled, num_flights } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'name required' });
+  const fmt  = scoring.SUPPORTED_FORMATS.includes(format) ? format : 'stroke_gross';
+  const tType = ['casual', 'tournament', 'reds_blues'].includes(type) ? type : 'tournament';
+  const seg  = ['all', 'front9', 'back9'].includes(holes_segment) ? holes_segment : 'all';
+  // flights are a tournament-only feature
+  const fe = (tType === 'tournament' && flights_enabled) ? 1 : 0;
+  const nf = fe ? Math.max(1, Math.min(5, parseInt(num_flights) || 1)) : 1;
+  const id = uid('TRN');
+  db.prepare(`INSERT INTO tournaments (id,type,name,admin_id,default_format,share_code,flights_enabled,num_flights)
+    VALUES (?,?,?,?,?,?,?,?)`).run(id, tType, name, req.admin.id, fmt, uid('').slice(0, 6), fe, nf);
+  const roundId = uid('RND');
+  db.prepare(`INSERT INTO rounds (id,tournament_id,round_number,course_id,round_date,format,holes_segment,hole_multipliers)
+    VALUES (?,?,?,?,?,?,?,?)`).run(roundId, id, 1, course_id || null, round_date || null, fmt, seg, holeMultipliers(fmt));
+  res.json({ id, round_id: roundId });
+});
+
+app.get('/api/tournaments/:id', requireAuth, (req, res) => {
+  const t = db.prepare('SELECT * FROM tournaments WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Tournament not found' });
+  t.rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
+  res.json(t);
+});
+
+app.post('/api/tournaments/:id/rounds', requireAuth, requireAdminOrSuper, (req, res) => {
+  const t = db.prepare('SELECT * FROM tournaments WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Tournament not found' });
+  const { course_id, round_date, format } = req.body || {};
+  const fmt = scoring.SUPPORTED_FORMATS.includes(format) ? format : t.default_format;
+  const next = (db.prepare('SELECT MAX(round_number) AS m FROM rounds WHERE tournament_id=?').get(t.id).m || 0) + 1;
+  const roundId = uid('RND');
+  db.prepare(`INSERT INTO rounds (id,tournament_id,round_number,course_id,round_date,format,hole_multipliers)
+    VALUES (?,?,?,?,?,?,?)`).run(roundId, t.id, next, course_id || null, round_date || null, fmt, holeMultipliers(fmt));
+  res.json({ id: roundId, round_number: next });
+});
+
+app.post('/api/rounds/:roundId/status', requireAuth, requireAdminOrSuper, (req, res) => {
+  const { status } = req.body || {};
+  if (!['setup', 'active', 'ended'].includes(status)) return res.status(400).json({ error: 'bad status' });
+  db.prepare('UPDATE rounds SET status=? WHERE id=?').run(status, req.params.roundId);
+  broadcastRound(req.params.roundId);
+  res.json({ ok: true });
+});
+
+// Add a player to a round. Reuses an existing player row (matched by phone)
+// so history accrues, then computes the WHS course handicap for the tee.
+app.post('/api/rounds/:roundId/entries', requireAuth, requireAdminOrSuper, (req, res) => {
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
+  if (!round) return res.status(404).json({ error: 'Round not found' });
+  const { name, phone, email, handicap_index, tee_id, group_name } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'player name required' });
+
+  let player = phone ? db.prepare('SELECT * FROM players WHERE phone=?').get(phone) : null;
+  if (player) {
+    if (handicap_index != null) db.prepare('UPDATE players SET handicap_index=? WHERE id=?').run(handicap_index, player.id);
+  } else {
+    const pid = uid('PLR');
+    db.prepare('INSERT INTO players (id,name,phone,email,handicap_index) VALUES (?,?,?,?,?)')
+      .run(pid, name, phone || null, email || null, handicap_index ?? null);
+    player = { id: pid, handicap_index };
+  }
+
+  // course handicap, then the format's playing-handicap allowance (e.g. 95%)
+  let courseHcp = null;
+  if (tee_id) {
+    const tee = db.prepare('SELECT * FROM course_tees WHERE id=?').get(tee_id);
+    const raw = handicap.courseHandicap(handicap_index ?? player.handicap_index,
+      tee?.slope_rating, tee?.course_rating, tee?.par_total);
+    const fmt = formats.getFormat(round.format);
+    courseHcp = (raw != null && fmt && typeof fmt.allowance === 'number')
+      ? handicap.playingHandicap(raw, fmt.allowance) : raw;
+  }
+
+  let groupId = null;
+  if (group_name) {
+    const g = db.prepare('SELECT id FROM score_groups WHERE round_id=? AND name=?').get(round.id, group_name);
+    groupId = g ? g.id : (() => { const gid = uid('GRP');
+      db.prepare('INSERT INTO score_groups (id,round_id,name) VALUES (?,?,?)').run(gid, round.id, group_name);
+      return gid; })();
+  }
+
+  const entryId = uid('ENT');
+  db.prepare('INSERT INTO round_entries (id,round_id,player_id,tee_id,group_id,course_handicap) VALUES (?,?,?,?,?,?)')
+    .run(entryId, round.id, player.id, tee_id || null, groupId, courseHcp);
+  broadcastRound(round.id);
+  res.json({ id: entryId, course_handicap: courseHcp });
+});
+
+// Create a team (pair/team formats): players + entries + team handicap.
+app.post('/api/rounds/:roundId/teams', requireAuth, requireAdminOrSuper, (req, res) => {
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
+  if (!round) return res.status(404).json({ error: 'Round not found' });
+  const fmt = formats.getFormat(round.format);
+  if (!fmt) return res.status(400).json({ error: 'Unknown round format' });
+  const { name, players } = req.body || {};
+  if (!name || !Array.isArray(players) || !players.length) {
+    return res.status(400).json({ error: 'team name and at least one player required' });
+  }
+
+  // resolve/create each player and compute their course handicap
+  const members = players.map(p => {
+    let player = p.phone ? db.prepare('SELECT * FROM players WHERE phone=?').get(p.phone) : null;
+    if (player) {
+      if (p.handicap_index != null) db.prepare('UPDATE players SET handicap_index=? WHERE id=?').run(p.handicap_index, player.id);
+    } else {
+      const pid = uid('PLR');
+      db.prepare('INSERT INTO players (id,name,phone,email,handicap_index) VALUES (?,?,?,?,?)')
+        .run(pid, p.name, p.phone || null, p.email || null, p.handicap_index ?? null);
+      player = { id: pid };
+    }
+    let raw = null;
+    if (p.tee_id) {
+      const tee = db.prepare('SELECT * FROM course_tees WHERE id=?').get(p.tee_id);
+      raw = handicap.courseHandicap(p.handicap_index, tee?.slope_rating, tee?.course_rating, tee?.par_total);
+    }
+    return { playerId: player.id, tee_id: p.tee_id || null, courseHcp: raw };
+  });
+
+  const teamId = uid('TM');
+  // scramble/foursomes/greensome take a single team handicap (allowance baked in)
+  const teamHcp = typeof fmt.allowance === 'string'
+    ? handicap.teamHandicap(members.map(m => m.courseHcp), fmt.allowance) : null;
+  db.prepare('INSERT INTO round_teams (id,round_id,name,team_handicap) VALUES (?,?,?,?)')
+    .run(teamId, round.id, name, teamHcp);
+
+  if (typeof fmt.allowance === 'string') {
+    // one-ball formats (scramble / foursomes / greensome): one shared scorecard
+    // for the team (player_id = a representative member)
+    db.prepare(`INSERT INTO round_entries (id,round_id,player_id,tee_id,team_id,is_team_card,course_handicap)
+      VALUES (?,?,?,?,?,1,?)`).run(uid('ENT'), round.id, members[0].playerId, members[0].tee_id, teamId, teamHcp);
+  } else {
+    // best ball: each member keeps their own ball + playing handicap (allowance applied)
+    for (const m of members) {
+      const playing = (m.courseHcp != null && typeof fmt.allowance === 'number')
+        ? handicap.playingHandicap(m.courseHcp, fmt.allowance) : m.courseHcp;
+      db.prepare(`INSERT INTO round_entries (id,round_id,player_id,tee_id,team_id,is_team_card,course_handicap)
+        VALUES (?,?,?,?,?,0,?)`).run(uid('ENT'), round.id, m.playerId, m.tee_id, teamId, playing);
+    }
+  }
+  broadcastRound(round.id);
+  res.json({ id: teamId, team_handicap: teamHcp });
+});
+
+// Add a player to EVERY round of a tournament (multi-round field setup).
+app.post('/api/tournaments/:id/field', requireAuth, requireAdminOrSuper, (req, res) => {
+  const t = db.prepare('SELECT * FROM tournaments WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Tournament not found' });
+  const rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
+  if (!rounds.length) return res.status(400).json({ error: 'Tournament has no rounds' });
+  const { name, phone, email, handicap_index, tee_id, side, match_no } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'player name required' });
+
+  let player = phone ? db.prepare('SELECT * FROM players WHERE phone=?').get(phone) : null;
+  if (player) {
+    if (handicap_index != null) db.prepare('UPDATE players SET handicap_index=? WHERE id=?').run(handicap_index, player.id);
+  } else {
+    const pid = uid('PLR');
+    db.prepare('INSERT INTO players (id,name,phone,email,handicap_index) VALUES (?,?,?,?,?)')
+      .run(pid, name, phone || null, email || null, handicap_index ?? null);
+    player = { id: pid };
+  }
+  const sd = ['red', 'blue'].includes(side) ? side : null;   // Reds vs Blues
+  for (const round of rounds) {
+    let courseHcp = null;
+    if (tee_id) {
+      const tee = db.prepare('SELECT * FROM course_tees WHERE id=?').get(tee_id);
+      const raw = handicap.courseHandicap(handicap_index, tee?.slope_rating, tee?.course_rating, tee?.par_total);
+      const fmt = formats.getFormat(round.format);
+      courseHcp = (raw != null && fmt && typeof fmt.allowance === 'number')
+        ? handicap.playingHandicap(raw, fmt.allowance) : raw;
+    }
+    db.prepare('INSERT INTO round_entries (id,round_id,player_id,tee_id,course_handicap,side,match_no) VALUES (?,?,?,?,?,?,?)')
+      .run(uid('ENT'), round.id, player.id, tee_id || null, courseHcp, sd, match_no ?? null);
+    broadcastRound(round.id);
+  }
+  res.json({ ok: true, player_id: player.id });
+});
+
+// Cumulative leaderboard across all rounds of a tournament (individual formats).
+function tournamentLeaderboard(tournamentId) {
+  const t = db.prepare('SELECT * FROM tournaments WHERE id=?').get(tournamentId);
+  if (!t) return null;
+  const rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
+  const fmt = formats.getFormat(t.default_format);
+  const highWins = !!(fmt && fmt.engine === 'stableford');
+  const agg = {};
+  for (const round of rounds) {
+    const lb = scoring.buildLeaderboard(gatherRoundEntries(round.id), roundScoringOpts(round));
+    const e2p = {};
+    for (const re of db.prepare('SELECT id,player_id FROM round_entries WHERE round_id=?').all(round.id)) {
+      e2p[re.id] = re.player_id;
+    }
+    for (const row of lb.rows) {
+      const pid = e2p[row.entryId];
+      if (!pid) continue;                       // skip non-player rows (team formats)
+      if (!agg[pid]) agg[pid] = { playerName: row.playerName, perRound: {}, total: 0, thru: 0, started: false };
+      agg[pid].perRound[round.round_number] = row.total;
+      if (row.total != null) { agg[pid].total += row.total; agg[pid].thru += row.thru; agg[pid].started = true; }
+    }
+  }
+  const rows = Object.values(agg).map(a => ({
+    playerName: a.playerName, perRound: a.perRound, thru: a.thru,
+    total: a.started ? a.total : null,
+  }));
+  rows.sort((a, b) => {
+    if (a.total == null && b.total == null) return 0;
+    if (a.total == null) return 1;
+    if (b.total == null) return -1;
+    return highWins ? b.total - a.total : a.total - b.total;
+  });
+  let lastT = null, lastP = 0;
+  rows.forEach((r, i) => {
+    if (r.total != null && r.total === lastT) r.position = lastP;
+    else { r.position = i + 1; lastP = i + 1; lastT = r.total; }
+  });
+  return {
+    tournament: { id: t.id, name: t.name },
+    rounds: rounds.map(r => ({ number: r.round_number, status: r.status })),
+    scoreType: highWins ? 'points' : 'topar',
+    rows,
+  };
+}
+
+// Reds vs Blues: every match (a Red vs a Blue, paired by match number) is worth
+// a point — 1 to the winner, ½ each if halved. Team totals add across rounds.
+function rvbLeaderboard(tournamentId) {
+  const t = db.prepare('SELECT * FROM tournaments WHERE id=?').get(tournamentId);
+  if (!t) return null;
+  const rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
+  let redPts = 0, bluePts = 0;
+  const matches = [];
+  for (const round of rounds) {
+    const byMatch = {};
+    for (const e of gatherRoundEntries(round.id)) {
+      if (e.matchNo == null || !e.side) continue;
+      (byMatch[e.matchNo] = byMatch[e.matchNo] || {})[e.side] = e;
+    }
+    for (const mno of Object.keys(byMatch).sort((a, b) => a - b)) {
+      const red = byMatch[mno].red, blue = byMatch[mno].blue;
+      if (!red || !blue) continue;
+      const m = scoring.buildLeaderboard([red, blue], { format: 'match_individual' }).match;
+      if (m && m.status === 'closed') {
+        if (m.standing > 0) redPts += 1;
+        else if (m.standing < 0) bluePts += 1;
+        else { redPts += 0.5; bluePts += 0.5; }
+      }
+      matches.push({
+        round: round.round_number, matchNo: Number(mno),
+        red: red.playerName, blue: blue.playerName,
+        standing: m ? m.standing : 0, status: m ? m.status : 'in_progress',
+        result: m ? m.result : null, thru: m ? m.played : 0,
+      });
+    }
+  }
+  return {
+    type: 'reds_blues',
+    tournament: { id: t.id, name: t.name },
+    reds: { points: redPts }, blues: { points: bluePts },
+    rounds: rounds.map(r => ({ number: r.round_number, status: r.status })),
+    matches,
+  };
+}
+
+app.get('/api/tournaments/:id/leaderboard', (req, res) => {
+  const t = db.prepare('SELECT type FROM tournaments WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Tournament not found' });
+  res.json(t.type === 'reds_blues'
+    ? rvbLeaderboard(req.params.id)
+    : tournamentLeaderboard(req.params.id));
+});
+
+app.delete('/api/rounds/:roundId/entries/:entryId', requireAuth, requireAdminOrSuper, (req, res) => {
+  db.prepare('DELETE FROM round_entries WHERE id=? AND round_id=?').run(req.params.entryId, req.params.roundId);
+  broadcastRound(req.params.roundId);
+  res.json({ ok: true });
+});
+
+// --- public: score entry + leaderboard ---------------------------------------
+
+// Full round payload for the score-entry page and the leaderboard.
+app.get('/api/rounds/:roundId', (req, res) => {
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
+  if (!round) return res.status(404).json({ error: 'Round not found' });
+  const tournament = db.prepare('SELECT id,name,type,status FROM tournaments WHERE id=?').get(round.tournament_id);
+  const course = round.course_id ? loadCourseFull(round.course_id) : null;
+  res.json({ round, tournament, course, entries: roundScoreCards(round) });
+});
+
+// Batch score upsert from the score-entry page (also the offline-sync target).
+app.post('/api/rounds/:roundId/scores', (req, res) => {
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
+  if (!round) return res.status(404).json({ error: 'Round not found' });
+  if (round.status !== 'active') return res.status(403).json({ error: 'Round is not accepting scores' });
+  const { scores, entered_by } = req.body || {};
+  if (!Array.isArray(scores)) return res.status(400).json({ error: 'scores array required' });
+
+  const validEntry = db.prepare('SELECT 1 FROM round_entries WHERE id=? AND round_id=?');
+  const upsert = db.prepare(`INSERT INTO scores (id,round_entry_id,hole_number,strokes,entered_by)
+    VALUES (?,?,?,?,?)
+    ON CONFLICT(round_entry_id,hole_number)
+    DO UPDATE SET strokes=excluded.strokes, entered_by=excluded.entered_by, entered_at=CURRENT_TIMESTAMP`);
+  const clear = db.prepare('DELETE FROM scores WHERE round_entry_id=? AND hole_number=?');
+
+  const apply = db.transaction(rows => {
+    for (const s of rows) {
+      if (!validEntry.get(s.entry_id, round.id)) continue;
+      const hole = Number(s.hole_number);
+      if (s.strokes == null || s.strokes === '') clear.run(s.entry_id, hole);
+      else upsert.run(uid('SCR'), s.entry_id, hole, Number(s.strokes), entered_by || null);
+    }
+  });
+  apply(scores);
+  broadcastRound(round.id);
+  res.json({ ok: true, saved: scores.length });
+});
+
+// Ranked leaderboard. ?format= overrides the round format (gross/net toggle).
+app.get('/api/rounds/:roundId/leaderboard', (req, res) => {
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
+  if (!round) return res.status(404).json({ error: 'Round not found' });
+  res.json(roundLeaderboardPayload(round.id).leaderboard);
+});
+
+// SSE stream — pushes gross + net leaderboards on every score change.
+app.get('/api/rounds/:roundId/stream', (req, res) => {
+  const roundId = req.params.roundId;
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  });
+  if (!roundSseClients.has(roundId)) roundSseClients.set(roundId, new Set());
+  roundSseClients.get(roundId).add(res);
+
+  const payload = roundLeaderboardPayload(roundId);
+  if (payload) res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  const hb = setInterval(() => res.write(': ping\n\n'), 15000);
+  req.on('close', () => { clearInterval(hb); roundSseClients.get(roundId)?.delete(res); });
+});
+
+// ═══ ENTERPRISE — USER ACCOUNTS (personal accounts; players) ═════════════════
+
+app.post('/api/users/signup', (req, res) => {
+  const { name, email, password, handicap_index } = req.body || {};
+  if (!name || !email || !password) return res.status(400).json({ error: 'name, email and password required' });
+  if (String(password).length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  const e = String(email).toLowerCase().trim();
+  if (db.prepare('SELECT id FROM users WHERE email=?').get(e)) {
+    return res.status(409).json({ error: 'That email is already registered' });
+  }
+  // Optional self-reported handicap index (null if blank or invalid)
+  let hcp = null;
+  if (handicap_index !== null && handicap_index !== undefined && handicap_index !== '') {
+    const n = Number(handicap_index);
+    if (Number.isFinite(n) && n >= -10 && n <= 54) hcp = n;
+  }
+  const id = uid('USR');
+  db.prepare('INSERT INTO users (id,name,email,password_hash,handicap_index) VALUES (?,?,?,?,?)')
+    .run(id, String(name).trim(), e, hashPassword(password), hcp);
+  const token = createUserSession(id);
+  res.json({ token, user: { id, name: String(name).trim(), email: e, handicap_index: hcp } });
+});
+
+app.post('/api/users/login', (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) return res.status(400).json({ error: 'email and password required' });
+  const u = db.prepare('SELECT * FROM users WHERE email=?').get(String(email).toLowerCase().trim());
+  if (!u || !verifyPassword(password, u.password_hash)) {
+    return res.status(401).json({ error: 'Wrong email or password' });
+  }
+  const token = createUserSession(u.id);
+  res.json({ token, user: { id: u.id, name: u.name, email: u.email } });
+});
+
+app.post('/api/users/logout', (req, res) => {
+  const token = req.headers['x-user-token'];
+  if (token) db.prepare('DELETE FROM user_sessions WHERE token=?').run(token);
+  res.json({ ok: true });
+});
+
+// ─── Stripe Connect onboarding (organizer connects their own Stripe) ───────
+// One Connect Express account per admin. The admin who created an event
+// (events.admin_id) receives the proceeds for that event's registrations.
+// The onboarding flow:
+//   1. Admin clicks "Connect Stripe" → POST /api/admin/stripe/connect/onboard
+//      → server creates (or reuses) the acct_… and an account_link, returns URL.
+//   2. Browser redirects to Stripe → admin fills in their info.
+//   3. Stripe redirects back to /api/admin/stripe/connect/return or /refresh.
+//   4. account.updated webhook also fires, updating our copy of the status.
+//      (Webhook is authoritative; the return-URL fetch is a fast best-effort.)
+
+app.get('/api/admin/stripe/account', requireAuth, (req, res) => {
+  const a = db.prepare(`SELECT stripe_account_id, stripe_account_status,
+                               stripe_charges_enabled, stripe_payouts_enabled,
+                               stripe_details_submitted, stripe_connected_at
+                        FROM admins WHERE id=?`).get(req.admin.id);
+  res.json({
+    stripe_enabled: stripeHelper.mode === 'stripe',
+    publishable_key: process.env.STRIPE_PUBLISHABLE_KEY || null,
+    fee_bps: stripeHelper.FEE_BPS,
+    account: a || null,
+  });
+});
+
+app.post('/api/admin/stripe/connect/onboard', requireAuth, async (req, res) => {
+  if (stripeHelper.mode !== 'stripe') return res.status(503).json({ error: 'Stripe not configured on this server' });
+  try {
+    let row = db.prepare('SELECT stripe_account_id FROM admins WHERE id=?').get(req.admin.id);
+    let accountId = row && row.stripe_account_id;
+
+    if (!accountId) {
+      const account = await stripeHelper.createConnectAccount({ admin: req.admin });
+      accountId = account.id;
+      db.prepare('UPDATE admins SET stripe_account_id=?, stripe_account_status=? WHERE id=?')
+        .run(accountId, 'restricted', req.admin.id);
+    }
+
+    const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
+    const link = await stripeHelper.createAccountLink({
+      accountId,
+      refreshUrl: `${APP_URL}/admin/stripe-connect?refresh=1`,
+      returnUrl:  `${APP_URL}/admin/stripe-connect?return=1`,
+    });
+    res.json({ url: link.url, account_id: accountId });
+  } catch (e) {
+    console.error('[Stripe connect onboard]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Lightweight refresh — re-fetches the live account and persists status.
+// Called from the admin page after Stripe redirects back, so the UI updates
+// immediately without waiting for the webhook.
+app.post('/api/admin/stripe/connect/sync', requireAuth, async (req, res) => {
+  if (stripeHelper.mode !== 'stripe') return res.status(503).json({ error: 'Stripe not configured on this server' });
+  try {
+    const row = db.prepare('SELECT stripe_account_id FROM admins WHERE id=?').get(req.admin.id);
+    if (!row || !row.stripe_account_id) return res.status(404).json({ error: 'No Connect account on file' });
+    const account = await stripeHelper.retrieveAccount(row.stripe_account_id);
+    const s = stripeHelper.mapAccountStatus(account);
+    db.prepare(`UPDATE admins SET
+                  stripe_account_status=?,
+                  stripe_charges_enabled=?,
+                  stripe_payouts_enabled=?,
+                  stripe_details_submitted=?,
+                  stripe_connected_at = COALESCE(stripe_connected_at, CASE WHEN ?='active' THEN CURRENT_TIMESTAMP END)
+                WHERE id=?`).run(
+      s.stripe_account_status, s.stripe_charges_enabled, s.stripe_payouts_enabled,
+      s.stripe_details_submitted, s.stripe_account_status, req.admin.id
+    );
+    res.json({ status: s.stripe_account_status, charges_enabled: !!s.stripe_charges_enabled,
+               payouts_enabled: !!s.stripe_payouts_enabled, details_submitted: !!s.stripe_details_submitted });
+  } catch (e) {
+    console.error('[Stripe connect sync]', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─── Organizer-side: event-site + packages editor ───────────────────────────
+
+function isValidSlug(s) {
+  return typeof s === 'string'
+    && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(s)
+    && s.length <= 80;
+}
+
+app.get('/api/admin/events/:id/site', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const eventId = req.params.id;
+  const site = db.prepare('SELECT * FROM event_sites WHERE event_id=?').get(eventId);
+  const packages = db.prepare(
+    'SELECT * FROM registration_packages WHERE event_id=? ORDER BY sort_order, price_cents'
+  ).all(eventId);
+  res.json({ site: site || null, packages });
+});
+
+app.put('/api/admin/events/:id/site', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const eventId = req.params.id;
+  const b = req.body || {};
+  if (!isValidSlug(b.slug)) {
+    return res.status(400).json({ error: 'Slug must be lowercase letters, numbers and hyphens (e.g. "fall-classic-2026")' });
+  }
+  const taken = db.prepare('SELECT event_id FROM event_sites WHERE slug=? AND event_id != ?').get(b.slug, eventId);
+  if (taken) return res.status(409).json({ error: 'That slug is already used by another event.' });
+  const cols = ['slug','headline','subhead','hero_image','starts_at','location_name',
+                'about_html','schedule_json','course_info','faq_json',
+                'contact_name','contact_email','contact_phone','published'];
+  const data = {
+    slug: b.slug,
+    headline: b.headline || null,
+    subhead: b.subhead || null,
+    hero_image: b.hero_image || null,
+    starts_at: b.starts_at || null,
+    location_name: b.location_name || null,
+    about_html: b.about_html || null,
+    schedule_json: Array.isArray(b.schedule) ? JSON.stringify(b.schedule) : null,
+    course_info: b.course_info || null,
+    faq_json: Array.isArray(b.faq) ? JSON.stringify(b.faq) : null,
+    contact_name: b.contact_name || null,
+    contact_email: b.contact_email || null,
+    contact_phone: b.contact_phone || null,
+    published: b.published ? 1 : 0,
+  };
+  const params = cols.map(c => data[c]);
+  const existing = db.prepare('SELECT event_id FROM event_sites WHERE event_id=?').get(eventId);
+  if (existing) {
+    db.prepare(`UPDATE event_sites SET ${cols.map(c => c+'=?').join(', ')}, updated_at=CURRENT_TIMESTAMP WHERE event_id=?`)
+      .run(...params, eventId);
+  } else {
+    const ph = cols.map(() => '?').join(',');
+    db.prepare(`INSERT INTO event_sites (event_id, ${cols.join(',')}) VALUES (?, ${ph})`)
+      .run(eventId, ...params);
+  }
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/events/:id/packages', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const b = req.body || {};
+  if (!b.name) return res.status(400).json({ error: 'Package name required' });
+  const id = uid('PKG');
+  db.prepare(`INSERT INTO registration_packages
+    (id, event_id, name, description, price_cents, includes_players, quantity_limit, sort_order, active)
+    VALUES (?,?,?,?,?,?,?,?,1)`).run(
+    id, req.params.id, String(b.name).trim(), b.description || null,
+    Math.max(0, Number(b.price_cents) || 0),
+    Math.max(1, Number(b.includes_players) || 1),
+    b.quantity_limit != null && b.quantity_limit !== '' ? Number(b.quantity_limit) : null,
+    Number(b.sort_order) || 0);
+  res.json({ id });
+});
+
+app.patch('/api/admin/events/:id/packages/:pkgId', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const b = req.body || {};
+  const cur = db.prepare('SELECT * FROM registration_packages WHERE id=? AND event_id=?')
+    .get(req.params.pkgId, req.params.id);
+  if (!cur) return res.status(404).json({ error: 'Package not found' });
+  const n = {
+    name: b.name != null ? String(b.name).trim() : cur.name,
+    description: b.description != null ? b.description : cur.description,
+    price_cents: b.price_cents != null ? Math.max(0, Number(b.price_cents) || 0) : cur.price_cents,
+    includes_players: b.includes_players != null ? Math.max(1, Number(b.includes_players) || 1) : cur.includes_players,
+    quantity_limit: b.quantity_limit !== undefined ? (b.quantity_limit === '' || b.quantity_limit == null ? null : Number(b.quantity_limit)) : cur.quantity_limit,
+    sort_order: b.sort_order != null ? (Number(b.sort_order) || 0) : cur.sort_order,
+    active: b.active != null ? (b.active ? 1 : 0) : cur.active,
+  };
+  db.prepare(`UPDATE registration_packages
+    SET name=?, description=?, price_cents=?, includes_players=?, quantity_limit=?, sort_order=?, active=?
+    WHERE id=?`).run(n.name, n.description, n.price_cents, n.includes_players, n.quantity_limit, n.sort_order, n.active, req.params.pkgId);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/events/:id/packages/:pkgId', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  db.prepare('DELETE FROM registration_packages WHERE id=? AND event_id=?')
+    .run(req.params.pkgId, req.params.id);
+  res.json({ ok: true });
+});
+
+// Public event-site payload — what the /e/:slug page renders from.
+app.get('/api/event-sites/:slug', (req, res) => {
+  const site = db.prepare('SELECT * FROM event_sites WHERE slug=? AND published=1').get(req.params.slug);
+  if (!site) return res.status(404).json({ error: 'Event not found' });
+  const event = db.prepare(`SELECT id, name, venue, is_charity, brand_logo, brand_accent, brand_url, admin_id
+                            FROM events WHERE id=?`).get(site.event_id);
+  const packages = db.prepare(`SELECT id, name, description, price_cents, includes_players, quantity_limit
+                               FROM registration_packages
+                               WHERE event_id=? AND active=1
+                               ORDER BY sort_order, price_cents`).all(site.event_id);
+  // Registration is "open" only when Stripe is configured AND the organizer
+  // has a Connect account with charges enabled. In mock mode it's open by
+  // default (test path).
+  let registration_open = stripeHelper.mode === 'mock';
+  if (stripeHelper.mode === 'stripe' && event.admin_id) {
+    const organizer = db.prepare('SELECT stripe_charges_enabled FROM admins WHERE id=?').get(event.admin_id);
+    registration_open = !!(organizer && organizer.stripe_charges_enabled);
+  }
+  delete event.admin_id; // don't leak organizer id to public site
+  const parseJson = s => { try { return JSON.parse(s || '[]'); } catch { return []; } };
+  res.json({
+    site, event, packages,
+    schedule: parseJson(site.schedule_json),
+    faq:      parseJson(site.faq_json),
+    registration_open,
+    payment_mode: stripeHelper.mode,
+  });
+});
+
+// ─── REGISTRATIONS (E1: registration + payment) ─────────────────────────────
+// Payment flow:
+//   • mock mode   — STRIPE_SECRET_KEY unset; mark registration paid immediately
+//                   and return /confirmation/:id URL. Test path only.
+//   • stripe mode — STRIPE_SECRET_KEY set; insert registration as `pending`,
+//                   create a Stripe Checkout Session against the organizer's
+//                   Connect account, return the hosted-checkout URL. The
+//                   webhook (above) flips status → 'paid' on
+//                   `checkout.session.completed`.
+//
+// The organizer's Connect account = the `admin_id` (creator) of the event.
+// `stripe_charges_enabled` must be 1 or registration is blocked.
+
+app.post('/api/registrations', async (req, res) => {
+  const { event_id, package_id, buyer_name, buyer_email, buyer_phone, players } = req.body || {};
+  if (!event_id || !package_id) return res.status(400).json({ error: 'event_id and package_id required' });
+  if (!buyer_name || !buyer_email) return res.status(400).json({ error: 'buyer_name and buyer_email required' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(buyer_email)) return res.status(400).json({ error: 'Invalid email' });
+
+  const event = db.prepare('SELECT id, name, admin_id FROM events WHERE id=?').get(event_id);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+
+  const pkg = db.prepare(`SELECT id, name, description, price_cents, includes_players, quantity_limit, active
+                          FROM registration_packages
+                          WHERE id=? AND event_id=?`).get(package_id, event_id);
+  if (!pkg) return res.status(404).json({ error: 'Package not found' });
+  if (!pkg.active) return res.status(400).json({ error: 'Package is not currently available' });
+
+  if (pkg.quantity_limit && pkg.quantity_limit > 0) {
+    const sold = db.prepare(`SELECT COUNT(*) AS n FROM registrations
+                             WHERE package_id=? AND payment_status='paid'`).get(package_id).n;
+    if (sold >= pkg.quantity_limit) return res.status(400).json({ error: 'This package is sold out' });
+  }
+
+  const playersArr = Array.isArray(players) ? players.filter(p => p && p.name) : [];
+  const id = crypto.randomBytes(8).toString('hex');
+  const amount_cents = pkg.price_cents;
+  const platform_fee_cents = stripeHelper.feeCents(amount_cents);
+  const site = db.prepare('SELECT slug FROM event_sites WHERE event_id=?').get(event_id);
+  const confirmationPath = (regId) => site ? `/e/${site.slug}/confirmation/${regId}` : `/registrations/${regId}`;
+
+  // ── Mock mode (no Stripe key) — instant paid, returns confirmation URL.
+  if (stripeHelper.mode === 'mock') {
+    db.prepare(`INSERT INTO registrations
+      (id, event_id, package_id, buyer_name, buyer_email, buyer_phone, players_json,
+       amount_cents, platform_fee_cents, payment_status, payment_mode, paid_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'mock', CURRENT_TIMESTAMP)`)
+      .run(id, event_id, package_id, buyer_name.trim(), buyer_email.trim().toLowerCase(),
+           (buyer_phone || '').trim() || null, JSON.stringify(playersArr),
+           amount_cents, platform_fee_cents);
+    return res.json({ id, confirmation_url: confirmationPath(id), payment_mode: 'mock', status: 'paid' });
+  }
+
+  // ── Stripe mode — verify organizer Connect, create Checkout Session.
+  if (!event.admin_id) return res.status(503).json({ error: 'This event has no organizer on file' });
+  const organizer = db.prepare(`SELECT stripe_account_id, stripe_charges_enabled
+                                FROM admins WHERE id=?`).get(event.admin_id);
+  if (!organizer || !organizer.stripe_account_id) {
+    return res.status(503).json({ error: 'The organizer hasn\'t connected a Stripe account yet — registration is not open.' });
+  }
+  if (!organizer.stripe_charges_enabled) {
+    return res.status(503).json({ error: 'The organizer\'s Stripe account isn\'t fully verified yet — registration is paused.' });
+  }
+
+  // Insert in pending state BEFORE creating the Checkout Session so the
+  // session metadata can reference our registration_id. If Stripe fails after,
+  // the pending row stays — it'll never flip to paid because no webhook fires.
+  db.prepare(`INSERT INTO registrations
+    (id, event_id, package_id, buyer_name, buyer_email, buyer_phone, players_json,
+     amount_cents, platform_fee_cents, payment_status, payment_mode)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'stripe')`)
+    .run(id, event_id, package_id, buyer_name.trim(), buyer_email.trim().toLowerCase(),
+         (buyer_phone || '').trim() || null, JSON.stringify(playersArr),
+         amount_cents, platform_fee_cents);
+
+  try {
+    const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
+    const session = await stripeHelper.createCheckoutSession({
+      amountCents:        amount_cents,
+      platformFeeCents:   platform_fee_cents,
+      connectedAccountId: organizer.stripe_account_id,
+      productName:        `${event.name} · ${pkg.name}`,
+      productDescription: pkg.description || undefined,
+      buyerEmail:         buyer_email.trim().toLowerCase(),
+      metadata: {
+        registration_id: id,
+        event_id,
+        package_id,
+        jord: '1',
+      },
+      successUrl: `${APP_URL}${confirmationPath(id)}?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl:  `${APP_URL}/e/${site ? site.slug : ''}/register?pkg=${encodeURIComponent(package_id)}&canceled=1`,
+    });
+
+    db.prepare('UPDATE registrations SET stripe_session_id=? WHERE id=?').run(session.id, id);
+    return res.json({ id, checkout_url: session.url, session_id: session.id, payment_mode: 'stripe', status: 'pending' });
+  } catch (e) {
+    console.error('[Stripe] Checkout Session create failed:', e);
+    db.prepare("UPDATE registrations SET payment_status='failed' WHERE id=?").run(id);
+    return res.status(502).json({ error: 'Could not start checkout — please try again.' });
+  }
+});
+
+app.get('/api/registrations/:id', (req, res) => {
+  const SELECT = `SELECT r.id, r.event_id, r.package_id, r.buyer_name, r.buyer_email,
+                         r.buyer_phone, r.players_json, r.amount_cents, r.platform_fee_cents,
+                         r.payment_status, r.payment_mode, r.stripe_session_id,
+                         r.created_at, r.paid_at,
+                         p.name AS package_name, p.includes_players,
+                         e.name AS event_name, e.venue AS event_venue,
+                         s.slug AS event_slug, s.headline AS event_headline,
+                         s.contact_email AS support_email
+                  FROM registrations r
+                  JOIN registration_packages p ON p.id = r.package_id
+                  JOIN events e ON e.id = r.event_id
+                  LEFT JOIN event_sites s ON s.event_id = r.event_id`;
+  // Lookup by registration id, OR — when Stripe redirects back to the
+  // success_url with ?session_id=… — fall back to looking up by the Checkout
+  // Session id (the buyer's URL may contain it even though we have the real id).
+  let reg = db.prepare(`${SELECT} WHERE r.id=?`).get(req.params.id);
+  if (!reg && req.query.session_id) {
+    reg = db.prepare(`${SELECT} WHERE r.stripe_session_id=?`).get(req.query.session_id);
+  }
+  if (!reg) return res.status(404).json({ error: 'Registration not found' });
+  let players = [];
+  try { players = JSON.parse(reg.players_json || '[]'); } catch {}
+  delete reg.players_json;
+  reg.players = players;
+  res.json(reg);
+});
+
+// Organizer view — list registrations for an event (for upcoming dashboard).
+app.get('/api/admin/events/:id/registrations', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const rows = db.prepare(`SELECT r.id, r.buyer_name, r.buyer_email, r.buyer_phone,
+                                  r.amount_cents, r.platform_fee_cents, r.payment_status,
+                                  r.payment_mode, r.created_at, r.paid_at,
+                                  p.name AS package_name
+                           FROM registrations r
+                           JOIN registration_packages p ON p.id = r.package_id
+                           WHERE r.event_id=?
+                           ORDER BY r.created_at DESC`).all(req.params.id);
+  const totals = db.prepare(`SELECT
+      COUNT(*) AS count,
+      COALESCE(SUM(CASE WHEN payment_status='paid' THEN amount_cents END), 0) AS revenue_cents,
+      COALESCE(SUM(CASE WHEN payment_status='paid' THEN platform_fee_cents END), 0) AS fees_cents
+    FROM registrations WHERE event_id=?`).get(req.params.id);
+  res.json({ registrations: rows, totals });
+});
+
+app.get('/api/users/me', requireUser, (req, res) => {
+  res.json({ user: {
+    id: req.user.id, name: req.user.name, email: req.user.email,
+    handicap_index: req.user.handicap_index, ghin_id: req.user.ghin_id,
+  }});
+});
+
 // ─── PAGES ───────────────────────────────────────────────────────────────────
 const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'about.html', '/signup': 'signup.html',
   '/admin': 'admin.html',
@@ -3467,11 +4785,21 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   '/admin/requests': 'admin/requests.html',
   '/admin/events/:id':       'admin/editor.html',
   '/admin/events/:id/:tab':  'admin/editor.html',
+  '/admin/events/:id/site/edit': 'admin/event-site-editor.html',
+  '/admin/stripe-connect':       'admin/stripe-connect.html',
   '/register/:id': 'register.html',
   '/team/:eid/:share': 'team.html',
   '/scan': 'scan.html', '/scan/:code': 'scan.html', '/leaderboard/:id': 'leaderboard.html',
   '/dashboard/:eid/:code': 'dashboard.html', '/monitor/:id': 'monitor.html',
-  '/global': 'global.html', '/test': 'test.html', '/system-summary': 'system-summary.html' };
+  '/global': 'global.html', '/test': 'test.html', '/system-summary': 'system-summary.html',
+  '/clubhouse': 'tournaments.html',             // create & manage games (admin hub)
+  '/login':     'login.html',                   // user (personal/player) sign-in + sign-up
+  '/e/:slug/register':              'event-register.html',     // registration form + checkout
+  '/e/:slug/confirmation/:regId':   'event-confirmation.html', // post-checkout thank-you
+  '/e/:slug':   'event-site.html',              // public brandable event site (E1)
+  '/scorecard/:roundId': 'scorecard.html',     // score entry (public, via link)
+  '/live/:roundId': 'live.html',               // round live leaderboard (public)
+  '/tournament/:id': 'tournament-live.html' }; // cumulative tournament leaderboard
 Object.entries(pages).forEach(([route, file]) => {
   app.get(route, (_, res) => res.sendFile(path.join(__dirname, 'public', file)));
 });

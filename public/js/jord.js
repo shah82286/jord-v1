@@ -6,18 +6,26 @@
   'use strict';
 
   const TOKEN_KEY = 'jord_admin_token';
+  const USER_TOKEN_KEY = 'jord_user_token';
   const APP = {};
 
-  /* ─── Auth token (admin) ─────────────────────────────────────────── */
+  /* ─── Auth token (admin / organizer / staff) ──────────────────────── */
   APP.getToken = () => localStorage.getItem(TOKEN_KEY) || '';
   APP.setToken = (t) => localStorage.setItem(TOKEN_KEY, t || '');
   APP.clearToken = () => localStorage.removeItem(TOKEN_KEY);
+
+  /* ─── Auth token (user — personal / player accounts) ──────────────── */
+  APP.getUserToken = () => localStorage.getItem(USER_TOKEN_KEY) || '';
+  APP.setUserToken = (t) => localStorage.setItem(USER_TOKEN_KEY, t || '');
+  APP.clearUserToken = () => localStorage.removeItem(USER_TOKEN_KEY);
 
   /* ─── API client ─────────────────────────────────────────────────── */
   APP.api = async function api(path, opts = {}) {
     const headers = Object.assign({ 'Content-Type': 'application/json' }, opts.headers || {});
     const tok = APP.getToken();
     if (tok) headers['x-admin-token'] = tok;
+    const userTok = APP.getUserToken();
+    if (userTok) headers['x-user-token'] = userTok;
     const init = {
       method: opts.method || 'GET',
       headers,

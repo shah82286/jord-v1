@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Stripe Connect · JORD Admin</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+  <style>
+    .sc-wrap { max-width: 720px; margin: 0 auto; padding: var(--s-6) var(--s-4); }
+    .sc-eyebrow { font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--ink-3); font-weight:700; }
+    .sc-wrap h1 { font-family:var(--font-display); font-size:clamp(2rem,5vw,2.6rem);
+      letter-spacing:-0.02em; line-height:1.1; margin:8px 0 var(--s-2); }
+    .sc-wrap h1 em { font-style:italic; color:var(--accent); }
+    .sc-wrap .lead { color:var(--ink-2); font-size:16px; line-height:1.5; margin-bottom:var(--s-5); }
+
+    .sc-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+      padding:var(--s-5); margin-bottom:var(--s-4); }
+    .sc-card h2 { font-family:var(--font-display); font-size:1.4rem; margin-bottom:var(--s-2); }
+    .sc-card p { color:var(--ink-2); line-height:1.55; margin-bottom:var(--s-3); font-size:15px; }
+
+    .sc-status { display:inline-flex; align-items:center; gap:8px; padding:6px 14px; border-radius:999px;
+      font-size:12px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+    .sc-status.none      { background:var(--surface-2); color:var(--ink-2); border:1px solid var(--border); }
+    .sc-status.restricted{ background:rgba(220,53,69,0.10); color:#c0392b; border:1px solid rgba(220,53,69,0.30); }
+    .sc-status.pending   { background:rgba(184,136,77,0.12); color:var(--accent); border:1px solid rgba(184,136,77,0.35); }
+    .sc-status.active    { background:rgba(46,160,67,0.12); color:#1f7e2a; border:1px solid rgba(46,160,67,0.30); }
+
+    .sc-flags { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:var(--s-2); margin-top:var(--s-3); }
+    .sc-flag { background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r-md); padding:12px 14px; }
+    .sc-flag .k { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3); font-weight:700; }
+    .sc-flag .v { font-size:14px; font-weight:600; margin-top:4px; }
+    .sc-flag.ok .v { color:#1f7e2a; }
+    .sc-flag.no .v { color:#c0392b; }
+
+    .sc-cta { padding:14px 24px; font-size:15px; font-weight:700; }
+    .sc-row { display:flex; gap:var(--s-2); align-items:center; flex-wrap:wrap; }
+    .sc-money { display:flex; gap:var(--s-3); align-items:baseline; margin-top:var(--s-3); font-size:13px; color:var(--ink-2); }
+    .sc-money strong { color:var(--ink); font-size:15px; }
+  </style>
+</head>
+<body>
+<main class="sc-wrap">
+  <a href="/admin" class="btn btn-ghost" style="margin-bottom: 12px;">← Back to events</a>
+  <div class="sc-eyebrow">Payments</div>
+  <h1>Connect your <em>Stripe</em> account</h1>
+  <p class="lead">When buyers register and pay, the money goes straight to your bank.
+    JORD takes a small <span id="fee-pct">3.0%</span> platform fee. We never see or store card details — Stripe does all of that.</p>
+
+  <div id="content"><p style="color:var(--ink-3);">Loading…</p></div>
+</main>
+
+<script src="/js/jord.js"></script>
+<script src="/admin/_shared/auth.js"></script>
+<script>
+const $ = JORD.$;
+
+ADMIN.requireAuth({ adminOrSuper: true }).then(async () => {
+  ADMIN.renderTopbar('Stripe');
+  // After Stripe redirects back from onboarding, sync the live account status.
+  const url = new URL(location.href);
+  if (url.searchParams.get('return') === '1' || url.searchParams.get('refresh') === '1') {
+    try { await JORD.api('/api/admin/stripe/connect/sync', { method: 'POST' }); } catch {}
+    // Clean the URL so a refresh doesn't re-sync.
+    history.replaceState(null, '', '/admin/stripe-connect');
+  }
+  await load();
+});
+
+function statusBadge(s) {
+  const map = { active: 'Active · ready', pending: 'Pending Stripe review', restricted: 'Needs more info', none: 'Not connected' };
+  return `<span class="sc-status ${s||'none'}">${map[s||'none']}</span>`;
+}
+
+function flag(label, ok) {
+  return `<div class="sc-flag ${ok?'ok':'no'}">
+    <div class="k">${label}</div>
+    <div class="v">${ok?'✓ Yes':'— Not yet'}</div>
+  </div>`;
+}
+
+async function load() {
+  const r = await JORD.api('/api/admin/stripe/account');
+  $('#fee-pct').textContent = ((r.fee_bps || 300) / 100).toFixed(1) + '%';
+  const a = r.account || {};
+  const stripeOn = r.stripe_enabled;
+  const status = a.stripe_account_status || 'none';
+  const isActive = status === 'active';
+
+  let body = '';
+  if (!stripeOn) {
+    body = `<div class="sc-card">
+      <h2>Stripe isn't set up on this server yet</h2>
+      <p>The site administrator needs to set <code>STRIPE_SECRET_KEY</code> in the deployment environment before organizers can connect their accounts.</p>
+    </div>`;
+  } else if (!a.stripe_account_id) {
+    body = `<div class="sc-card">
+      <h2>Get started</h2>
+      <p>Connect a Stripe account so you can accept registration payments. Stripe will ask for your business details and bank info — it takes ~5 minutes.</p>
+      <button id="btn-onboard" class="btn btn-primary sc-cta">Connect with Stripe →</button>
+    </div>`;
+  } else {
+    body = `<div class="sc-card">
+      <h2>Account status</h2>
+      <div class="sc-row" style="margin-bottom:8px">${statusBadge(status)}</div>
+      <div class="sc-flags">
+        ${flag('Details submitted', !!a.stripe_details_submitted)}
+        ${flag('Charges enabled', !!a.stripe_charges_enabled)}
+        ${flag('Payouts enabled', !!a.stripe_payouts_enabled)}
+      </div>
+      ${a.stripe_connected_at ? `<div class="sc-money"><span>Connected</span><strong>${new Date(a.stripe_connected_at).toLocaleDateString()}</strong></div>` : ''}
+      <div class="sc-row" style="margin-top:var(--s-4)">
+        ${isActive
+          ? `<button id="btn-refresh" class="btn btn-ghost">↻ Refresh status</button>
+             <a href="https://dashboard.stripe.com/test/connect/accounts/${encodeURIComponent(a.stripe_account_id)}" target="_blank" rel="noopener" class="btn btn-ghost">Open in Stripe ↗</a>`
+          : `<button id="btn-onboard" class="btn btn-primary sc-cta">Finish onboarding →</button>
+             <button id="btn-refresh" class="btn btn-ghost">↻ Refresh status</button>`
+        }
+      </div>
+    </div>`;
+
+    if (!isActive) {
+      body += `<div class="sc-card" style="background:rgba(184,136,77,0.06);border-color:rgba(184,136,77,0.30)">
+        <h2 style="font-size:1.15rem">⏳ Registration is paused until your account is active</h2>
+        <p>Your event sites are still live, but the "Register" buttons will show a "coming soon" message until Stripe finishes verifying your account.</p>
+      </div>`;
+    } else {
+      body += `<div class="sc-card" style="background:rgba(46,160,67,0.05);border-color:rgba(46,160,67,0.25)">
+        <h2 style="font-size:1.15rem">✓ You're ready to take payments</h2>
+        <p>Buyers can now register and pay for any of your published events. Funds settle to your bank on Stripe's standard 2-day rolling schedule.</p>
+      </div>`;
+    }
+  }
+
+  $('#content').innerHTML = body;
+
+  const onboardBtn = document.getElementById('btn-onboard');
+  if (onboardBtn) onboardBtn.onclick = async () => {
+    onboardBtn.disabled = true;
+    onboardBtn.textContent = 'Redirecting…';
+    try {
+      const r = await JORD.api('/api/admin/stripe/connect/onboard', { method: 'POST' });
+      location.href = r.url;
+    } catch (e) {
+      alert(e.message || 'Could not start onboarding');
+      onboardBtn.disabled = false;
+      onboardBtn.textContent = 'Connect with Stripe →';
+    }
+  };
+
+  const refreshBtn = document.getElementById('btn-refresh');
+  if (refreshBtn) refreshBtn.onclick = async () => {
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = 'Refreshing…';
+    try { await JORD.api('/api/admin/stripe/connect/sync', { method: 'POST' }); }
+    catch (e) { alert(e.message || 'Sync failed'); }
+    load();
+  };
+}
+</script>
+</body>
+</html>

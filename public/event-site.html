@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Event · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  body { background: var(--bg); }
+
+  /* ── Top mini-bar ───────────────────────────────────────────── */
+  .es-topbar { display:flex; align-items:center; justify-content:space-between;
+    padding:14px var(--s-4); border-bottom:1px solid var(--border); background:var(--surface); }
+  .es-topbar .brand { display:flex; align-items:center; gap:10px; font-weight:700; }
+  .es-topbar .brand img { height:24px; width:auto; }
+  .es-topbar a { color:var(--ink-2); font-size:14px; }
+
+  /* ── Hero ────────────────────────────────────────────────────── */
+  .es-hero { position:relative; min-height:480px; padding:var(--s-8) var(--s-4) var(--s-6);
+    display:flex; align-items:flex-end; color:#FBF9F4;
+    background-image: linear-gradient(160deg, rgba(20,19,18,.45), rgba(20,19,18,.88));
+    background-size:cover; background-position:center; }
+  .es-hero-inner { max-width:760px; margin:0 auto; width:100%; }
+  .es-hero .eyebrow { font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:rgba(255,255,255,.7); font-weight:700; }
+  .es-hero h1 { font-family:var(--font-display); font-size:clamp(2.2rem,6vw,4rem);
+    letter-spacing:-0.02em; line-height:1.05; margin:10px 0 var(--s-3); color:#fff; }
+  .es-hero h1 em { font-style:italic; color:var(--accent); }
+  .es-hero .sub { font-size:clamp(15px,2.2vw,18px); color:rgba(255,255,255,.85); max-width:560px; line-height:1.5; margin-bottom:var(--s-4); }
+  .es-meta { display:flex; gap:var(--s-3); flex-wrap:wrap; margin-bottom:var(--s-5); font-size:14px; }
+  .es-meta span { background:rgba(255,255,255,.12); border:1px solid rgba(255,255,255,.18);
+    padding:8px 14px; border-radius:999px; backdrop-filter:blur(4px); }
+  .es-hero .btn-accent { padding:18px 32px; font-size:17px; font-weight:700; border-radius:var(--r-lg); }
+
+  /* ── Sections ────────────────────────────────────────────────── */
+  .es-section { max-width:880px; margin:0 auto; padding:var(--s-7) var(--s-4); }
+  .es-section h2 { font-family:var(--font-display); font-size:clamp(1.6rem,4vw,2.2rem); letter-spacing:-0.02em; margin-bottom:var(--s-4); }
+  .es-section h2 em { font-style:italic; color:var(--accent); }
+  .es-section .lead { font-size:16px; color:var(--ink-2); line-height:1.65; }
+  .es-section .lead p { margin-bottom:var(--s-3); }
+  .es-eyebrow { font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--ink-3); font-weight:700; margin-bottom:8px; }
+
+  /* ── Timeline (schedule) ────────────────────────────────────── */
+  .es-timeline { border-left:2px solid var(--border); padding-left:var(--s-4); margin-top:var(--s-3); }
+  .es-tl-item { position:relative; padding:14px 0 14px 4px; }
+  .es-tl-item::before { content:''; position:absolute; left:calc(-1 * var(--s-4) - 6px); top:22px;
+    width:10px; height:10px; border-radius:50%; background:var(--accent); border:2px solid var(--bg); }
+  .es-tl-time { font-family:'JetBrains Mono', monospace; font-weight:600; color:var(--ink-2); font-size:13px; }
+  .es-tl-title { font-weight:700; font-size:16px; margin-top:2px; }
+  .es-tl-note { font-size:14px; color:var(--ink-2); margin-top:2px; }
+
+  /* ── Packages grid ──────────────────────────────────────────── */
+  .es-packages { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:var(--s-3); margin-top:var(--s-3); }
+  .es-pkg { border:2px solid var(--border); border-radius:var(--r-lg); padding:var(--s-4);
+    background:var(--surface); display:flex; flex-direction:column; transition:transform var(--t-fast), border-color var(--t-fast); }
+  .es-pkg:hover { transform:translateY(-2px); border-color:var(--ink); }
+  .es-pkg .name { font-family:var(--font-display); font-size:1.3rem; }
+  .es-pkg .includes { display:inline-block; font-size:11px; font-weight:700; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--ink-2); background:var(--surface-2); padding:3px 9px; border-radius:999px; margin-top:6px; }
+  .es-pkg .desc { font-size:13.5px; color:var(--ink-2); margin:var(--s-3) 0; flex:1; line-height:1.5; }
+  .es-pkg .price { font-family:var(--font-display); font-size:1.9rem; line-height:1; margin-bottom:var(--s-3); }
+  .es-pkg .price small { font-size:13px; color:var(--ink-3); margin-left:4px; font-family:var(--font-body); }
+
+  /* ── FAQ ────────────────────────────────────────────────────── */
+  .es-faq { margin-top:var(--s-3); }
+  .es-faq details { border-top:1px solid var(--border); padding:var(--s-3) 0; }
+  .es-faq details:last-of-type { border-bottom:1px solid var(--border); }
+  .es-faq summary { cursor:pointer; font-weight:700; font-size:16px; list-style:none; display:flex; justify-content:space-between; align-items:center; gap:var(--s-3); }
+  .es-faq summary::after { content:'+'; font-size:24px; color:var(--ink-3); transition:transform var(--t-fast); }
+  .es-faq details[open] summary::after { content:'–'; }
+  .es-faq p { margin-top:10px; color:var(--ink-2); font-size:15px; line-height:1.6; }
+
+  /* ── Contact + footer ──────────────────────────────────────── */
+  .es-contact { background:var(--surface); border-radius:var(--r-lg); padding:var(--s-5); margin-top:var(--s-3); border:1px solid var(--border); }
+  .es-contact a { color:var(--ink); }
+  .es-footer { text-align:center; padding:var(--s-5) var(--s-4) var(--s-7); border-top:1px solid var(--border); margin-top:var(--s-5); }
+  .es-footer .powered { font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--ink-3); font-weight:700; }
+  .es-footer img { height:22px; opacity:.55; margin-top:8px; }
+
+  .gate { text-align:center; padding:var(--s-8) var(--s-4); }
+  @media (max-width: 520px) {
+    .es-hero { min-height:420px; padding:var(--s-6) var(--s-4) var(--s-5); }
+    .es-meta { gap:6px; }
+    .es-meta span { padding:6px 12px; font-size:13px; }
+  }
+</style>
+</head>
+<body>
+<div id="app"><div class="gate"><p>Loading event…</p></div></div>
+<script src="/js/jord.js"></script>
+<script>
+const esc = JORD.escapeHtml;
+const slug = location.pathname.split('/').filter(Boolean).pop();
+
+function fmtDate(s) {
+  if (!s) return '';
+  const d = new Date(s);
+  if (isNaN(d)) return s;
+  return d.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+}
+function fmtPrice(cents) {
+  const n = (Number(cents) || 0) / 100;
+  return '$' + n.toLocaleString(undefined, { maximumFractionDigits: n % 1 ? 2 : 0 });
+}
+
+function render(d) {
+  const s = d.site, e = d.event;
+  document.title = (s.headline || e.name || 'Event') + ' · JORD Golf';
+
+  const accent = e.brand_accent || null;
+  const heroBg = s.hero_image
+    ? `linear-gradient(160deg, rgba(20,19,18,.40), rgba(20,19,18,.85)), url(${esc(s.hero_image)})`
+    : `linear-gradient(160deg, rgba(20,19,18,.50), rgba(20,19,18,.88)), url(/img/lifestyle/lifestyle-1-1600.jpg)`;
+
+  const schedHtml = d.schedule.length ? `
+    <section class="es-section">
+      <div class="es-eyebrow">The Day</div>
+      <h2>Schedule</h2>
+      <div class="es-timeline">
+        ${d.schedule.map(it => `<div class="es-tl-item">
+          <div class="es-tl-time">${esc(it.time||'')}</div>
+          <div class="es-tl-title">${esc(it.title||'')}</div>
+          ${it.note ? `<div class="es-tl-note">${esc(it.note)}</div>` : ''}
+        </div>`).join('')}
+      </div>
+    </section>` : '';
+
+  const regOpen = d.registration_open !== false;
+  const pkgHtml = d.packages.length ? `
+    <section class="es-section" id="register">
+      <div class="es-eyebrow">Sign up</div>
+      <h2>Register</h2>
+      ${!regOpen ? `<p style="background:rgba(184,136,77,0.10);border:1px solid rgba(184,136,77,0.30);color:var(--accent);padding:14px 18px;border-radius:var(--r-md);margin-top:var(--s-2);font-size:14px;font-weight:600">⏳ Online registration is opening soon — the organizer is finishing payment setup.</p>` : ''}
+      <div class="es-packages">
+        ${d.packages.map(p => `<div class="es-pkg">
+          <div class="name">${esc(p.name)}</div>
+          ${p.includes_players > 1 ? `<div class="includes">${p.includes_players} players</div>` : p.includes_players === 1 ? `<div class="includes">1 player</div>` : ''}
+          <div class="desc">${esc(p.description || '')}</div>
+          <div class="price">${fmtPrice(p.price_cents)}<small>per package</small></div>
+          <button class="btn ${regOpen?'btn-primary':'btn-ghost'} btn-lg btn-block" data-pkg="${p.id}" ${regOpen?'':'disabled'}>${regOpen ? 'Register →' : 'Coming soon'}</button>
+        </div>`).join('')}
+      </div>
+    </section>` : '';
+
+  const faqHtml = d.faq.length ? `
+    <section class="es-section">
+      <div class="es-eyebrow">FAQ</div>
+      <h2>Good <em>questions</em></h2>
+      <div class="es-faq">
+        ${d.faq.map(q => `<details><summary>${esc(q.q||'')}</summary><p>${esc(q.a||'')}</p></details>`).join('')}
+      </div>
+    </section>` : '';
+
+  const contactHtml = (s.contact_name || s.contact_email || s.contact_phone) ? `
+    <section class="es-section">
+      <div class="es-eyebrow">Contact</div>
+      <h2>Get in <em>touch</em></h2>
+      <div class="es-contact">
+        ${s.contact_name ? `<div><strong>${esc(s.contact_name)}</strong></div>` : ''}
+        ${s.contact_email ? `<div style="margin-top:6px">📧 <a href="mailto:${esc(s.contact_email)}">${esc(s.contact_email)}</a></div>` : ''}
+        ${s.contact_phone ? `<div style="margin-top:6px">📞 <a href="tel:${esc(s.contact_phone)}">${esc(s.contact_phone)}</a></div>` : ''}
+      </div>
+    </section>` : '';
+
+  document.getElementById('app').innerHTML = `
+    <div class="es-topbar">
+      <div class="brand">
+        ${e.brand_logo ? `<img src="${esc(e.brand_logo)}" alt="${esc(e.name||'')}" />` : '<span style="font-family:var(--font-display)">' + esc(e.name || 'Event') + '</span>'}
+      </div>
+      <a href="/login">Sign in</a>
+    </div>
+
+    <header class="es-hero" style="background-image:${heroBg}">
+      <div class="es-hero-inner">
+        <div class="eyebrow">${e.is_charity ? 'Charity golf tournament' : 'Golf tournament'}</div>
+        <h1>${esc(s.headline || e.name || 'Tournament')}</h1>
+        ${s.subhead ? `<p class="sub">${esc(s.subhead)}</p>` : ''}
+        <div class="es-meta">
+          ${s.starts_at ? `<span>📅 ${esc(fmtDate(s.starts_at))}</span>` : ''}
+          ${s.location_name ? `<span>📍 ${esc(s.location_name)}</span>` : ''}
+        </div>
+        <a href="#register" class="btn btn-accent">Register now →</a>
+      </div>
+    </header>
+
+    ${s.about_html ? `
+    <section class="es-section">
+      <div class="es-eyebrow">About</div>
+      <h2>About the <em>event</em></h2>
+      <div class="lead"><p>${esc(s.about_html).replace(/\n\n+/g,'</p><p>').replace(/\n/g,'<br>')}</p></div>
+    </section>` : ''}
+
+    ${schedHtml}
+
+    ${s.course_info ? `
+    <section class="es-section">
+      <div class="es-eyebrow">The Course</div>
+      <h2>${esc(s.location_name || 'The course')}</h2>
+      <div class="lead"><p>${esc(s.course_info).replace(/\n/g,'<br>')}</p></div>
+    </section>` : ''}
+
+    ${pkgHtml}
+
+    <section class="es-section">
+      <div class="es-eyebrow">Sponsorships</div>
+      <h2>Sponsor this <em>event</em></h2>
+      <div class="lead"><p>Looking to put your business in front of every golfer at this event? Sponsorships are open — contact the organizer below to discuss tiers.</p></div>
+    </section>
+
+    ${faqHtml}
+    ${contactHtml}
+
+    <footer class="es-footer">
+      <div class="powered">Powered by</div>
+      <img src="/img/logos/script-black.png" alt="JORD Golf" />
+    </footer>`;
+
+  // Package "Register" buttons → registration flow
+  document.querySelectorAll('[data-pkg]').forEach(b => b.onclick = () => {
+    const pkgId = b.getAttribute('data-pkg');
+    location.href = `/e/${encodeURIComponent(slug)}/register?pkg=${encodeURIComponent(pkgId)}`;
+  });
+
+  if (accent) document.documentElement.style.setProperty('--accent', accent);
+}
+
+(async () => {
+  try {
+    const d = await JORD.api('/api/event-sites/' + encodeURIComponent(slug));
+    render(d);
+  } catch (e) {
+    document.getElementById('app').innerHTML =
+      `<div class="gate"><div style="font-size:48px">🔍</div>
+       <h1 style="font-family:var(--font-display)">Event not found</h1>
+       <p style="color:var(--ink-2)">The link may be wrong or the event isn't published yet.</p></div>`;
+  }
+})();
+</script>
+</body>
+</html>

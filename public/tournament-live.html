@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Tournament Leaderboard · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  .tl-wrap { max-width:760px; margin:0 auto; padding:0 var(--s-3) var(--s-8); }
+  .tl-head { text-align:center; padding:var(--s-5) 0 var(--s-4); }
+  .tl-head .eyebrow { font-size:11px; letter-spacing:.2em; text-transform:uppercase; color:var(--ink-3); font-weight:700; }
+  .tl-head h1 { font-family:var(--font-display); font-size:clamp(1.5rem,5vw,2.3rem); letter-spacing:-0.02em; margin-top:6px; }
+  .tl-head .mini { color:var(--ink-2); font-size:13px; margin-top:4px; }
+  .tl-table { width:100%; border-collapse:collapse; }
+  .tl-table th, .tl-table td { padding:11px 8px; border-bottom:1px solid var(--border); font-size:14px; text-align:center; }
+  .tl-table th { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-3); font-weight:700; }
+  .tl-table td.nm { text-align:left; font-weight:600; }
+  .tl-table td.pos { font-family:var(--font-display); }
+  .tl-table td.tot { font-family:var(--font-display); font-size:1.2rem; }
+  .tl-table td.rnd { color:var(--ink-2); }
+  .tl-table tr.lead td { background:linear-gradient(90deg,var(--accent),var(--accent-2)); color:#FBF9F4; }
+  .gate { text-align:center; padding:var(--s-8) var(--s-4); }
+  .rvb-score { display:grid; grid-template-columns:1fr auto 1fr; gap:var(--s-3); align-items:center;
+    background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+    padding:var(--s-5) var(--s-4); margin-bottom:var(--s-4); }
+  .rvb-side { text-align:center; font-family:var(--font-display); font-size:1.1rem; }
+  .rvb-side .pts { font-size:2.6rem; line-height:1; margin-top:6px; }
+  .rvb-side.red .pts { color:#B33A3A; } .rvb-side.blue .pts { color:#3A5BB3; }
+  .rvb-vs { font-family:var(--font-display); font-size:1.4rem; color:var(--ink-3); }
+</style>
+</head>
+<body>
+<div class="tl-wrap" id="app"></div>
+<script src="/js/jord.js"></script>
+<script>
+const id = location.pathname.split('/').pop();
+const esc = JORD.escapeHtml;
+function toPar(n){ return n==null?'—':(n===0?'E':(n>0?'+'+n:''+n)); }
+
+async function load() {
+  let d;
+  try { d = await JORD.api('/api/tournaments/'+id+'/leaderboard'); }
+  catch(e) { document.getElementById('app').innerHTML =
+    '<div class="gate"><div style="font-size:48px">🔍</div><h1 style="font-family:var(--font-display)">Tournament not found</h1></div>'; return; }
+  if (d.type === 'reds_blues') { renderRvb(d); return; }
+  const pts = d.scoreType === 'points';
+  const cell = n => pts ? (n==null?'—':''+n) : toPar(n);
+  const rounds = d.rounds;
+  document.getElementById('app').innerHTML = `
+    <div class="tl-head">
+      <div class="eyebrow">Tournament</div>
+      <h1>${esc(d.tournament.name)}</h1>
+      <div class="mini">${rounds.length} round${rounds.length>1?'s':''} · cumulative ${pts?'points':'score to par'}</div>
+    </div>
+    <table class="tl-table"><thead><tr>
+      <th>Pos</th><th style="text-align:left">Player</th>
+      ${rounds.map(r=>`<th>R${r.number}</th>`).join('')}
+      <th>Total</th></tr></thead><tbody>
+      ${d.rows.length ? d.rows.map(row=>`<tr class="${row.position===1&&row.total!=null?'lead':''}">
+        <td class="pos">${row.total!=null?row.position:'–'}</td>
+        <td class="nm">${esc(row.playerName)}</td>
+        ${rounds.map(r=>`<td class="rnd">${cell(row.perRound[r.number])}</td>`).join('')}
+        <td class="tot">${cell(row.total)}</td></tr>`).join('')
+       : `<tr><td colspan="${rounds.length+3}" style="padding:var(--s-6);color:var(--ink-3)">No players yet.</td></tr>`}
+    </tbody></table>
+    <p class="mini" style="text-align:center;margin-top:var(--s-4)">Updates automatically every 15 seconds.</p>`;
+}
+function renderRvb(d) {
+  const matchRows = d.matches.map(m=>{
+    let mid;
+    if (m.status==='closed') mid = m.standing===0 ? 'Halved'
+      : (m.standing>0?'Reds win':'Blues win') + (m.result?' '+m.result:'');
+    else mid = (m.standing===0?'All square':Math.abs(m.standing)+' up '+(m.standing>0?'Reds':'Blues'))
+      + ' · thru '+m.thru;
+    return `<tr>
+      <td class="rnd">R${m.round}·${m.matchNo}</td>
+      <td class="nm" style="${m.standing>0?'font-weight:700':''}">${esc(m.red)}</td>
+      <td>${esc(mid)}</td>
+      <td class="nm" style="text-align:right;${m.standing<0?'font-weight:700':''}">${esc(m.blue)}</td>
+    </tr>`;
+  }).join('');
+  document.getElementById('app').innerHTML = `
+    <div class="tl-head">
+      <div class="eyebrow">Reds vs Blues</div>
+      <h1>${esc(d.tournament.name)}</h1>
+      <div class="mini">${d.rounds.length} round${d.rounds.length>1?'s':''} · match play points</div>
+    </div>
+    <div class="rvb-score">
+      <div class="rvb-side red">🔴 Reds<div class="pts">${d.reds.points}</div></div>
+      <div class="rvb-vs">—</div>
+      <div class="rvb-side blue">Blues 🔵<div class="pts">${d.blues.points}</div></div>
+    </div>
+    <table class="tl-table"><tbody>${matchRows ||
+      '<tr><td colspan="4" style="padding:var(--s-6);color:var(--ink-3)">No matches yet.</td></tr>'}</tbody></table>
+    <p class="mini" style="text-align:center;margin-top:var(--s-4)">Updates automatically every 15 seconds.</p>`;
+}
+
+load();
+setInterval(load, 15000);
+</script>
+</body>
+</html>

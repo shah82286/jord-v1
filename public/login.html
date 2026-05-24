@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Sign in · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  body { min-height:100dvh; }
+  .auth-wrap { max-width:480px; margin:0 auto; padding:var(--s-6) var(--s-4) var(--s-8); }
+  .auth-card { padding:var(--s-6) var(--s-5); }
+  .auth-eyebrow { font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--ink-3); font-weight:700; }
+  .auth-card h1 { font-family:var(--font-display); font-size:clamp(1.8rem,5vw,2.3rem); letter-spacing:-0.02em; margin:6px 0 var(--s-2); }
+  .auth-card h1 em { font-style:italic; color:var(--accent); }
+  .auth-sub { color:var(--ink-2); font-size:15px; margin-bottom:var(--s-4); line-height:1.5; }
+  .auth-seg { display:flex; gap:0; margin-bottom:var(--s-4); border:1px solid var(--border-2); border-radius:var(--r-lg); overflow:hidden; }
+  .auth-seg button { flex:1; padding:14px 12px; background:var(--surface); border:none; cursor:pointer;
+    font-weight:600; font-size:15px; color:var(--ink-2); }
+  .auth-seg button.is-active { background:var(--primary); color:var(--primary-ink); }
+  .auth-err { background:#fdecec; color:var(--danger); border:1px solid #f5c6c6; border-radius:var(--r-sm);
+    padding:10px 12px; font-size:13.5px; margin-bottom:var(--s-3); display:none; }
+  .auth-err.show { display:block; }
+  .auth-foot { text-align:center; margin-top:var(--s-4); font-size:13px; color:var(--ink-3); }
+  .auth-foot a { color:var(--ink-2); }
+  /* Stack the form items comfortably on phones; large tap targets. */
+  @media (max-width: 480px) {
+    .auth-card { padding:var(--s-5) var(--s-4); }
+  }
+</style>
+</head>
+<body>
+<div id="topbar"></div>
+<main class="auth-wrap">
+  <div class="card auth-card">
+    <div class="auth-eyebrow">JORD Golf</div>
+    <h1 id="title">Welcome <em>back</em></h1>
+    <p class="auth-sub" id="sub">Sign in to play in tournaments and casual rounds.</p>
+
+    <div class="auth-seg" role="tablist">
+      <button id="modeSignin" class="is-active" data-mode="login">Sign in</button>
+      <button id="modeSignup"                    data-mode="signup">Create account</button>
+    </div>
+
+    <form id="authForm" novalidate>
+      <div class="field" id="nameField" style="display:none">
+        <label for="name">Your name</label>
+        <input class="input input-lg" id="name" autocomplete="name" />
+      </div>
+      <div class="field">
+        <label for="email">Email</label>
+        <input class="input input-lg" id="email" type="email" autocomplete="email" inputmode="email" required />
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input class="input input-lg" id="password" type="password" autocomplete="current-password" required minlength="8" />
+        <div class="hint" id="pwHint" style="display:none">At least 8 characters.</div>
+      </div>
+      <div class="field" id="hcpField" style="display:none">
+        <label for="hcp">Handicap index <span style="font-weight:400;color:var(--ink-3)">— optional</span></label>
+        <input class="input input-lg" id="hcp" type="number" step="0.1" inputmode="decimal" placeholder="e.g. 12.4" />
+        <div class="hint">For game-tracking. Self-reported for now — USGA / GHIN sync is on the roadmap.</div>
+      </div>
+      <div class="auth-err" id="err"></div>
+      <button class="btn btn-primary btn-xl btn-block" id="submitBtn" type="submit">Sign in</button>
+    </form>
+
+    <p class="auth-foot"><a href="/">← Back to JORD Golf</a></p>
+  </div>
+</main>
+<script src="/js/jord.js"></script>
+<script>
+const $ = (s,r=document)=>r.querySelector(s);
+let mode = 'login';
+
+// If already signed in, leave for wherever they came from (or the Clubhouse).
+function nextUrl() {
+  const p = new URLSearchParams(location.search).get('next');
+  return p && p.startsWith('/') ? p : '/clubhouse';
+}
+(async () => {
+  if (!JORD.getUserToken()) return;
+  try { await JORD.api('/api/users/me'); location.replace(nextUrl()); }
+  catch { JORD.clearUserToken(); }
+})();
+
+document.getElementById('topbar').appendChild(
+  JORD.renderTopbar('Sign in', JORD.el('a',{class:'btn btn-ghost',href:'/'},'← Home')));
+
+function setMode(m) {
+  mode = m;
+  $('#modeSignin').classList.toggle('is-active', m==='login');
+  $('#modeSignup').classList.toggle('is-active', m==='signup');
+  $('#nameField').style.display = m==='signup' ? '' : 'none';
+  $('#hcpField').style.display  = m==='signup' ? '' : 'none';
+  $('#pwHint').style.display    = m==='signup' ? '' : 'none';
+  $('#title').innerHTML = m==='login' ? 'Welcome <em>back</em>' : 'Create your <em>account</em>';
+  $('#sub').textContent = m==='login'
+    ? 'Sign in to play in tournaments and casual rounds.'
+    : 'Start tracking your games, rounds, and tournaments.';
+  $('#submitBtn').textContent = m==='login' ? 'Sign in' : 'Create account';
+  $('#password').setAttribute('autocomplete', m==='login' ? 'current-password' : 'new-password');
+  $('#err').classList.remove('show');
+  // jump focus to the first relevant field on switch
+  setTimeout(() => (m==='signup' ? $('#name') : $('#email')).focus(), 0);
+}
+$('#modeSignin').onclick = () => setMode('login');
+$('#modeSignup').onclick = () => setMode('signup');
+
+function showErr(msg){ const e=$('#err'); e.textContent=msg; e.classList.add('show'); }
+
+$('#authForm').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const email = $('#email').value.trim();
+  const password = $('#password').value;
+  const name = $('#name').value.trim();
+  if (!email || !password) return showErr('Email and password are required.');
+  if (mode==='signup' && !name) return showErr('Tell us your name.');
+  if (mode==='signup' && password.length < 8) return showErr('Password must be at least 8 characters.');
+
+  const btn = $('#submitBtn');
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = mode==='login' ? 'Signing in…' : 'Creating…';
+  // Optional handicap index — null if blank, allows scratch (0) to be saved
+  const hcpRaw = $('#hcp').value.trim();
+  const handicap_index = hcpRaw === '' ? null : Number(hcpRaw);
+  if (mode==='signup' && hcpRaw !== '' && !Number.isFinite(handicap_index)) {
+    return showErr('Handicap index must be a number, or leave it blank.');
+  }
+  try {
+    const r = await JORD.api(
+      mode==='login' ? '/api/users/login' : '/api/users/signup',
+      { method:'POST', body: mode==='login' ? { email, password } : { name, email, password, handicap_index } }
+    );
+    JORD.setUserToken(r.token);
+    location.replace(nextUrl());
+  } catch (e) {
+    showErr(e.message || 'Something went wrong.');
+    btn.disabled = false; btn.textContent = orig;
+  }
+});
+</script>
+</body>
+</html>
