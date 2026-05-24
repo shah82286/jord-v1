@@ -334,6 +334,26 @@ try { db.exec("ALTER TABLE admins ADD COLUMN stripe_charges_enabled INTEGER DEFA
 try { db.exec("ALTER TABLE admins ADD COLUMN stripe_payouts_enabled INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE admins ADD COLUMN stripe_details_submitted INTEGER DEFAULT 0"); } catch {}
 try { db.exec("ALTER TABLE admins ADD COLUMN stripe_connected_at DATETIME"); } catch {}
+
+// ─── Refunds + add-on charges (v3.34) ─────────────────────────────────────────
+// `refund_amount_cents`     — running total refunded so far (allows multiple
+//                              partials). 0 = no refund. Equal to amount_cents
+//                              = fully refunded.
+// `refund_reason`            — organizer's note (for audit / dispute defense).
+// `refunded_at`              — first refund timestamp.
+// `refunded_by_admin_id`     — who clicked the refund button.
+// `parent_registration_id`   — non-null on add-on charges; points at the
+//                              original registration this add-on belongs to.
+// `description`              — for add-ons, what the buyer is paying for
+//                              ("Mulligan pack", "5th player", etc.). NULL on
+//                              regular package registrations (package name
+//                              already describes them).
+try { db.exec("ALTER TABLE registrations ADD COLUMN refund_amount_cents INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE registrations ADD COLUMN refund_reason TEXT"); } catch {}
+try { db.exec("ALTER TABLE registrations ADD COLUMN refunded_at DATETIME"); } catch {}
+try { db.exec("ALTER TABLE registrations ADD COLUMN refunded_by_admin_id TEXT"); } catch {}
+try { db.exec("ALTER TABLE registrations ADD COLUMN parent_registration_id TEXT"); } catch {}
+try { db.exec("ALTER TABLE registrations ADD COLUMN description TEXT"); } catch {}
 // Per-event rep assignments (many-to-many)
 db.exec(`
   CREATE TABLE IF NOT EXISTS event_reps (
@@ -4756,6 +4776,8 @@ app.get('/api/admin/events/:id/registrations', requireAuth, requireAdminOrSuper,
                                   r.players_json, r.amount_cents, r.platform_fee_cents,
                                   r.payment_status, r.payment_mode, r.stripe_session_id,
                                   r.created_at, r.paid_at,
+                                  r.refund_amount_cents, r.refund_reason, r.refunded_at,
+                                  r.parent_registration_id, r.description,
                                   p.name AS package_name, p.includes_players
                            FROM registrations r
                            JOIN registration_packages p ON p.id = r.package_id
@@ -4763,10 +4785,11 @@ app.get('/api/admin/events/:id/registrations', requireAuth, requireAdminOrSuper,
                            ORDER BY r.created_at DESC`).all(req.params.id);
   const totals = db.prepare(`SELECT
       COUNT(*) AS count,
-      COALESCE(SUM(CASE WHEN payment_status='paid' THEN 1 END), 0) AS paid_count,
-      COALESCE(SUM(CASE WHEN payment_status='paid' THEN amount_cents END), 0) AS revenue_cents,
-      COALESCE(SUM(CASE WHEN payment_status='paid' THEN platform_fee_cents END), 0) AS fees_cents,
-      COALESCE(SUM(CASE WHEN payment_status='paid' THEN p.includes_players END), 0) AS players_paid
+      COALESCE(SUM(CASE WHEN payment_status IN ('paid','partial_refund','refunded') THEN 1 END), 0) AS paid_count,
+      COALESCE(SUM(CASE WHEN payment_status IN ('paid','partial_refund','refunded') THEN amount_cents END), 0) AS revenue_cents,
+      COALESCE(SUM(CASE WHEN payment_status IN ('paid','partial_refund','refunded') THEN platform_fee_cents END), 0) AS fees_cents,
+      COALESCE(SUM(CASE WHEN payment_status IN ('paid','partial_refund','refunded') THEN p.includes_players END), 0) AS players_paid,
+      COALESCE(SUM(refund_amount_cents), 0) AS refunds_cents
     FROM registrations r
     JOIN registration_packages p ON p.id = r.package_id
     WHERE r.event_id=?`).get(req.params.id);
@@ -4816,6 +4839,157 @@ app.get('/api/admin/events/:id/registrations.csv', requireAuth, requireAdminOrSu
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   res.send(lines.join('\n'));
+});
+
+// Refund a registration (full or partial). For Connect destination charges,
+// the refund is created on the platform with reverse_transfer:true so the
+// money is pulled back from the connected account; refund_application_fee:true
+// also returns JORD's 3% so we don't keep fees on refunded transactions.
+app.post('/api/admin/events/:id/registrations/:regId/refund', requireAuth, requireAdminOrSuper, requireEventAccess, async (req, res) => {
+  const { amount_cents, reason } = req.body || {};
+  const reg = db.prepare('SELECT * FROM registrations WHERE id=? AND event_id=?').get(req.params.regId, req.params.id);
+  if (!reg) return res.status(404).json({ error: 'Registration not found' });
+  if (!['paid', 'partial_refund'].includes(reg.payment_status)) {
+    return res.status(400).json({ error: `Cannot refund a registration in '${reg.payment_status}' status` });
+  }
+
+  const alreadyRefunded = reg.refund_amount_cents || 0;
+  const remaining = reg.amount_cents - alreadyRefunded;
+  if (remaining <= 0) return res.status(400).json({ error: 'Already fully refunded' });
+
+  const requested = amount_cents != null && amount_cents !== '' ? Number(amount_cents) : remaining;
+  if (!Number.isFinite(requested) || requested <= 0) return res.status(400).json({ error: 'Invalid amount' });
+  const refundCents = Math.min(requested, remaining);
+
+  const finalize = () => {
+    const newRefundTotal = alreadyRefunded + refundCents;
+    const newStatus = newRefundTotal >= reg.amount_cents ? 'refunded' : 'partial_refund';
+    db.prepare(`UPDATE registrations
+                SET refund_amount_cents=?, refund_reason=COALESCE(?, refund_reason),
+                    refunded_at=COALESCE(refunded_at, CURRENT_TIMESTAMP),
+                    refunded_by_admin_id=?, payment_status=?
+                WHERE id=?`)
+      .run(newRefundTotal, reason || null, req.admin.id, newStatus, reg.id);
+    return { newRefundTotal, newStatus };
+  };
+
+  // Mock mode (no Stripe key, or mock-mode registration) → DB-only.
+  if (reg.payment_mode === 'mock' || stripeHelper.mode === 'mock') {
+    const { newRefundTotal, newStatus } = finalize();
+    return res.json({ ok: true, refunded_cents: refundCents, total_refunded: newRefundTotal, status: newStatus, mock: true });
+  }
+
+  if (!reg.stripe_session_id) return res.status(400).json({ error: 'No Stripe session id on this registration' });
+
+  try {
+    // Destination charge → session lives on the platform; no stripeAccount header.
+    const session = await stripeHelper.client.checkout.sessions.retrieve(reg.stripe_session_id);
+    const pi = session.payment_intent;
+    if (!pi) return res.status(400).json({ error: 'Payment is not yet confirmed by Stripe' });
+
+    await stripeHelper.client.refunds.create({
+      payment_intent: pi,
+      amount: refundCents,
+      reason: 'requested_by_customer',
+      refund_application_fee: true,
+      reverse_transfer:       true,
+      metadata: { registration_id: reg.id, jord_admin_id: req.admin.id, jord_reason: reason || '' },
+    });
+
+    const { newRefundTotal, newStatus } = finalize();
+    res.json({ ok: true, refunded_cents: refundCents, total_refunded: newRefundTotal, status: newStatus });
+  } catch (e) {
+    console.error('[Stripe refund]', e);
+    res.status(502).json({ error: e.message || 'Stripe refund failed' });
+  }
+});
+
+// Charge an add-on (e.g. mulligan pack, late add-on player) to an existing
+// buyer. Creates a NEW registration row linked to the parent via
+// `parent_registration_id`, then either returns a Stripe Checkout URL or
+// (in mock mode) marks it paid immediately. Optionally emails the buyer a
+// link to pay via Klaviyo.
+app.post('/api/admin/events/:id/registrations/:regId/addon', requireAuth, requireAdminOrSuper, requireEventAccess, async (req, res) => {
+  const { amount_cents, description, email_buyer } = req.body || {};
+  const amt = Number(amount_cents);
+  if (!Number.isFinite(amt) || amt < 50) return res.status(400).json({ error: 'Amount must be at least $0.50' });
+  if (!description || !String(description).trim()) return res.status(400).json({ error: 'Description required' });
+
+  const parent = db.prepare('SELECT * FROM registrations WHERE id=? AND event_id=?').get(req.params.regId, req.params.id);
+  if (!parent) return res.status(404).json({ error: 'Parent registration not found' });
+
+  const event = db.prepare('SELECT id, name, admin_id FROM events WHERE id=?').get(req.params.id);
+  const id = crypto.randomBytes(8).toString('hex');
+  const fee = stripeHelper.feeCents(amt);
+  const desc = String(description).trim().slice(0, 200);
+
+  db.prepare(`INSERT INTO registrations
+    (id, event_id, package_id, parent_registration_id, description,
+     buyer_name, buyer_email, buyer_phone, players_json,
+     amount_cents, platform_fee_cents, payment_status, payment_mode)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, 'pending', ?)`)
+    .run(id, req.params.id, parent.package_id, parent.id, desc,
+         parent.buyer_name, parent.buyer_email, parent.buyer_phone,
+         amt, fee, stripeHelper.mode === 'stripe' ? 'stripe' : 'mock');
+
+  if (stripeHelper.mode === 'mock') {
+    db.prepare("UPDATE registrations SET payment_status='paid', paid_at=CURRENT_TIMESTAMP WHERE id=?").run(id);
+    return res.json({ id, mock: true });
+  }
+
+  const organizer = db.prepare('SELECT stripe_account_id, stripe_charges_enabled FROM admins WHERE id=?').get(event.admin_id);
+  if (!organizer || !organizer.stripe_account_id || !organizer.stripe_charges_enabled) {
+    db.prepare("UPDATE registrations SET payment_status='failed' WHERE id=?").run(id);
+    return res.status(503).json({ error: 'Organizer Stripe account is not ready for charges' });
+  }
+
+  try {
+    const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
+    const site = db.prepare('SELECT slug FROM event_sites WHERE event_id=?').get(req.params.id);
+    const session = await stripeHelper.createCheckoutSession({
+      amountCents:        amt,
+      platformFeeCents:   fee,
+      connectedAccountId: organizer.stripe_account_id,
+      productName:        `${event.name} — ${desc}`,
+      productDescription: 'Add-on charge',
+      buyerEmail:         parent.buyer_email,
+      metadata: {
+        registration_id: id,
+        event_id: req.params.id,
+        addon: '1',
+        parent_registration_id: parent.id,
+      },
+      successUrl: `${APP_URL}/e/${site ? site.slug : ''}/confirmation/${id}?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl:  `${APP_URL}/admin/events/${req.params.id}/registrations`,
+    });
+
+    db.prepare('UPDATE registrations SET stripe_session_id=? WHERE id=?').run(session.id, id);
+
+    if (email_buyer && parent.buyer_email) {
+      const first = (parent.buyer_name || '').split(/\s+/)[0] || 'there';
+      const amountStr = '$' + (amt / 100).toFixed(2);
+      const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+      sendKlaviyo('addon_charge', { email: parent.buyer_email, first_name: first }, {
+        event_id: req.params.id,
+        EmailSubject: `New charge from ${event.name}: ${desc} (${amountStr})`,
+        EmailBodyHtml:
+          `<p>Hi ${esc(first)},</p>` +
+          `<p>The organizer of <strong>${esc(event.name)}</strong> has added a charge to your registration:</p>` +
+          `<p style="font-size:18px"><strong>${esc(desc)}</strong> — <strong>${amountStr}</strong></p>` +
+          `<p><a href="${session.url}" style="display:inline-block;background:#B8884D;color:#fff;padding:14px 28px;border-radius:6px;text-decoration:none;font-weight:700;font-family:Inter,Arial,sans-serif">Pay now →</a></p>` +
+          `<p style="font-size:13px;color:#666;margin-top:24px">If you didn't expect this, please contact the organizer directly.</p>`,
+        amount: amountStr,
+        description: desc,
+        link: session.url,
+      }).catch(e => console.error('[Klaviyo addon_charge]', e.message));
+    }
+
+    res.json({ id, checkout_url: session.url, session_id: session.id, email_sent: !!email_buyer });
+  } catch (e) {
+    console.error('[Stripe addon]', e);
+    db.prepare("UPDATE registrations SET payment_status='failed' WHERE id=?").run(id);
+    res.status(502).json({ error: e.message || 'Stripe checkout creation failed' });
+  }
 });
 
 app.get('/api/users/me', requireUser, (req, res) => {

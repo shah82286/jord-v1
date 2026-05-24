@@ -2,6 +2,68 @@
 
 ---
 
+## v3.34.0 — 2026-05-24
+### Session 49 — Refunds + add-on charges on registrations
+
+Organizers can now issue refunds (full or partial, with reason) and charge
+additional amounts after registration (mulligan pack, late add-on player,
+etc.) directly from the registrations dashboard. Real Stripe Connect
+flows for both — application fees come back on refunds, add-ons go to
+the organizer's Connect account with the same 3% platform fee.
+
+#### What changed
+- **Schema** — six new columns on `registrations`: `refund_amount_cents`,
+  `refund_reason`, `refunded_at`, `refunded_by_admin_id`,
+  `parent_registration_id`, `description`. All idempotent ALTER TABLE.
+- **`POST /api/admin/events/:id/registrations/:regId/refund`** — full
+  or partial refund with optional reason. Uses Stripe's `refunds.create`
+  on the platform with `refund_application_fee: true` (gets JORD's 3%
+  back) and `reverse_transfer: true` (pulls the refund from the
+  connected account). Status transitions: `paid → partial_refund → refunded`.
+- **`POST /api/admin/events/:id/registrations/:regId/addon`** — creates
+  a new `registrations` row with `parent_registration_id` pointing at
+  the original, then a Stripe Checkout Session on the organizer's
+  Connect account. Optionally fires a Klaviyo `jord_addon_charge`
+  metric with the payment link so the buyer gets an email. Organizer
+  also gets the link to copy/share manually.
+- **Updated `GET /api/admin/events/:id/registrations`** — now returns
+  `refund_amount_cents`, `refund_reason`, `refunded_at`,
+  `parent_registration_id`, `description`. Totals include
+  `refunds_cents`.
+- **Updated dashboard UI** (`event-registrations.html`):
+  - Refund modal: amount field (defaults to remaining), reason
+    textarea, partial refunds allowed via repeat clicks.
+  - Add-on modal: description + amount + "email buyer" checkbox.
+    Success state shows the payment link with a copy button.
+  - Add-on rows render nested under their parent with a `↳` prefix and
+    accent-color tinted background.
+  - New "Refunded" stat card (only shows when there's been a refund)
+    and "Net to you" now subtracts refunds.
+  - Status pill supports `partial_refund` (saffron) + `refunded` (red).
+  - New "Refunded" filter on the toolbar.
+- **Klaviyo metric `jord_addon_charge`** — fires when an add-on charge
+  email is requested. Properties: `event_id`, `EmailSubject`,
+  `EmailBodyHtml` (pre-built), `amount`, `description`, `link`. Needs
+  a Klaviyo Flow to actually deliver — until then it logs the metric
+  and the HTML is in the email body for the flow to pass through with
+  `{{ event.EmailBodyHtml|safe }}`.
+
+#### Tested
+- **128/128 unit tests pass** (2 new route presence checks).
+- Manual: full + partial refund flows tested with mock-mode
+  registrations from the prior session. Add-on creates the linked row,
+  status pill renders correctly, payment-link copy button works.
+- Real Stripe refund tested in sandbox: $10 → refund $5 → row shows
+  `partial_refund`, refund line "↩ $5.00 refunded". Stripe Dashboard
+  shows the refund with application fee returned to platform balance.
+
+#### Known limitation
+- Klaviyo Flow for `jord_addon_charge` not built yet — when add-on
+  email checkbox is ticked, the event fires but no email is delivered
+  until the Flow exists in Klaviyo. Tracked under `#KLAVIYO-FLOWS`.
+
+---
+
 ## v3.33.0 — 2026-05-24
 ### Session 48 — E1: organizer registrations dashboard
 

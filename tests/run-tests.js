@@ -372,6 +372,8 @@ console.log('\n🔌 Tournament Scoring Routes\n');
  ['POST','/api/registrations'],['GET','/api/registrations/:id'],
  ['GET','/api/admin/events/:id/registrations'],
  ['GET','/api/admin/events/:id/registrations.csv'],
+ ['POST','/api/admin/events/:id/registrations/:regId/refund'],
+ ['POST','/api/admin/events/:id/registrations/:regId/addon'],
  ['POST','/api/stripe/webhook'],
  ['GET','/api/admin/stripe/account'],
  ['POST','/api/admin/stripe/connect/onboard'],

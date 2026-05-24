@@ -57,6 +57,7 @@ All transactional email now routes through Klaviyo (SMTP was dropped — Railway
 - `jord_admin_welcome` — new admin login + temp password. Email-only.
 - `jord_admin_assigned` — existing admin added to an event. Email-only.
 - `jord_tournament_signup` — `/signup` form auto-reply. Email-only.
+- `jord_addon_charge` — buyer gets a Stripe payment link for an add-on charge created by the organizer (v3.34). Email-only. Server builds the HTML; flow just passes through `{{ event.EmailBodyHtml|safe }}`.
 All five are email-only (no SMS block). Email subject `{{ event.EmailSubject }}`, one HTML block `{{ event.EmailBodyHtml|safe }}`, Transactional ON, Smart Sending OFF. The 5 flows already Live (`registered`, `ball_scanned`, `tournament_ended`, `dethroned`, `team_created`) need nothing — the cream re-skin is automatic since the server builds the HTML.
 
 **#KLAVIYO-TRANSACTIONAL — Resolve transactional approval with Klaviyo**

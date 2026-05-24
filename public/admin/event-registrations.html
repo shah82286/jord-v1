@@ -27,6 +27,7 @@
       margin-top:4px; }
     .rg-stat .sub { font-size:12px; color:var(--ink-3); margin-top:4px; }
     .rg-stat.accent .v { color:var(--accent); }
+    .rg-stat.refund .v { color:#c0392b; font-size:1.5rem; }
 
     /* ── Table ──────────────────────────────────────────────── */
     .rg-table-wrap { background:var(--surface); border:1px solid var(--border);
@@ -51,31 +52,78 @@
     .rg-table tbody tr { cursor:pointer; }
     .rg-table tbody tr:hover { background:var(--surface-2); }
     .rg-table tbody tr.expanded { background:var(--surface-2); }
+    .rg-table tbody tr.addon { background:rgba(184,136,77,0.04); }
+    .rg-table tbody tr.addon:hover { background:rgba(184,136,77,0.10); }
+    .rg-table tbody tr.addon td:first-child { padding-left:36px; position:relative; }
+    .rg-table tbody tr.addon td:first-child::before {
+      content:'↳'; position:absolute; left:14px; top:14px; color:var(--accent); font-weight:700;
+    }
+    .rg-table tbody tr.addon .buyer .name { font-weight:500; font-size:13px; }
+    .rg-table tbody tr.addon .addon-desc { color:var(--accent); font-size:12px; font-style:italic; margin-top:2px; }
     .rg-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
     .rg-table .buyer .name { font-weight:600; }
     .rg-table .buyer .email { font-size:12px; color:var(--ink-3); margin-top:2px; }
     .rg-table .conf { font-family:'JetBrains Mono', ui-monospace, monospace;
       font-size:12px; color:var(--ink-3); }
+    .rg-table .refunded-line { color:var(--ink-3); font-size:11px; margin-top:3px; }
 
     .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:11px;
       font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
-    .pill.paid     { background:rgba(46,160,67,0.12); color:#1f7e2a; border:1px solid rgba(46,160,67,0.30); }
-    .pill.pending  { background:rgba(184,136,77,0.12); color:var(--accent); border:1px solid rgba(184,136,77,0.35); }
-    .pill.failed   { background:rgba(220,53,69,0.10); color:#c0392b; border:1px solid rgba(220,53,69,0.30); }
-    .pill.refunded { background:var(--surface-2); color:var(--ink-2); border:1px solid var(--border); }
-    .pill.mock     { background:var(--surface-2); color:var(--ink-3); border:1px solid var(--border); font-size:10px; }
+    .pill.paid           { background:rgba(46,160,67,0.12); color:#1f7e2a; border:1px solid rgba(46,160,67,0.30); }
+    .pill.pending        { background:rgba(184,136,77,0.12); color:var(--accent); border:1px solid rgba(184,136,77,0.35); }
+    .pill.failed         { background:rgba(220,53,69,0.10); color:#c0392b; border:1px solid rgba(220,53,69,0.30); }
+    .pill.refunded       { background:rgba(220,53,69,0.10); color:#c0392b; border:1px solid rgba(220,53,69,0.30); }
+    .pill.partial_refund { background:rgba(184,136,77,0.12); color:var(--accent); border:1px solid rgba(184,136,77,0.35); }
+    .pill.mock           { background:var(--surface-2); color:var(--ink-3); border:1px solid var(--border); font-size:10px; }
 
     /* expanded row */
     .rg-detail { padding:0 14px 16px 14px; background:var(--surface-2); }
     .rg-detail .grid { display:grid; gap:var(--s-3); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); padding:var(--s-3) 0; }
     .rg-detail .lbl { font-size:11px; letter-spacing:.10em; text-transform:uppercase; color:var(--ink-3); font-weight:700; }
     .rg-detail .val { font-size:14px; margin-top:4px; }
+    .rg-detail .val.muted { color:var(--ink-3); }
     .rg-detail ul { list-style:none; padding:0; margin:6px 0 0; }
     .rg-detail ul li { padding:4px 0; font-size:14px; }
+    .rg-detail .action-row { display:flex; gap:var(--s-2); flex-wrap:wrap; padding-top:var(--s-3); border-top:1px solid var(--border); margin-top:var(--s-2); }
+    .rg-detail .action-row .btn { font-size:13px; padding:8px 14px; }
+    .rg-detail .btn-refund { background:rgba(220,53,69,0.10); color:#c0392b; border:1px solid rgba(220,53,69,0.30); }
+    .rg-detail .btn-refund:hover { background:rgba(220,53,69,0.20); }
+    .rg-detail .btn-addon  { background:rgba(46,160,67,0.10);  color:#1f7e2a; border:1px solid rgba(46,160,67,0.30); }
+    .rg-detail .btn-addon:hover  { background:rgba(46,160,67,0.20); }
 
     .rg-empty { padding:var(--s-6) var(--s-4); text-align:center; color:var(--ink-3); }
     .rg-empty .icon { font-size:42px; margin-bottom:var(--s-2); }
     .rg-empty .title { font-family:var(--font-display); font-size:1.4rem; color:var(--ink); margin-bottom:6px; }
+
+    /* ── Modal ──────────────────────────────────────────────── */
+    .modal-overlay { position:fixed; inset:0; background:rgba(20,19,18,.55); backdrop-filter:blur(2px);
+      display:none; align-items:center; justify-content:center; z-index:50; padding:var(--s-3); }
+    .modal-overlay.open { display:flex; }
+    .modal { background:var(--bg); border-radius:var(--r-lg); width:100%; max-width:480px;
+      max-height:90vh; overflow:auto; padding:var(--s-5); border:1px solid var(--border);
+      box-shadow:0 10px 40px rgba(0,0,0,.20); }
+    .modal h2 { font-family:var(--font-display); font-size:1.5rem; margin-bottom:6px; }
+    .modal .sub { color:var(--ink-2); font-size:14px; margin-bottom:var(--s-4); }
+    .modal label { display:block; font-size:12px; font-weight:600; color:var(--ink-2);
+      letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
+    .modal input[type=text], .modal input[type=number], .modal textarea {
+      width:100%; padding:11px 13px; border:1px solid var(--border); border-radius:var(--r-md);
+      background:var(--surface); color:var(--ink); font-size:15px; font-family:inherit; }
+    .modal textarea { min-height:64px; resize:vertical; }
+    .modal .field { margin-bottom:var(--s-3); }
+    .modal .field .help { color:var(--ink-3); font-size:12px; margin-top:6px; }
+    .modal .checkbox { display:flex; align-items:flex-start; gap:10px; cursor:pointer; }
+    .modal .checkbox input { margin-top:3px; }
+    .modal .actions { display:flex; gap:var(--s-2); justify-content:flex-end;
+      padding-top:var(--s-3); border-top:1px solid var(--border); margin-top:var(--s-3); }
+    .modal .err { display:none; background:rgba(220,53,69,0.10); color:#c0392b;
+      border:1px solid rgba(220,53,69,0.30); padding:10px 12px; border-radius:var(--r-md);
+      font-size:13px; margin-bottom:var(--s-3); }
+    .modal .err.show { display:block; }
+    .modal .success-box { background:rgba(46,160,67,0.08); border:1px solid rgba(46,160,67,0.30);
+      border-radius:var(--r-md); padding:var(--s-3); margin-bottom:var(--s-3); }
+    .modal .copy-row { display:flex; gap:8px; margin-top:8px; }
+    .modal .copy-row input { flex:1; font-family:'JetBrains Mono',ui-monospace,monospace; font-size:12px; }
 
     @media (max-width: 640px) {
       .rg-table th.col-conf, .rg-table td.col-conf,
@@ -87,6 +135,74 @@
 <body>
 <main class="rg-wrap" id="view"><p class="mini">Loading…</p></main>
 
+<!-- Refund modal -->
+<div class="modal-overlay" id="refund-modal">
+  <div class="modal">
+    <h2>Refund</h2>
+    <div class="sub" id="refund-sub">—</div>
+    <div class="err" id="refund-err"></div>
+    <div class="field">
+      <label>Amount to refund (USD)</label>
+      <input type="number" id="refund-amount" step="0.01" min="0" />
+      <div class="help" id="refund-help"></div>
+    </div>
+    <div class="field">
+      <label>Reason <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">(optional, for your records)</span></label>
+      <textarea id="refund-reason" placeholder="e.g. Player dropped out due to injury"></textarea>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="refund-confirm">Issue refund</button>
+    </div>
+  </div>
+</div>
+
+<!-- Addon modal -->
+<div class="modal-overlay" id="addon-modal">
+  <div class="modal">
+    <h2>Charge an add-on</h2>
+    <div class="sub" id="addon-sub">—</div>
+    <div class="err" id="addon-err"></div>
+    <div id="addon-form">
+      <div class="field">
+        <label>What for? <span style="color:var(--red)">*</span></label>
+        <input type="text" id="addon-desc" placeholder="e.g. Mulligan pack, 5th player, late add-on" />
+      </div>
+      <div class="field">
+        <label>Amount (USD) <span style="color:var(--red)">*</span></label>
+        <input type="number" id="addon-amount" step="0.01" min="0.50" placeholder="0.00" />
+        <div class="help">Minimum $0.50. JORD's 3% platform fee is added separately.</div>
+      </div>
+      <div class="field">
+        <label class="checkbox" style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--ink)">
+          <input type="checkbox" id="addon-email" checked />
+          <span>Email the buyer a payment link automatically</span>
+        </label>
+      </div>
+      <div class="actions">
+        <button class="btn btn-ghost" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" id="addon-confirm">Create charge</button>
+      </div>
+    </div>
+    <div id="addon-success" style="display:none">
+      <div class="success-box">
+        <strong>✓ Add-on charge created</strong>
+        <div id="addon-success-msg" style="font-size:14px;color:var(--ink-2);margin-top:6px"></div>
+      </div>
+      <div class="field">
+        <label>Payment link <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">(share this with the buyer if needed)</span></label>
+        <div class="copy-row">
+          <input type="text" id="addon-link" readonly />
+          <button class="btn btn-primary" id="addon-copy">Copy</button>
+        </div>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" data-close-modal>Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script src="/js/jord.js"></script>
 <script src="/admin/_shared/auth.js"></script>
 <script>
@@ -95,13 +211,9 @@ const esc = JORD.escapeHtml;
 if (!JORD.getToken()) location.href = '/admin';
 
 const parts = location.pathname.split('/').filter(Boolean);
-const eventId = parts[2]; // /admin/events/:id/registrations
+const eventId = parts[2];
 
 const state = { eventName: '', registrations: [], totals: null, filter: 'all', q: '', expanded: null };
-
-document.getElementById('topbar')?.appendChild?.(
-  JORD.renderTopbar?.('Registrations', JORD.el?.('a', { class: 'btn btn-ghost', href: '/admin' }, '← Admin')) ?? document.createElement('div')
-);
 
 function fmtMoney(cents) {
   const n = (Number(cents) || 0) / 100;
@@ -127,7 +239,7 @@ async function load() {
     state.eventName = ev?.name || 'Event';
     const d = await JORD.api('/api/admin/events/' + eventId + '/registrations');
     state.registrations = d.registrations || [];
-    state.totals = d.totals || { count: 0, paid_count: 0, revenue_cents: 0, fees_cents: 0, players_paid: 0 };
+    state.totals = d.totals || { count: 0, paid_count: 0, revenue_cents: 0, fees_cents: 0, players_paid: 0, refunds_cents: 0 };
     render();
   } catch (e) {
     if (e.status === 401) location.href = '/admin';
@@ -137,7 +249,7 @@ async function load() {
 
 function render() {
   const t = state.totals;
-  const netCents = (t.revenue_cents || 0) - (t.fees_cents || 0);
+  const netCents = (t.revenue_cents || 0) - (t.fees_cents || 0) - (t.refunds_cents || 0);
 
   $('#view').innerHTML = `
     <div class="rg-head">
@@ -173,10 +285,15 @@ function render() {
         <div class="v">${fmtMoney(t.fees_cents)}</div>
         <div class="sub">platform service fee</div>
       </div>
+      ${t.refunds_cents > 0 ? `<div class="rg-stat refund">
+        <div class="k">Refunded</div>
+        <div class="v">−${fmtMoney(t.refunds_cents)}</div>
+        <div class="sub">deducted from net</div>
+      </div>` : ''}
       <div class="rg-stat">
         <div class="k">Net to you</div>
         <div class="v">${fmtMoney(netCents)}</div>
-        <div class="sub">after JORD fee</div>
+        <div class="sub">after fees + refunds</div>
       </div>
     </div>
 
@@ -189,6 +306,7 @@ function render() {
           <button class="pill ${state.filter==='all'?'is-active':''}"     data-filter="all">All</button>
           <button class="pill ${state.filter==='paid'?'is-active':''}"    data-filter="paid">Paid</button>
           <button class="pill ${state.filter==='pending'?'is-active':''}" data-filter="pending">Pending</button>
+          <button class="pill ${state.filter==='refunded'?'is-active':''}" data-filter="refunded">Refunded</button>
         </div>
       </div>
       ${renderTable()}
@@ -203,8 +321,6 @@ function render() {
 }
 
 function refreshTable() {
-  // Update only the table HTML + active pill — no full re-render so the
-  // search box keeps focus.
   document.querySelectorAll('.rg-toolbar .pill').forEach(b => {
     b.classList.toggle('is-active', b.dataset.filter === state.filter);
   });
@@ -217,15 +333,36 @@ function refreshTable() {
   wireRowClicks();
 }
 
-function renderTable() {
+// Group rows so add-ons appear nested under their parent. Filters apply to
+// the parent row; if a parent matches, its addons come along for the ride.
+function getRowsForRender() {
+  const parents = state.registrations.filter(r => !r.parent_registration_id);
+  const byParent = {};
+  state.registrations.forEach(r => {
+    if (r.parent_registration_id) {
+      (byParent[r.parent_registration_id] = byParent[r.parent_registration_id] || []).push(r);
+    }
+  });
+
   const ql = state.q.trim().toLowerCase();
-  const rows = state.registrations.filter(r => {
-    if (state.filter !== 'all' && r.payment_status !== state.filter) return false;
+  const matches = (r) => {
+    if (state.filter === 'refunded' && !['refunded','partial_refund'].includes(r.payment_status)) return false;
+    if (state.filter !== 'all' && state.filter !== 'refunded' && r.payment_status !== state.filter) return false;
     if (!ql) return true;
     return (r.buyer_name || '').toLowerCase().includes(ql) ||
            (r.buyer_email || '').toLowerCase().includes(ql);
-  });
+  };
 
+  const out = [];
+  parents.filter(matches).forEach(p => {
+    out.push(p);
+    (byParent[p.id] || []).forEach(a => out.push({ ...a, _isAddon: true }));
+  });
+  return out;
+}
+
+function renderTable() {
+  const rows = getRowsForRender();
   if (rows.length === 0) {
     return `<div class="rg-empty">
       <div class="icon">📋</div>
@@ -240,7 +377,7 @@ function renderTable() {
     <thead>
       <tr>
         <th class="col-buyer">Buyer</th>
-        <th class="col-package">Package</th>
+        <th class="col-package">Package / charge</th>
         <th class="col-amount num">Amount</th>
         <th class="col-status">Status</th>
         <th class="col-mode">Method</th>
@@ -256,19 +393,31 @@ function renderTable() {
 
 function rowHtml(r) {
   const expanded = state.expanded === r.id;
+  const isAddon = !!r._isAddon;
   const mode = r.payment_mode === 'stripe' ? 'Stripe' : (r.payment_mode === 'mock' ? '<span class="pill mock">Test</span>' : '—');
+  const refundedNow = (r.refund_amount_cents || 0) > 0;
+  const fullyRefunded = r.payment_status === 'refunded';
+
   const playersHtml = (r.players || []).length
     ? `<ul>${r.players.map((p, i) => `<li>${i+1}. ${esc(p.name)}</li>`).join('')}</ul>`
     : '<p style="color:var(--ink-3);font-size:13px;margin-top:6px">No player roster supplied.</p>';
 
-  return `<tr class="rg-row ${expanded?'expanded':''}" data-id="${esc(r.id)}">
+  const refundLine = refundedNow
+    ? `<div class="refunded-line">${fullyRefunded ? '↩ Fully refunded' : `↩ ${fmtMoney(r.refund_amount_cents)} refunded`}${r.refund_reason ? ` · ${esc(r.refund_reason)}` : ''}</div>`
+    : '';
+
+  const canRefund = ['paid','partial_refund'].includes(r.payment_status);
+  const canAddon = !isAddon && r.payment_status === 'paid';
+
+  return `<tr class="rg-row ${expanded?'expanded':''} ${isAddon?'addon':''}" data-id="${esc(r.id)}">
     <td class="buyer">
       <div class="name">${esc(r.buyer_name)}</div>
-      <div class="email">${esc(r.buyer_email)}${r.buyer_phone ? ' · ' + esc(r.buyer_phone) : ''}</div>
+      ${!isAddon ? `<div class="email">${esc(r.buyer_email)}${r.buyer_phone ? ' · ' + esc(r.buyer_phone) : ''}</div>` : ''}
+      ${isAddon && r.description ? `<div class="addon-desc">+ ${esc(r.description)}</div>` : ''}
     </td>
-    <td class="col-package">${esc(r.package_name)}</td>
-    <td class="num">${fmtMoney(r.amount_cents)}</td>
-    <td><span class="pill ${esc(r.payment_status)}">${esc(r.payment_status)}</span></td>
+    <td class="col-package">${esc(isAddon ? (r.description || 'Add-on') : r.package_name)}</td>
+    <td class="num">${fmtMoney(r.amount_cents)}${refundLine}</td>
+    <td><span class="pill ${esc(r.payment_status)}">${esc(r.payment_status.replace('_',' '))}</span></td>
     <td class="col-mode">${mode}</td>
     <td>${fmtShortDate(r.paid_at || r.created_at)}</td>
     <td class="conf col-conf">${esc(r.id)}</td>
@@ -291,27 +440,152 @@ function rowHtml(r) {
         <div class="lbl">JORD fee</div>
         <div class="val">${fmtMoney(r.platform_fee_cents)}</div>
       </div>
+      ${refundedNow ? `<div>
+        <div class="lbl">Refunded</div>
+        <div class="val">${fmtMoney(r.refund_amount_cents)} ${r.refunded_at ? `<span class="muted" style="font-size:12px">· ${fmtDate(r.refunded_at)}</span>` : ''}</div>
+      </div>` : ''}
       ${r.stripe_session_id ? `<div>
         <div class="lbl">Stripe session</div>
         <div class="val" style="font-family:'JetBrains Mono', ui-monospace, monospace;font-size:12px;word-break:break-all">${esc(r.stripe_session_id)}</div>
       </div>` : ''}
     </div>
-    <div>
+    ${!isAddon ? `<div>
       <div class="lbl">Player roster (${(r.players || []).length})</div>
       ${playersHtml}
+    </div>` : ''}
+    <div class="action-row">
+      ${canRefund ? `<button class="btn btn-refund" data-action="refund" data-id="${esc(r.id)}">↩ ${fullyRefunded ? 'Refund more' : 'Refund'}</button>` : ''}
+      ${canAddon  ? `<button class="btn btn-addon"  data-action="addon"  data-id="${esc(r.id)}">+ Charge add-on</button>` : ''}
     </div>
   </td></tr>` : ''}`;
 }
 
 function wireRowClicks() {
   document.querySelectorAll('.rg-row').forEach(tr => {
-    tr.onclick = () => {
+    tr.onclick = (e) => {
+      // Don't toggle when clicking an action button inside the expanded detail.
+      if (e.target.closest('[data-action]')) return;
       const id = tr.dataset.id;
       state.expanded = state.expanded === id ? null : id;
       refreshTable();
     };
   });
+  document.querySelectorAll('[data-action="refund"]').forEach(b => {
+    b.onclick = (e) => { e.stopPropagation(); openRefund(b.dataset.id); };
+  });
+  document.querySelectorAll('[data-action="addon"]').forEach(b => {
+    b.onclick = (e) => { e.stopPropagation(); openAddon(b.dataset.id); };
+  });
 }
+
+// ─── REFUND MODAL ─────────────────────────────────────────────
+let refundTarget = null;
+function openRefund(id) {
+  const r = state.registrations.find(x => x.id === id);
+  if (!r) return;
+  refundTarget = r;
+  const remaining = (r.amount_cents || 0) - (r.refund_amount_cents || 0);
+  $('#refund-sub').textContent = `${r.buyer_name} · ${r.description || r.package_name || ''} · paid ${fmtMoney(r.amount_cents)}`;
+  $('#refund-amount').value = (remaining / 100).toFixed(2);
+  $('#refund-amount').max  = (remaining / 100).toFixed(2);
+  $('#refund-help').textContent = `Max refundable: ${fmtMoney(remaining)}${(r.refund_amount_cents||0) > 0 ? ` (${fmtMoney(r.refund_amount_cents)} already refunded)` : ''}`;
+  $('#refund-reason').value = '';
+  $('#refund-err').classList.remove('show');
+  $('#refund-modal').classList.add('open');
+}
+$('#refund-confirm').onclick = async () => {
+  if (!refundTarget) return;
+  const errBox = $('#refund-err');
+  errBox.classList.remove('show');
+  const btn = $('#refund-confirm');
+  btn.disabled = true; btn.textContent = 'Processing…';
+  const amount = parseFloat($('#refund-amount').value || '0');
+  const reason = $('#refund-reason').value.trim();
+  try {
+    if (!(amount > 0)) throw new Error('Amount must be greater than zero');
+    await JORD.api(`/api/admin/events/${eventId}/registrations/${refundTarget.id}/refund`, {
+      method: 'POST',
+      body: { amount_cents: Math.round(amount * 100), reason },
+    });
+    $('#refund-modal').classList.remove('open');
+    await load();
+  } catch (e) {
+    errBox.textContent = e.message || 'Refund failed'; errBox.classList.add('show');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Issue refund';
+  }
+};
+
+// ─── ADD-ON MODAL ─────────────────────────────────────────────
+let addonTarget = null;
+function openAddon(id) {
+  const r = state.registrations.find(x => x.id === id);
+  if (!r) return;
+  addonTarget = r;
+  $('#addon-sub').textContent = `Charging ${r.buyer_name} (${r.buyer_email})`;
+  $('#addon-desc').value = '';
+  $('#addon-amount').value = '';
+  $('#addon-email').checked = true;
+  $('#addon-err').classList.remove('show');
+  $('#addon-form').style.display = '';
+  $('#addon-success').style.display = 'none';
+  $('#addon-modal').classList.add('open');
+}
+$('#addon-confirm').onclick = async () => {
+  if (!addonTarget) return;
+  const errBox = $('#addon-err');
+  errBox.classList.remove('show');
+  const btn = $('#addon-confirm');
+  const desc = $('#addon-desc').value.trim();
+  const amount = parseFloat($('#addon-amount').value || '0');
+  const emailBuyer = $('#addon-email').checked;
+  try {
+    if (!desc) throw new Error('Description required');
+    if (!(amount >= 0.50)) throw new Error('Amount must be at least $0.50');
+    btn.disabled = true; btn.textContent = 'Creating…';
+    const res = await JORD.api(`/api/admin/events/${eventId}/registrations/${addonTarget.id}/addon`, {
+      method: 'POST',
+      body: { amount_cents: Math.round(amount * 100), description: desc, email_buyer: emailBuyer },
+    });
+    // Show success state with copy-link
+    if (res.checkout_url) {
+      $('#addon-success-msg').textContent =
+        emailBuyer
+          ? `Payment link sent to ${addonTarget.buyer_email}. You can also share the link below.`
+          : `Payment link ready. Share it with the buyer.`;
+      $('#addon-link').value = res.checkout_url;
+      $('#addon-form').style.display = 'none';
+      $('#addon-success').style.display = '';
+    } else {
+      // mock mode — paid immediately, just reload
+      $('#addon-modal').classList.remove('open');
+    }
+    await load();
+  } catch (e) {
+    errBox.textContent = e.message || 'Could not create charge'; errBox.classList.add('show');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Create charge';
+  }
+};
+$('#addon-copy').onclick = () => {
+  const inp = $('#addon-link');
+  inp.select();
+  navigator.clipboard.writeText(inp.value).then(() => {
+    $('#addon-copy').textContent = '✓ Copied';
+    setTimeout(() => { $('#addon-copy').textContent = 'Copy'; }, 1500);
+  });
+};
+
+// Generic modal closers
+document.querySelectorAll('[data-close-modal]').forEach(b => {
+  b.onclick = () => document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+});
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+});
 
 ADMIN.requireAuth({ adminOrSuper: true }).then(load);
 </script>
