@@ -1,0 +1,448 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Check-in · JORD Admin</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+  <style>
+    /* Mobile-first — this page is meant for use on a phone/iPad at the
+       registration desk, so tap targets are big and the layout works
+       one-handed in portrait. */
+    body { background: var(--bg); }
+
+    .ci-wrap { max-width: 720px; margin: 0 auto; padding: var(--s-3) var(--s-3) 120px; }
+
+    .ci-head { padding: var(--s-3) 0 var(--s-4); }
+    .ci-head a.back { font-size: 13px; color: var(--ink-2); text-decoration: none; }
+    .ci-head .eyebrow { font-size: 11px; letter-spacing: .22em; text-transform: uppercase;
+      color: var(--ink-3); font-weight: 700; margin-top: 8px; }
+    .ci-head h1 { font-family: var(--font-display); font-size: clamp(1.6rem, 5vw, 2.1rem);
+      letter-spacing: -0.02em; line-height: 1.1; margin: 4px 0 var(--s-3); }
+
+    /* Progress card — always visible at top */
+    .ci-progress { background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--r-lg); padding: var(--s-3) var(--s-4); margin-bottom: var(--s-3);
+      display: flex; align-items: center; gap: var(--s-3); }
+    .ci-progress .count { font-family: var(--font-display); font-size: 2.2rem; line-height: 1;
+      color: var(--accent); min-width: 90px; }
+    .ci-progress .count small { font-size: 1rem; color: var(--ink-3); margin-left: 6px; }
+    .ci-progress .bar { flex: 1; height: 10px; background: var(--surface-2); border-radius: 999px;
+      overflow: hidden; position: relative; }
+    .ci-progress .bar-fill { height: 100%; background: var(--accent); border-radius: 999px;
+      transition: width .25s ease; }
+    .ci-progress .pct { font-size: 14px; font-weight: 700; color: var(--ink-2); min-width: 44px; text-align: right; }
+
+    /* Toolbar */
+    .ci-toolbar { display: flex; gap: 8px; margin-bottom: var(--s-3); flex-wrap: wrap; }
+    .ci-toolbar .search { flex: 1; min-width: 200px; }
+    .ci-toolbar .search input { width: 100%; padding: 14px 16px; font-size: 16px;
+      border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); color: var(--ink); }
+    .ci-toolbar .pills { display: flex; gap: 6px; }
+    .ci-toolbar .pill { font-size: 13px; font-weight: 600; padding: 12px 16px; min-height: 44px;
+      border-radius: 999px; border: 1px solid var(--border); background: var(--surface);
+      color: var(--ink-2); cursor: pointer; display: inline-flex; align-items: center; }
+    .ci-toolbar .pill.is-active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+    .ci-toolbar .pill .num { font-size: 11px; opacity: .7; margin-left: 6px; }
+
+    /* Player rows — big tap targets */
+    .ci-list { display: flex; flex-direction: column; gap: 8px; }
+    .ci-row { display: flex; align-items: center; gap: var(--s-3); padding: 16px var(--s-3);
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+      cursor: pointer; transition: background var(--t-fast); user-select: none; -webkit-tap-highlight-color: transparent; }
+    .ci-row:active { background: var(--surface-2); }
+    .ci-row.is-checked { background: rgba(46,160,67,0.08); border-color: rgba(46,160,67,0.30); }
+
+    .ci-row .check { width: 36px; height: 36px; border-radius: 50%; border: 2px solid var(--border);
+      flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 18px;
+      color: transparent; transition: all var(--t-fast); }
+    .ci-row.is-checked .check { background: #1f7e2a; border-color: #1f7e2a; color: #fff; }
+
+    .ci-row .info { flex: 1; min-width: 0; }
+    .ci-row .info .name { font-weight: 700; font-size: 16px; line-height: 1.2; }
+    .ci-row .info .meta { font-size: 12px; color: var(--ink-3); margin-top: 3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ci-row .info .meta .package { color: var(--ink-2); font-weight: 600; }
+    .ci-row.is-checked .info .name { text-decoration: line-through; color: var(--ink-2); }
+
+    .ci-row .when { font-size: 11px; color: var(--ink-3); text-align: right; white-space: nowrap; }
+
+    .ci-row .pill-walkup { display: inline-block; background: rgba(184,136,77,0.12); color: var(--accent);
+      border: 1px solid rgba(184,136,77,0.35); padding: 2px 8px; border-radius: 999px;
+      font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; margin-left: 6px; }
+
+    .ci-empty { padding: var(--s-7) var(--s-4); text-align: center; color: var(--ink-3); }
+    .ci-empty .icon { font-size: 42px; margin-bottom: var(--s-2); }
+    .ci-empty .title { font-family: var(--font-display); font-size: 1.4rem; color: var(--ink); margin-bottom: 6px; }
+
+    /* Sticky walk-up FAB */
+    .ci-fab { position: fixed; right: var(--s-3); bottom: max(var(--s-3), env(safe-area-inset-bottom));
+      background: var(--ink); color: var(--bg); border: none; border-radius: 999px;
+      padding: 16px 22px; font-size: 15px; font-weight: 700; cursor: pointer;
+      box-shadow: 0 6px 24px rgba(0,0,0,.22); z-index: 20;
+      display: inline-flex; align-items: center; gap: 8px; }
+    .ci-fab:active { transform: scale(.97); }
+
+    /* Modal (shared style — slightly different from registrations dashboard) */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(20,19,18,.55); backdrop-filter: blur(2px);
+      display: none; align-items: flex-end; justify-content: center; z-index: 50; padding: 0; }
+    @media (min-width: 600px) { .modal-overlay { align-items: center; padding: var(--s-3); } }
+    .modal-overlay.open { display: flex; }
+    .modal { background: var(--bg); border-radius: var(--r-lg) var(--r-lg) 0 0; width: 100%;
+      max-width: 520px; max-height: 92vh; overflow: auto; padding: var(--s-4) var(--s-4) calc(var(--s-4) + env(safe-area-inset-bottom));
+      border: 1px solid var(--border); box-shadow: 0 -10px 40px rgba(0,0,0,.20); }
+    @media (min-width: 600px) { .modal { border-radius: var(--r-lg); } }
+    .modal h2 { font-family: var(--font-display); font-size: 1.5rem; margin-bottom: 6px; }
+    .modal .sub { color: var(--ink-2); font-size: 14px; margin-bottom: var(--s-3); }
+    .modal label { display: block; font-size: 12px; font-weight: 600; color: var(--ink-2);
+      letter-spacing: .06em; text-transform: uppercase; margin-bottom: 6px; }
+    .modal input[type=text], .modal input[type=number], .modal input[type=email], .modal input[type=tel], .modal select {
+      width: 100%; padding: 13px 14px; border: 1px solid var(--border); border-radius: var(--r-md);
+      background: var(--surface); color: var(--ink); font-size: 16px; font-family: inherit; }
+    .modal .field { margin-bottom: var(--s-3); }
+    .modal .row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2); }
+    .modal .player-input { display: flex; gap: 8px; margin-bottom: 6px; align-items: center; }
+    .modal .player-input .num { width: 24px; color: var(--ink-3); font-weight: 700; font-size: 13px; text-align: center; }
+    .modal .player-input input { flex: 1; }
+    .modal .actions { display: flex; gap: var(--s-2); justify-content: flex-end;
+      padding-top: var(--s-3); border-top: 1px solid var(--border); margin-top: var(--s-3); }
+    .modal .actions .btn { padding: 12px 20px; min-height: 44px; }
+    .modal .err { display: none; background: rgba(220,53,69,0.10); color: #c0392b;
+      border: 1px solid rgba(220,53,69,0.30); padding: 10px 12px; border-radius: var(--r-md);
+      font-size: 13px; margin-bottom: var(--s-3); }
+    .modal .err.show { display: block; }
+  </style>
+</head>
+<body>
+<main class="ci-wrap" id="view"><p class="mini" style="padding:var(--s-5)">Loading…</p></main>
+
+<button class="ci-fab" id="open-walkup" style="display:none">+ Walk-up</button>
+
+<!-- Walk-up modal -->
+<div class="modal-overlay" id="walkup-modal">
+  <div class="modal">
+    <h2>Walk-up registration</h2>
+    <div class="sub">Someone showed up without registering online. Capture them quickly.</div>
+    <div class="err" id="walkup-err"></div>
+
+    <div class="field">
+      <label>Package <span style="color:var(--red)">*</span></label>
+      <select id="wu-package"></select>
+    </div>
+
+    <div class="field">
+      <label>Buyer name <span style="color:var(--red)">*</span></label>
+      <input type="text" id="wu-buyer-name" autocomplete="name" />
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Email <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+        <input type="email" id="wu-buyer-email" autocomplete="email" />
+      </div>
+      <div class="field">
+        <label>Phone <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+        <input type="tel" id="wu-buyer-phone" autocomplete="tel" />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Players <span id="wu-player-count" style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0"></span></label>
+      <div id="wu-players"></div>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Paid how?</label>
+        <select id="wu-method">
+          <option value="cash">Cash</option>
+          <option value="card">Card (Square/etc)</option>
+          <option value="check">Check</option>
+          <option value="venmo">Venmo / Zelle</option>
+          <option value="comp">Comp (free)</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Amount paid</label>
+        <input type="number" id="wu-amount" step="0.01" min="0" />
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-ghost" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="wu-submit">Add & check in</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/jord.js"></script>
+<script src="/admin/_shared/auth.js"></script>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => r.querySelectorAll(s);
+const esc = JORD.escapeHtml;
+if (!JORD.getToken()) location.href = '/admin';
+
+const parts = location.pathname.split('/').filter(Boolean);
+const eventId = parts[2]; // /admin/events/:id/check-in
+
+const state = {
+  eventName: '',
+  players:   [],
+  totals:    { players_total: 0, players_checked: 0, registrations: 0 },
+  filter:    'remaining',  // remaining | all | checked
+  q:         '',
+  packages:  [],
+  // Optimistic update: when a row is tapped we update local state
+  // immediately so the UI feels instant, then sync with the server.
+};
+
+function fmtMoney(cents) {
+  const n = (Number(cents) || 0) / 100;
+  return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtTime(s) {
+  if (!s) return '';
+  const d = new Date(s);
+  if (isNaN(d)) return s;
+  return d.toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' });
+}
+
+async function load() {
+  try {
+    const ev = await JORD.api('/api/events/' + eventId);
+    state.eventName = ev?.name || 'Event';
+    const d = await JORD.api('/api/admin/events/' + eventId + '/checkin');
+    state.players = d.players || [];
+    state.totals  = d.totals || state.totals;
+    // Also load packages for the walk-up modal.
+    const site = await JORD.api('/api/admin/events/' + eventId + '/site').catch(() => null);
+    state.packages = (site && site.packages) || [];
+    render();
+  } catch (e) {
+    if (e.status === 401) location.href = '/admin';
+    else $('#view').innerHTML = `<div class="card"><p style="color:var(--red)">${esc(e.message)}</p></div>`;
+  }
+}
+
+function render() {
+  const t = state.totals;
+  const pct = t.players_total > 0 ? Math.round((t.players_checked / t.players_total) * 100) : 0;
+  const remaining = t.players_total - t.players_checked;
+
+  $('#view').innerHTML = `
+    <div class="ci-head">
+      <a href="/admin/events/${esc(eventId)}" class="back">← Back to event</a>
+      <div class="eyebrow">${esc(state.eventName)}</div>
+      <h1>Day-of check-in</h1>
+    </div>
+
+    <div class="ci-progress">
+      <div class="count">${t.players_checked}<small>/${t.players_total}</small></div>
+      <div class="bar"><div class="bar-fill" style="width:${pct}%"></div></div>
+      <div class="pct">${pct}%</div>
+    </div>
+
+    <div class="ci-toolbar">
+      <div class="search">
+        <input type="search" id="q" placeholder="Search player or buyer name…" value="${esc(state.q)}" autocomplete="off" />
+      </div>
+      <div class="pills">
+        <button class="pill ${state.filter==='remaining'?'is-active':''}" data-filter="remaining">Remaining<span class="num">${remaining}</span></button>
+        <button class="pill ${state.filter==='checked'?'is-active':''}"   data-filter="checked">Checked in<span class="num">${t.players_checked}</span></button>
+        <button class="pill ${state.filter==='all'?'is-active':''}"       data-filter="all">All<span class="num">${t.players_total}</span></button>
+      </div>
+    </div>
+
+    <div class="ci-list" id="list">${renderList()}</div>
+  `;
+
+  $('#q').addEventListener('input', e => { state.q = e.target.value; refreshList(); });
+  $$('.ci-toolbar .pill').forEach(b => {
+    b.onclick = () => { state.filter = b.dataset.filter; refreshList(); };
+  });
+  wireRows();
+  $('#open-walkup').style.display = '';
+}
+
+function refreshList() {
+  const t = state.totals;
+  const remaining = t.players_total - t.players_checked;
+  $$('.ci-toolbar .pill').forEach(b => {
+    b.classList.toggle('is-active', b.dataset.filter === state.filter);
+    const numEl = b.querySelector('.num');
+    if (numEl) {
+      if (b.dataset.filter === 'remaining') numEl.textContent = remaining;
+      else if (b.dataset.filter === 'checked') numEl.textContent = t.players_checked;
+      else numEl.textContent = t.players_total;
+    }
+  });
+  // Progress bar update
+  const pct = t.players_total > 0 ? Math.round((t.players_checked / t.players_total) * 100) : 0;
+  $('.ci-progress .count').innerHTML = `${t.players_checked}<small>/${t.players_total}</small>`;
+  $('.ci-progress .bar-fill').style.width = pct + '%';
+  $('.ci-progress .pct').textContent = pct + '%';
+
+  $('#list').innerHTML = renderList();
+  wireRows();
+}
+
+function renderList() {
+  const ql = state.q.trim().toLowerCase();
+  const rows = state.players.filter(p => {
+    if (state.filter === 'remaining' && p.checked_in_at) return false;
+    if (state.filter === 'checked'   && !p.checked_in_at) return false;
+    if (!ql) return true;
+    return (p.player_name || '').toLowerCase().includes(ql) ||
+           (p.buyer_name  || '').toLowerCase().includes(ql);
+  });
+
+  if (rows.length === 0) {
+    if (state.players.length === 0) {
+      return `<div class="ci-empty">
+        <div class="icon">⛳</div>
+        <div class="title">No registrations yet</div>
+        <p>Walk-ups land here too. Hit the "+ Walk-up" button at the bottom right.</p>
+      </div>`;
+    }
+    return `<div class="ci-empty">
+      <div class="icon">${state.filter === 'remaining' ? '✓' : '🔍'}</div>
+      <div class="title">${state.filter === 'remaining' ? 'Everyone\'s in!' : 'No matches'}</div>
+      <p>${state.filter === 'remaining' ? 'All checked-in players are accounted for.' : 'Try clearing the search or switching the filter.'}</p>
+    </div>`;
+  }
+
+  return rows.map(p => {
+    const checked = !!p.checked_in_at;
+    const isWalkup = p.payment_mode === 'manual';
+    const buyerLabel = p.buyer_name !== p.player_name ? ` · ${esc(p.buyer_name)}` : '';
+    return `<div class="ci-row ${checked?'is-checked':''}" data-reg="${esc(p.reg_id)}" data-idx="${p.player_index}">
+      <div class="check">✓</div>
+      <div class="info">
+        <div class="name">${esc(p.player_name)}${isWalkup ? '<span class="pill-walkup">Walk-up</span>' : ''}</div>
+        <div class="meta"><span class="package">${esc(p.package_name || '')}</span>${buyerLabel}</div>
+      </div>
+      ${checked ? `<div class="when">${fmtTime(p.checked_in_at)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function wireRows() {
+  $$('.ci-row').forEach(row => {
+    row.onclick = async () => {
+      const reg = row.dataset.reg;
+      const idx = Number(row.dataset.idx);
+      const p = state.players.find(x => x.reg_id === reg && x.player_index === idx);
+      if (!p) return;
+
+      const wasChecked = !!p.checked_in_at;
+      // Optimistic update
+      p.checked_in_at = wasChecked ? null : new Date().toISOString();
+      state.totals.players_checked += wasChecked ? -1 : 1;
+      refreshList();
+
+      try {
+        const url = `/api/admin/events/${eventId}/registrations/${reg}/players/${idx}/checkin`;
+        if (wasChecked) {
+          await JORD.api(url, { method: 'DELETE' });
+        } else {
+          await JORD.api(url, { method: 'POST', body: { player_name: p.player_name } });
+        }
+      } catch (e) {
+        // Revert on error
+        p.checked_in_at = wasChecked ? new Date().toISOString() : null;
+        state.totals.players_checked += wasChecked ? 1 : -1;
+        refreshList();
+        alert('Could not update check-in: ' + (e.message || 'network error'));
+      }
+    };
+  });
+}
+
+// ─── WALK-UP MODAL ─────────────────────────────────────────────
+function openWalkup() {
+  if (state.packages.length === 0) {
+    alert('Add a registration package first under "Edit site" before recording walk-ups.');
+    return;
+  }
+  // Populate package dropdown
+  const sel = $('#wu-package');
+  sel.innerHTML = state.packages.map(p =>
+    `<option value="${esc(p.id)}" data-players="${p.includes_players || 1}" data-price="${p.price_cents || 0}">${esc(p.name)} — ${fmtMoney(p.price_cents)}</option>`
+  ).join('');
+  $('#wu-buyer-name').value = '';
+  $('#wu-buyer-email').value = '';
+  $('#wu-buyer-phone').value = '';
+  $('#wu-method').value = 'cash';
+  $('#wu-err').classList.remove('show');
+  syncWalkupPackage();
+  $('#walkup-modal').classList.add('open');
+  setTimeout(() => $('#wu-buyer-name').focus(), 100);
+}
+
+function syncWalkupPackage() {
+  const opt = $('#wu-package').selectedOptions[0];
+  const n = Math.max(1, Number(opt?.dataset.players || 1));
+  const price = Number(opt?.dataset.price || 0);
+  $('#wu-amount').value = (price / 100).toFixed(2);
+  $('#wu-player-count').textContent = `(${n} player${n>1?'s':''})`;
+  $('#wu-players').innerHTML = Array.from({length: n}, (_, i) =>
+    `<div class="player-input">
+      <div class="num">${i+1}</div>
+      <input type="text" class="wu-player" placeholder="Player ${i+1} full name" />
+    </div>`
+  ).join('');
+}
+
+$('#open-walkup').onclick = openWalkup;
+$('#wu-package').onchange = syncWalkupPackage;
+
+$('#wu-submit').onclick = async () => {
+  const errBox = $('#wu-err');
+  errBox.classList.remove('show');
+  const buyer = $('#wu-buyer-name').value.trim();
+  if (!buyer) { errBox.textContent = 'Buyer name required'; errBox.classList.add('show'); return; }
+  const players = Array.from($$('.wu-player')).map(i => i.value.trim()).filter(Boolean).map(name => ({ name }));
+  if (players.length === 0) { errBox.textContent = 'Add at least one player name'; errBox.classList.add('show'); return; }
+  const amtDollars = parseFloat($('#wu-amount').value || '0');
+  const btn = $('#wu-submit');
+  btn.disabled = true; btn.textContent = 'Adding…';
+  try {
+    await JORD.api(`/api/admin/events/${eventId}/walkups`, {
+      method: 'POST',
+      body: {
+        package_id:     $('#wu-package').value,
+        buyer_name:     buyer,
+        buyer_email:    $('#wu-buyer-email').value.trim(),
+        buyer_phone:    $('#wu-buyer-phone').value.trim(),
+        players,
+        amount_cents:   Math.round((amtDollars || 0) * 100),
+        payment_method: $('#wu-method').value,
+      },
+    });
+    $('#walkup-modal').classList.remove('open');
+    await load();
+  } catch (e) {
+    errBox.textContent = e.message || 'Could not create walk-up';
+    errBox.classList.add('show');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Add & check in';
+  }
+};
+
+// Modal close handlers
+$$('[data-close-modal]').forEach(b => {
+  b.onclick = () => $$('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+});
+$$('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') $$('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+});
+
+ADMIN.requireAuth({ adminOrSuper: true }).then(load);
+</script>
+</body>
+</html>

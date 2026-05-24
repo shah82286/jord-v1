@@ -620,6 +620,16 @@ db.exec(`
     FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
   );
   CREATE INDEX IF NOT EXISTS idx_registrations_event ON registrations(event_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS checkins (
+    registration_id  TEXT NOT NULL,
+    player_index     INTEGER NOT NULL,    -- position in registrations.players_json
+    player_name      TEXT,                -- snapshotted so renaming a player doesn't break the link
+    checked_in_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
+    checked_in_by    TEXT,                -- admin id
+    PRIMARY KEY (registration_id, player_index),
+    FOREIGN KEY (registration_id) REFERENCES registrations(id) ON DELETE CASCADE
+  );
 `);
 
 // ─── AUTH HELPERS ────────────────────────────────────────────────────────────
@@ -4992,6 +5002,138 @@ app.post('/api/admin/events/:id/registrations/:regId/addon', requireAuth, requir
   }
 });
 
+// ─── CHECK-IN (E2: run the day) ─────────────────────────────────────────────
+// Mobile-first registration-desk flow. Pulls every paid registration + their
+// players, joins the `checkins` table to mark who's arrived. Walk-ups create
+// regular paid registrations (payment_mode='manual') so they show in the
+// dashboard and totals.
+
+app.get('/api/admin/events/:id/checkin', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const regs = db.prepare(`SELECT r.id, r.buyer_name, r.buyer_email, r.buyer_phone,
+                                  r.players_json, r.payment_status, r.payment_mode,
+                                  r.amount_cents, r.created_at, r.parent_registration_id,
+                                  r.description,
+                                  p.name AS package_name, p.includes_players
+                           FROM registrations r
+                           JOIN registration_packages p ON p.id = r.package_id
+                           WHERE r.event_id=? AND r.payment_status IN ('paid','partial_refund')
+                             AND r.parent_registration_id IS NULL
+                           ORDER BY r.buyer_name ASC`).all(req.params.id);
+
+  const checkinRows = db.prepare(`SELECT registration_id, player_index, player_name, checked_in_at
+                                  FROM checkins c
+                                  JOIN registrations r ON r.id = c.registration_id
+                                  WHERE r.event_id=?`).all(req.params.id);
+  const checkinMap = {};
+  for (const c of checkinRows) {
+    checkinMap[`${c.registration_id}:${c.player_index}`] = c;
+  }
+
+  // Flatten to a player-centric list — that's what the UI renders.
+  // Each "player" = { reg_id, player_index, name, package, buyer_name, checked_in_at? }
+  const players = [];
+  for (const r of regs) {
+    let roster = [];
+    try { roster = JSON.parse(r.players_json || '[]'); } catch {}
+    // If roster is empty but package includes players, show placeholder slots.
+    const slots = roster.length > 0
+      ? roster
+      : Array.from({ length: Math.max(1, r.includes_players || 1) }, (_, i) => ({ name: `Player ${i+1} (no name)` }));
+    slots.forEach((p, i) => {
+      const key = `${r.id}:${i}`;
+      const c = checkinMap[key];
+      players.push({
+        reg_id:        r.id,
+        player_index:  i,
+        player_name:   p.name || '(unnamed)',
+        buyer_name:    r.buyer_name,
+        buyer_email:   r.buyer_email,
+        buyer_phone:   r.buyer_phone,
+        package_name:  r.description || r.package_name,
+        payment_mode:  r.payment_mode,
+        checked_in_at: c ? c.checked_in_at : null,
+      });
+    });
+  }
+
+  const totals = {
+    players_total:    players.length,
+    players_checked:  players.filter(p => p.checked_in_at).length,
+    registrations:    regs.length,
+  };
+
+  res.json({ players, totals });
+});
+
+app.post('/api/admin/events/:id/registrations/:regId/players/:playerIndex/checkin',
+  requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+    const reg = db.prepare('SELECT id, players_json FROM registrations WHERE id=? AND event_id=?')
+      .get(req.params.regId, req.params.id);
+    if (!reg) return res.status(404).json({ error: 'Registration not found' });
+
+    const idx = parseInt(req.params.playerIndex, 10);
+    if (!Number.isInteger(idx) || idx < 0) return res.status(400).json({ error: 'Invalid player index' });
+
+    let roster = [];
+    try { roster = JSON.parse(reg.players_json || '[]'); } catch {}
+    const playerName = (req.body && req.body.player_name) ||
+                       (roster[idx] && roster[idx].name) ||
+                       `Player ${idx + 1}`;
+
+    db.prepare(`INSERT INTO checkins (registration_id, player_index, player_name, checked_in_by)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(registration_id, player_index) DO UPDATE SET
+                  checked_in_at = CURRENT_TIMESTAMP,
+                  checked_in_by = excluded.checked_in_by,
+                  player_name   = excluded.player_name`)
+      .run(reg.id, idx, playerName, req.admin.id);
+    res.json({ ok: true, checked_in_at: new Date().toISOString() });
+});
+
+app.delete('/api/admin/events/:id/registrations/:regId/players/:playerIndex/checkin',
+  requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+    const idx = parseInt(req.params.playerIndex, 10);
+    db.prepare('DELETE FROM checkins WHERE registration_id=? AND player_index=?')
+      .run(req.params.regId, idx);
+    res.json({ ok: true });
+});
+
+// Walk-up = someone shows up at the registration table without having signed
+// up online. Creates a paid registration with payment_mode='manual' so it
+// shows up in dashboards/totals; auto-checks-in everyone on the roster.
+app.post('/api/admin/events/:id/walkups', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const { package_id, buyer_name, buyer_email, buyer_phone, players, amount_cents, payment_method } = req.body || {};
+  if (!package_id || !buyer_name) return res.status(400).json({ error: 'package_id and buyer_name required' });
+
+  const pkg = db.prepare('SELECT id, name, price_cents, includes_players FROM registration_packages WHERE id=? AND event_id=?')
+    .get(package_id, req.params.id);
+  if (!pkg) return res.status(404).json({ error: 'Package not found' });
+
+  const playersArr = Array.isArray(players) ? players.filter(p => p && p.name) : [];
+  const amt = amount_cents != null && amount_cents !== '' ? Math.max(0, Number(amount_cents)) : pkg.price_cents;
+  const id = crypto.randomBytes(8).toString('hex');
+  // We tag the payment method into refund_reason as a quick audit cell
+  // ("cash", "card-square", "comp", etc.) without inventing a new column.
+  const methodNote = String(payment_method || 'manual').trim().slice(0, 40);
+
+  db.prepare(`INSERT INTO registrations
+    (id, event_id, package_id, buyer_name, buyer_email, buyer_phone, players_json,
+     amount_cents, platform_fee_cents, payment_status, payment_mode, paid_at, description)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 'paid', 'manual', CURRENT_TIMESTAMP, ?)`)
+    .run(id, req.params.id, pkg.id, buyer_name.trim(),
+         (buyer_email || '').trim().toLowerCase() || null,
+         (buyer_phone || '').trim() || null,
+         JSON.stringify(playersArr), amt, `Walk-up (${methodNote})`);
+
+  // Auto-check-in every named player on the walk-up roster (they're standing
+  // at the desk right now — no point asking the organizer to tap again).
+  const insertCheckin = db.prepare(`INSERT INTO checkins (registration_id, player_index, player_name, checked_in_by)
+                                    VALUES (?, ?, ?, ?)`);
+  playersArr.forEach((p, i) => insertCheckin.run(id, i, p.name, req.admin.id));
+
+  res.json({ id, players_checked_in: playersArr.length });
+});
+
 app.get('/api/users/me', requireUser, (req, res) => {
   res.json({ user: {
     id: req.user.id, name: req.user.name, email: req.user.email,
@@ -5012,6 +5154,7 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   // for everything (saw this with /registrations being shadowed in v3.33.0).
   '/admin/events/:id/site/edit':      'admin/event-site-editor.html',
   '/admin/events/:id/registrations':  'admin/event-registrations.html',
+  '/admin/events/:id/check-in':       'admin/event-checkin.html',
   '/admin/events/:id':       'admin/editor.html',
   '/admin/events/:id/:tab':  'admin/editor.html',
   '/admin/stripe-connect':       'admin/stripe-connect.html',

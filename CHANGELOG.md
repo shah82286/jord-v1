@@ -2,6 +2,67 @@
 
 ---
 
+## v3.35.0 — 2026-05-24
+### Session 50 — E2 (Run the day): mobile-first check-in + walk-ups
+
+First chunk of E2 ships. Day-of registration-desk flow for marking
+players as arrived, with walk-up support for people who didn't sign up
+online.
+
+#### What changed
+- **Schema** — new `checkins` table keyed on `(registration_id, player_index)`.
+  Snapshots `player_name` at check-in (so a later rename doesn't lose the
+  link), tracks `checked_in_by` (admin id) for audit.
+- **Endpoints** (all `requireAuth + requireAdminOrSuper + requireEventAccess`):
+  - `GET /api/admin/events/:id/checkin` — flattens paid registrations into a
+    player-centric list, joins `checkins`. Returns `{ players, totals }`
+    where players = `[{ reg_id, player_index, player_name, buyer_name,
+    package_name, payment_mode, checked_in_at }]` and totals =
+    `{ players_total, players_checked, registrations }`. Filters out
+    add-ons (parent rows only — the parent's roster already covers them).
+  - `POST /api/admin/events/:id/registrations/:regId/players/:idx/checkin`
+    — upsert. Records `checked_in_by`, snapshots player_name.
+  - `DELETE …/checkin` — undo (organizer tapped wrong row).
+  - `POST /api/admin/events/:id/walkups` — creates a paid registration
+    with `payment_mode='manual'` + auto-checks-in every named player on
+    the roster. Description tags the payment method (cash/card/comp/etc.)
+    for the audit cell.
+- **New page `/admin/events/:id/check-in`** — `event-checkin.html`.
+  Designed phone-first for use at the registration table:
+  - Big progress card (X of Y checked in) with animated bar
+  - Search bar + filter pills (Remaining / Checked in / All)
+  - Each player is a fat tap-target row (44px+); tapping toggles their
+    check-in state. **Optimistic update** so the UI feels instant —
+    syncs with server, rolls back on error.
+  - Walk-up FAB at bottom-right opens a bottom-sheet modal (mobile)
+    or centered modal (desktop) with package picker, buyer info, player
+    roster sized to package, and payment method dropdown.
+  - Sticky bottom inset respects iOS safe area.
+  - Walk-ups show with a "Walk-up" pill so they're visually distinct.
+- **New top-bar button in event editor**: `✓ Check-in` next to Site +
+  Registrations.
+
+#### Tested
+- **132/132 unit tests pass** (4 new route presence checks).
+- Manual: built schema migrates idempotently on existing DB. End-to-end:
+  paid registration's players show in the list, tap toggles check-in,
+  walk-up creates a manual registration + auto-checks-in everyone.
+
+#### Why this design
+- **Player-centric, not registration-centric**: a foursome registration
+  is 4 separate check-ins. Buyers may or may not be playing themselves.
+  Staff at the desk thinks in terms of "is Steve here yet?" not "did
+  Steve's registration arrive?"
+- **Optimistic UI**: at a busy registration desk on tournament morning,
+  even 300ms of network delay feels broken. Local state updates first,
+  server syncs in the background.
+- **Walk-ups become regular registrations**: shows up in the dashboard
+  + revenue totals + CSV export. Payment method captured in
+  `description` so the audit trail is consistent without inventing
+  another column.
+
+---
+
 ## v3.34.0 — 2026-05-24
 ### Session 49 — Refunds + add-on charges on registrations
 
