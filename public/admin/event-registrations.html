@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Registrations · JORD Admin</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+  <style>
+    .rg-wrap { max-width: 1200px; margin: 0 auto; padding: var(--s-5) var(--s-4) var(--s-7); }
+
+    .rg-head { display:flex; justify-content:space-between; align-items:flex-end;
+      gap:var(--s-3); flex-wrap:wrap; margin-bottom:var(--s-4); }
+    .rg-head .eyebrow { font-size:11px; letter-spacing:.22em; text-transform:uppercase;
+      color:var(--ink-3); font-weight:700; }
+    .rg-head h1 { font-family:var(--font-display); font-size:clamp(1.8rem,4vw,2.4rem);
+      letter-spacing:-0.02em; line-height:1.1; margin:6px 0 4px; }
+    .rg-head .actions { display:flex; gap:var(--s-2); }
+
+    /* ── Stat cards ─────────────────────────────────────────── */
+    .rg-stats { display:grid; gap:var(--s-3); margin-bottom:var(--s-4);
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    .rg-stat { background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--r-lg); padding:var(--s-3) var(--s-4); }
+    .rg-stat .k { font-size:11px; letter-spacing:.18em; text-transform:uppercase;
+      color:var(--ink-3); font-weight:700; }
+    .rg-stat .v { font-family:var(--font-display); font-size:1.9rem; line-height:1.1;
+      margin-top:4px; }
+    .rg-stat .sub { font-size:12px; color:var(--ink-3); margin-top:4px; }
+    .rg-stat.accent .v { color:var(--accent); }
+
+    /* ── Table ──────────────────────────────────────────────── */
+    .rg-table-wrap { background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--r-lg); overflow:hidden; }
+    .rg-toolbar { display:flex; justify-content:space-between; align-items:center;
+      padding:var(--s-3) var(--s-4); border-bottom:1px solid var(--border);
+      gap:var(--s-3); flex-wrap:wrap; }
+    .rg-toolbar .search { flex:1; max-width:340px; }
+    .rg-toolbar .search input { width:100%; padding:9px 12px; font-size:14px;
+      border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg); color:var(--ink); }
+    .rg-toolbar .filters { display:flex; gap:6px; }
+    .rg-toolbar .pill { font-size:12px; font-weight:600; padding:6px 12px;
+      border-radius:999px; border:1px solid var(--border); background:var(--bg);
+      color:var(--ink-2); cursor:pointer; }
+    .rg-toolbar .pill.is-active { background:var(--ink); color:var(--bg); border-color:var(--ink); }
+
+    .rg-table { width:100%; border-collapse:collapse; }
+    .rg-table th { text-align:left; font-size:11px; letter-spacing:.10em; text-transform:uppercase;
+      color:var(--ink-3); font-weight:700; padding:12px 14px; border-bottom:1px solid var(--border);
+      background:var(--surface-2); position:sticky; top:0; }
+    .rg-table td { padding:14px; border-bottom:1px solid var(--border); font-size:14px; vertical-align:top; }
+    .rg-table tbody tr { cursor:pointer; }
+    .rg-table tbody tr:hover { background:var(--surface-2); }
+    .rg-table tbody tr.expanded { background:var(--surface-2); }
+    .rg-table td.num { text-align:right; font-variant-numeric:tabular-nums; }
+    .rg-table .buyer .name { font-weight:600; }
+    .rg-table .buyer .email { font-size:12px; color:var(--ink-3); margin-top:2px; }
+    .rg-table .conf { font-family:'JetBrains Mono', ui-monospace, monospace;
+      font-size:12px; color:var(--ink-3); }
+
+    .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:11px;
+      font-weight:700; letter-spacing:.06em; text-transform:uppercase; }
+    .pill.paid     { background:rgba(46,160,67,0.12); color:#1f7e2a; border:1px solid rgba(46,160,67,0.30); }
+    .pill.pending  { background:rgba(184,136,77,0.12); color:var(--accent); border:1px solid rgba(184,136,77,0.35); }
+    .pill.failed   { background:rgba(220,53,69,0.10); color:#c0392b; border:1px solid rgba(220,53,69,0.30); }
+    .pill.refunded { background:var(--surface-2); color:var(--ink-2); border:1px solid var(--border); }
+    .pill.mock     { background:var(--surface-2); color:var(--ink-3); border:1px solid var(--border); font-size:10px; }
+
+    /* expanded row */
+    .rg-detail { padding:0 14px 16px 14px; background:var(--surface-2); }
+    .rg-detail .grid { display:grid; gap:var(--s-3); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); padding:var(--s-3) 0; }
+    .rg-detail .lbl { font-size:11px; letter-spacing:.10em; text-transform:uppercase; color:var(--ink-3); font-weight:700; }
+    .rg-detail .val { font-size:14px; margin-top:4px; }
+    .rg-detail ul { list-style:none; padding:0; margin:6px 0 0; }
+    .rg-detail ul li { padding:4px 0; font-size:14px; }
+
+    .rg-empty { padding:var(--s-6) var(--s-4); text-align:center; color:var(--ink-3); }
+    .rg-empty .icon { font-size:42px; margin-bottom:var(--s-2); }
+    .rg-empty .title { font-family:var(--font-display); font-size:1.4rem; color:var(--ink); margin-bottom:6px; }
+
+    @media (max-width: 640px) {
+      .rg-table th.col-conf, .rg-table td.col-conf,
+      .rg-table th.col-package, .rg-table td.col-package,
+      .rg-table th.col-mode, .rg-table td.col-mode { display:none; }
+    }
+  </style>
+</head>
+<body>
+<main class="rg-wrap" id="view"><p class="mini">Loading…</p></main>
+
+<script src="/js/jord.js"></script>
+<script src="/admin/_shared/auth.js"></script>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const esc = JORD.escapeHtml;
+if (!JORD.getToken()) location.href = '/admin';
+
+const parts = location.pathname.split('/').filter(Boolean);
+const eventId = parts[2]; // /admin/events/:id/registrations
+
+const state = { eventName: '', registrations: [], totals: null, filter: 'all', q: '', expanded: null };
+
+document.getElementById('topbar')?.appendChild?.(
+  JORD.renderTopbar?.('Registrations', JORD.el?.('a', { class: 'btn btn-ghost', href: '/admin' }, '← Admin')) ?? document.createElement('div')
+);
+
+function fmtMoney(cents) {
+  const n = (Number(cents) || 0) / 100;
+  return '$' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtDate(s) {
+  if (!s) return '';
+  const d = new Date(s);
+  if (isNaN(d)) return s;
+  return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' }) +
+    ' · ' + d.toLocaleTimeString(undefined, { hour:'numeric', minute:'2-digit' });
+}
+function fmtShortDate(s) {
+  if (!s) return '—';
+  const d = new Date(s);
+  if (isNaN(d)) return s;
+  return d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
+}
+
+async function load() {
+  try {
+    const ev = await JORD.api('/api/events/' + eventId);
+    state.eventName = ev?.name || 'Event';
+    const d = await JORD.api('/api/admin/events/' + eventId + '/registrations');
+    state.registrations = d.registrations || [];
+    state.totals = d.totals || { count: 0, paid_count: 0, revenue_cents: 0, fees_cents: 0, players_paid: 0 };
+    render();
+  } catch (e) {
+    if (e.status === 401) location.href = '/admin';
+    else $('#view').innerHTML = `<div class="card"><p style="color:var(--red)">${esc(e.message)}</p></div>`;
+  }
+}
+
+function render() {
+  const t = state.totals;
+  const netCents = (t.revenue_cents || 0) - (t.fees_cents || 0);
+
+  $('#view').innerHTML = `
+    <div class="rg-head">
+      <div>
+        <a href="/admin/events/${esc(eventId)}" class="pill-link" style="font-size:13px;color:var(--ink-2)">← Back to event</a>
+        <div class="eyebrow" style="margin-top:6px">${esc(state.eventName)}</div>
+        <h1>Registrations</h1>
+      </div>
+      <div class="actions">
+        <a class="btn btn-ghost" href="/admin/events/${esc(eventId)}/site/edit">✎ Edit site</a>
+        <a class="btn btn-primary" href="/api/admin/events/${esc(eventId)}/registrations.csv?token=${encodeURIComponent(JORD.getToken())}" download>⬇ Export CSV</a>
+      </div>
+    </div>
+
+    <div class="rg-stats">
+      <div class="rg-stat">
+        <div class="k">Registrations</div>
+        <div class="v">${t.paid_count}</div>
+        <div class="sub">${t.count} total · ${Math.max(0, t.count - t.paid_count)} unpaid</div>
+      </div>
+      <div class="rg-stat">
+        <div class="k">Players paid</div>
+        <div class="v">${t.players_paid}</div>
+        <div class="sub">across all packages</div>
+      </div>
+      <div class="rg-stat accent">
+        <div class="k">Gross revenue</div>
+        <div class="v">${fmtMoney(t.revenue_cents)}</div>
+        <div class="sub">from paid registrations</div>
+      </div>
+      <div class="rg-stat">
+        <div class="k">JORD fee (3%)</div>
+        <div class="v">${fmtMoney(t.fees_cents)}</div>
+        <div class="sub">platform service fee</div>
+      </div>
+      <div class="rg-stat">
+        <div class="k">Net to you</div>
+        <div class="v">${fmtMoney(netCents)}</div>
+        <div class="sub">after JORD fee</div>
+      </div>
+    </div>
+
+    <div class="rg-table-wrap">
+      <div class="rg-toolbar">
+        <div class="search">
+          <input type="search" id="q" placeholder="Search by name or email…" value="${esc(state.q)}" />
+        </div>
+        <div class="filters">
+          <button class="pill ${state.filter==='all'?'is-active':''}"     data-filter="all">All</button>
+          <button class="pill ${state.filter==='paid'?'is-active':''}"    data-filter="paid">Paid</button>
+          <button class="pill ${state.filter==='pending'?'is-active':''}" data-filter="pending">Pending</button>
+        </div>
+      </div>
+      ${renderTable()}
+    </div>
+  `;
+
+  $('#q').addEventListener('input', e => { state.q = e.target.value; refreshTable(); });
+  document.querySelectorAll('.rg-toolbar .pill').forEach(b => {
+    b.onclick = () => { state.filter = b.dataset.filter; refreshTable(); };
+  });
+  wireRowClicks();
+}
+
+function refreshTable() {
+  // Update only the table HTML + active pill — no full re-render so the
+  // search box keeps focus.
+  document.querySelectorAll('.rg-toolbar .pill').forEach(b => {
+    b.classList.toggle('is-active', b.dataset.filter === state.filter);
+  });
+  const wrap = $('.rg-table-wrap');
+  const tbl = wrap.querySelector('table');
+  const empty = wrap.querySelector('.rg-empty');
+  if (tbl) tbl.remove();
+  if (empty) empty.remove();
+  wrap.insertAdjacentHTML('beforeend', renderTable());
+  wireRowClicks();
+}
+
+function renderTable() {
+  const ql = state.q.trim().toLowerCase();
+  const rows = state.registrations.filter(r => {
+    if (state.filter !== 'all' && r.payment_status !== state.filter) return false;
+    if (!ql) return true;
+    return (r.buyer_name || '').toLowerCase().includes(ql) ||
+           (r.buyer_email || '').toLowerCase().includes(ql);
+  });
+
+  if (rows.length === 0) {
+    return `<div class="rg-empty">
+      <div class="icon">📋</div>
+      <div class="title">No registrations ${state.filter !== 'all' ? `in "${esc(state.filter)}"` : 'yet'}</div>
+      <p>${state.registrations.length === 0
+        ? 'Once buyers register on the public event site, they\'ll show up here.'
+        : 'Try changing the filter or clearing the search.'}</p>
+    </div>`;
+  }
+
+  return `<table class="rg-table">
+    <thead>
+      <tr>
+        <th class="col-buyer">Buyer</th>
+        <th class="col-package">Package</th>
+        <th class="col-amount num">Amount</th>
+        <th class="col-status">Status</th>
+        <th class="col-mode">Method</th>
+        <th class="col-date">Date</th>
+        <th class="col-conf">Confirmation #</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.map(r => rowHtml(r)).join('')}
+    </tbody>
+  </table>`;
+}
+
+function rowHtml(r) {
+  const expanded = state.expanded === r.id;
+  const mode = r.payment_mode === 'stripe' ? 'Stripe' : (r.payment_mode === 'mock' ? '<span class="pill mock">Test</span>' : '—');
+  const playersHtml = (r.players || []).length
+    ? `<ul>${r.players.map((p, i) => `<li>${i+1}. ${esc(p.name)}</li>`).join('')}</ul>`
+    : '<p style="color:var(--ink-3);font-size:13px;margin-top:6px">No player roster supplied.</p>';
+
+  return `<tr class="rg-row ${expanded?'expanded':''}" data-id="${esc(r.id)}">
+    <td class="buyer">
+      <div class="name">${esc(r.buyer_name)}</div>
+      <div class="email">${esc(r.buyer_email)}${r.buyer_phone ? ' · ' + esc(r.buyer_phone) : ''}</div>
+    </td>
+    <td class="col-package">${esc(r.package_name)}</td>
+    <td class="num">${fmtMoney(r.amount_cents)}</td>
+    <td><span class="pill ${esc(r.payment_status)}">${esc(r.payment_status)}</span></td>
+    <td class="col-mode">${mode}</td>
+    <td>${fmtShortDate(r.paid_at || r.created_at)}</td>
+    <td class="conf col-conf">${esc(r.id)}</td>
+  </tr>
+  ${expanded ? `<tr><td colspan="7" class="rg-detail">
+    <div class="grid">
+      <div>
+        <div class="lbl">Confirmation #</div>
+        <div class="val" style="font-family:'JetBrains Mono', ui-monospace, monospace">${esc(r.id)}</div>
+      </div>
+      <div>
+        <div class="lbl">Created</div>
+        <div class="val">${fmtDate(r.created_at)}</div>
+      </div>
+      <div>
+        <div class="lbl">Paid at</div>
+        <div class="val">${r.paid_at ? fmtDate(r.paid_at) : '—'}</div>
+      </div>
+      <div>
+        <div class="lbl">JORD fee</div>
+        <div class="val">${fmtMoney(r.platform_fee_cents)}</div>
+      </div>
+      ${r.stripe_session_id ? `<div>
+        <div class="lbl">Stripe session</div>
+        <div class="val" style="font-family:'JetBrains Mono', ui-monospace, monospace;font-size:12px;word-break:break-all">${esc(r.stripe_session_id)}</div>
+      </div>` : ''}
+    </div>
+    <div>
+      <div class="lbl">Player roster (${(r.players || []).length})</div>
+      ${playersHtml}
+    </div>
+  </td></tr>` : ''}`;
+}
+
+function wireRowClicks() {
+  document.querySelectorAll('.rg-row').forEach(tr => {
+    tr.onclick = () => {
+      const id = tr.dataset.id;
+      state.expanded = state.expanded === id ? null : id;
+      refreshTable();
+    };
+  });
+}
+
+ADMIN.requireAuth({ adminOrSuper: true }).then(load);
+</script>
+</body>
+</html>

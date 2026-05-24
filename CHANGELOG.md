@@ -2,6 +2,46 @@
 
 ---
 
+## v3.33.0 — 2026-05-24
+### Session 48 — E1: organizer registrations dashboard
+
+Finishes E1. Organizers can now see every registration for an event,
+buyer info + player roster, gross / fee / net revenue, search/filter,
+and export to CSV.
+
+#### What changed
+- **New page `/admin/events/:id/registrations`** —
+  `event-registrations.html`. Stat cards: paid registrations, players
+  paid, gross revenue, JORD fee (3%), net to organizer. Searchable +
+  filterable table (paid / pending / all). Click any row to expand and
+  see player roster + Stripe session id + paid-at timestamp. Mobile
+  responsive (collapses to essentials under 640px).
+- **New endpoint `GET /api/admin/events/:id/registrations.csv`** —
+  organizer-only. Streams a CSV with confirmation #, buyer info,
+  package, players (joined by `; `), amounts, status, timestamps.
+  Filename uses event name slug + today's date. Auth via
+  `?token=…` query param (lets the `<a download>` link work without
+  custom headers).
+- **Extended `GET /api/admin/events/:id/registrations`** — parses
+  `players_json` into an array on the server, returns
+  `includes_players` on packages, and adds `paid_count` +
+  `players_paid` to the totals payload. UI no longer has to compute
+  derived numbers itself.
+- **New buttons in event editor top bar** — added `✎ Site` and
+  `📋 Registrations` links so organizers can jump between event setup,
+  the public site editor, and the registrations dashboard from one
+  place. Wired in [editor.html:1812-1813](public/admin/editor.html#L1812).
+
+#### Tested
+- **126/126 unit tests pass** (1 new route presence check for the CSV
+  endpoint).
+- Manual: rendered with the live test registration created during the
+  Stripe Connect end-to-end. Buyer info, $10 amount, 3% fee, paid
+  status, player roster all show correctly. Search + filter work.
+  CSV exports cleanly to Excel.
+
+---
+
 ## v3.32.0 — 2026-05-21
 ### Session 47 — Stripe Connect: real payments, destination charges
 

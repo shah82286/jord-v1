@@ -7,21 +7,24 @@ Nothing built until confirmed. Move to In Progress / Done as we go.
 
 ## Backlog
 
-**#STRIPE-1 — Wire real Stripe payment for event registrations** ✓
-Code complete in v3.32.0 (May 2026). Stripe Connect Express + destination
-charges + 3% application fee. Webhook handles `checkout.session.completed`
-and `account.updated`. Auto-falls-back to mock mode when
-`STRIPE_SECRET_KEY` is unset. Remaining (operational, not code):
-  1. Set `STRIPE_SECRET_KEY`, `STRIPE_PUBLISHABLE_KEY`,
-     `STRIPE_WEBHOOK_SECRET`, `STRIPE_PLATFORM_FEE_BPS=300` in **Railway
-     env** (sandbox keys, `sk_test_…` / `pk_test_…`).
-  2. In Stripe Dashboard → Developers → Webhooks, add endpoint:
-     `https://tournament.jordgolf.com/api/stripe/webhook` listening for
-     `checkout.session.completed` and `account.updated`. Copy the
-     signing secret into `STRIPE_WEBHOOK_SECRET`.
-  3. Deploy. Walk through `/admin/stripe-connect` to onboard the JORD
-     organizer account. Then run an end-to-end test with card
-     `4242 4242 4242 4242`.
+**#STRIPE-1 — Wire real Stripe payment for event registrations** ✓ DONE
+v3.32.0 (May 2026). Stripe Connect Express + destination charges + 3%
+application fee deployed to Railway. JORD platform account onboarded
+through `/admin/stripe-connect`. End-to-end test passed: registration
+on `/e/:slug/register` → Stripe Checkout → webhook fires
+`checkout.session.completed` → confirmation page shows paid. Sandbox/
+test keys (`sk_test_…`). When ready for real money: open `#STRIPE-LIVE`
+to swap sandbox keys for live keys and re-onboard Connect in live mode.
+
+**#STRIPE-LIVE — Switch from sandbox to live keys**
+When JORD is ready to take real money: (1) flip Stripe Dashboard to
+live mode, (2) re-do Connect platform setup in live mode (the platform
+is its own product per-mode), (3) generate `sk_live_…` + `pk_live_…`
+keys, (4) update Railway env vars, (5) add a NEW webhook endpoint in
+live mode and update `STRIPE_WEBHOOK_SECRET` (sandbox + live webhooks
+are separate), (6) JORD organizer needs to redo `/admin/stripe-connect`
+onboarding in live mode, (7) end-to-end test with a real card for a
+small amount, then refund yourself.
 
 **#OAUTH-1 — Create OAuth apps for Google + Microsoft sign-in (Apple later)**
 Create OAuth client apps in Google Cloud Console (free) and Azure AD (free), then paste me the Client IDs. Backend endpoint (`POST /api/users/oauth`) and the "Continue with Google / Microsoft" buttons on `/login` slot in once the IDs are set. Sign in with Apple is deferred until the Apple Developer Program ($99/yr) is set up. ~10 minutes per provider — I'll walk through it when you're ready.
@@ -68,8 +71,9 @@ Commits `733ecae` (route transactional email through Klaviyo) + `00cc475` (doc) 
 **#HELP-BUBBLES — Info tooltips across tournament setup screens**
 Add clickable `ℹ`/`!` info bubbles next to every setting, input, and toggle on the admin Settings + Course Map tabs so a non-technical tournament director can self-serve. The `.help-icon`/`.tooltip` CSS already exists in the editor — extend it comprehensively and make it tap-friendly on mobile (hover doesn't work on touch).
 
-**#RAILWAY-AUTODEPLOY — Wire Railway auto-deploy from GitHub**
-Every deploy is currently a manual "Deploy" click in the Railway dashboard. The GitHub App integration / webhook isn't connected (repo Settings → Webhooks is empty). Connect Railway's GitHub App so a push to `main` auto-deploys. ~5 min in Railway service Settings → Source.
+**#RAILWAY-AUTODEPLOY — Wire Railway auto-deploy from GitHub** ✓ DONE
+Confirmed working May 2026 — pushes to `main` auto-trigger Railway
+builds (verified during Stripe Connect deploy). No further action needed.
 
 **#DOCS-REFRESH — Update CHANGELOG + HANDOFF**
 Several shipped features aren't fully in the docs: v3.11.0 tournament rep role, the registration flow rewrite (team name first, dropdown, dup-code popup), pre-tournament registration, the platform-wide cream email re-skin + 4 new emails, and the rep view-permission levels (`perm_view_leaderboard` etc.). Refresh both files so the next session starts with accurate context.

@@ -4753,19 +4753,69 @@ app.get('/api/registrations/:id', (req, res) => {
 // Organizer view — list registrations for an event (for upcoming dashboard).
 app.get('/api/admin/events/:id/registrations', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
   const rows = db.prepare(`SELECT r.id, r.buyer_name, r.buyer_email, r.buyer_phone,
-                                  r.amount_cents, r.platform_fee_cents, r.payment_status,
-                                  r.payment_mode, r.created_at, r.paid_at,
-                                  p.name AS package_name
+                                  r.players_json, r.amount_cents, r.platform_fee_cents,
+                                  r.payment_status, r.payment_mode, r.stripe_session_id,
+                                  r.created_at, r.paid_at,
+                                  p.name AS package_name, p.includes_players
                            FROM registrations r
                            JOIN registration_packages p ON p.id = r.package_id
                            WHERE r.event_id=?
                            ORDER BY r.created_at DESC`).all(req.params.id);
   const totals = db.prepare(`SELECT
       COUNT(*) AS count,
+      COALESCE(SUM(CASE WHEN payment_status='paid' THEN 1 END), 0) AS paid_count,
       COALESCE(SUM(CASE WHEN payment_status='paid' THEN amount_cents END), 0) AS revenue_cents,
-      COALESCE(SUM(CASE WHEN payment_status='paid' THEN platform_fee_cents END), 0) AS fees_cents
-    FROM registrations WHERE event_id=?`).get(req.params.id);
-  res.json({ registrations: rows, totals });
+      COALESCE(SUM(CASE WHEN payment_status='paid' THEN platform_fee_cents END), 0) AS fees_cents,
+      COALESCE(SUM(CASE WHEN payment_status='paid' THEN p.includes_players END), 0) AS players_paid
+    FROM registrations r
+    JOIN registration_packages p ON p.id = r.package_id
+    WHERE r.event_id=?`).get(req.params.id);
+  // Parse players_json into structured arrays so the client doesn't have to.
+  const registrations = rows.map(r => {
+    let players = [];
+    try { players = JSON.parse(r.players_json || '[]'); } catch {}
+    const { players_json, ...rest } = r;
+    return { ...rest, players };
+  });
+  res.json({ registrations, totals });
+});
+
+// CSV export — opens in Excel/Sheets. Columns are flat (one player per row
+// is overkill for a per-registration summary; for now we collapse the player
+// roster into a single semicolon-separated cell).
+app.get('/api/admin/events/:id/registrations.csv', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const rows = db.prepare(`SELECT r.id, r.buyer_name, r.buyer_email, r.buyer_phone,
+                                  r.players_json, r.amount_cents, r.platform_fee_cents,
+                                  r.payment_status, r.payment_mode,
+                                  r.created_at, r.paid_at,
+                                  p.name AS package_name
+                           FROM registrations r
+                           JOIN registration_packages p ON p.id = r.package_id
+                           WHERE r.event_id=?
+                           ORDER BY r.created_at DESC`).all(req.params.id);
+  const event = db.prepare('SELECT name FROM events WHERE id=?').get(req.params.id);
+  const esc = v => {
+    if (v == null) return '';
+    const s = String(v);
+    return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  };
+  const fmtMoney = c => ((Number(c) || 0) / 100).toFixed(2);
+  const header = ['Confirmation #','Buyer name','Email','Phone','Package','Players','Amount (USD)','JORD fee (USD)','Payment status','Created','Paid at'];
+  const lines = [header.join(',')];
+  for (const r of rows) {
+    let players = [];
+    try { players = JSON.parse(r.players_json || '[]'); } catch {}
+    lines.push([
+      r.id, r.buyer_name, r.buyer_email, r.buyer_phone || '',
+      r.package_name, players.map(p => p.name).join('; '),
+      fmtMoney(r.amount_cents), fmtMoney(r.platform_fee_cents),
+      r.payment_status, r.created_at || '', r.paid_at || '',
+    ].map(esc).join(','));
+  }
+  const filename = `registrations-${(event?.name || req.params.id).replace(/[^a-z0-9]+/gi,'-').toLowerCase()}-${new Date().toISOString().slice(0,10)}.csv`;
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(lines.join('\n'));
 });
 
 app.get('/api/users/me', requireUser, (req, res) => {
@@ -4785,7 +4835,8 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   '/admin/requests': 'admin/requests.html',
   '/admin/events/:id':       'admin/editor.html',
   '/admin/events/:id/:tab':  'admin/editor.html',
-  '/admin/events/:id/site/edit': 'admin/event-site-editor.html',
+  '/admin/events/:id/site/edit':      'admin/event-site-editor.html',
+  '/admin/events/:id/registrations':  'admin/event-registrations.html',
   '/admin/stripe-connect':       'admin/stripe-connect.html',
   '/register/:id': 'register.html',
   '/team/:eid/:share': 'team.html',
