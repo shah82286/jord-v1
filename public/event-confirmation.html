@@ -85,10 +85,10 @@ function render(r) {
     <div class="cf-wrap">
       <div class="cf-check" ${isPending ? 'style="background:var(--ink-3)"' : ''}>${isPending ? '⏳' : '✓'}</div>
       <div class="cf-eyebrow">${esc(r.event_headline || r.event_name || 'Event')}</div>
-      <h1>${isPending ? 'Almost <em>there</em>' : 'You\\'re <em>registered</em>'}</h1>
+      <h1>${isPending ? 'Almost <em>there</em>' : 'You\'re <em>registered</em>'}</h1>
       <p class="lead">
         ${isPending
-          ? 'We\\'re waiting on Stripe to confirm your payment. This usually takes a few seconds — refresh this page if it doesn\\'t update.'
+          ? 'We\'re waiting on Stripe to confirm your payment. This usually takes a few seconds — refresh this page if it doesn\'t update.'
           : `A confirmation has been sent to <strong>${esc(r.buyer_email)}</strong>.${r.payment_mode === 'mock' ? ' This is a test-mode registration — no card was charged.' : ''}`}
       </p>
 

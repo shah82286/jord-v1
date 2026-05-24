@@ -136,7 +136,7 @@ function render(d) {
     <div class="er-wrap">
       <div class="er-eyebrow">${esc(site.headline || event.name || 'Event')}</div>
       <h1>Complete your <em>registration</em></h1>
-      <p class="lead">A few details and you're in. ${isFree ? 'This package is free.' : 'You\\'ll be redirected to a secure checkout to pay.'}</p>
+      <p class="lead">A few details and you're in. ${isFree ? 'This package is free.' : 'You\'ll be redirected to a secure checkout to pay.'}</p>
 
       ${canceled ? `<div class="er-error" style="display:block;background:rgba(184,136,77,0.10);color:var(--accent);border-color:rgba(184,136,77,0.35);margin-bottom:var(--s-4)">
         Checkout was canceled — your details are still here, just hit pay when you're ready.
@@ -172,7 +172,7 @@ function render(d) {
           <div class="er-error" id="er-error"></div>
           <p style="font-size:12px;color:var(--ink-3);margin-top:var(--s-3);line-height:1.5;text-align:center">
             ${payment_mode === 'stripe'
-              ? 'Payments are processed securely by Stripe. Your card details never touch JORD\\'s servers.'
+              ? 'Payments are processed securely by Stripe. Your card details never touch JORD\'s servers.'
               : 'Payment is in <strong>test mode</strong> — no card is charged.'}
           </p>
         </form>
