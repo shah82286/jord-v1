@@ -4833,10 +4833,13 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   '/admin/backups':  'admin/backups.html',
   '/admin/global':   'admin/global.html',
   '/admin/requests': 'admin/requests.html',
-  '/admin/events/:id':       'admin/editor.html',
-  '/admin/events/:id/:tab':  'admin/editor.html',
+  // More-specific event routes MUST be declared before the catch-all
+  // `:tab` pattern below, or Express's first-match wins serves the editor
+  // for everything (saw this with /registrations being shadowed in v3.33.0).
   '/admin/events/:id/site/edit':      'admin/event-site-editor.html',
   '/admin/events/:id/registrations':  'admin/event-registrations.html',
+  '/admin/events/:id':       'admin/editor.html',
+  '/admin/events/:id/:tab':  'admin/editor.html',
   '/admin/stripe-connect':       'admin/stripe-connect.html',
   '/register/:id': 'register.html',
   '/team/:eid/:share': 'team.html',
