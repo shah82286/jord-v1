@@ -375,7 +375,7 @@ function openWalkup() {
   $('#wu-buyer-email').value = '';
   $('#wu-buyer-phone').value = '';
   $('#wu-method').value = 'cash';
-  $('#wu-err').classList.remove('show');
+  $('#walkup-err').classList.remove('show');
   syncWalkupPackage();
   $('#walkup-modal').classList.add('open');
   setTimeout(() => $('#wu-buyer-name').focus(), 100);
@@ -399,7 +399,7 @@ $('#open-walkup').onclick = openWalkup;
 $('#wu-package').onchange = syncWalkupPackage;
 
 $('#wu-submit').onclick = async () => {
-  const errBox = $('#wu-err');
+  const errBox = $('#walkup-err');
   errBox.classList.remove('show');
   const buyer = $('#wu-buyer-name').value.trim();
   if (!buyer) { errBox.textContent = 'Buyer name required'; errBox.classList.add('show'); return; }
