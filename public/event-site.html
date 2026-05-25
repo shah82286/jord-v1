@@ -94,11 +94,21 @@
 const esc = JORD.escapeHtml;
 const slug = location.pathname.split('/').filter(Boolean).pop();
 
-function fmtDate(s) {
+function fmtDate(s, iana) {
   if (!s) return '';
   const d = new Date(s);
   if (isNaN(d)) return s;
-  return d.toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric', year:'numeric' });
+  const opts = { weekday:'long', month:'long', day:'numeric', year:'numeric' };
+  if (iana) opts.timeZone = iana;
+  return d.toLocaleDateString(undefined, opts);
+}
+function tzAbbrev(iana, when) {
+  if (!iana) return '';
+  try {
+    const p = new Intl.DateTimeFormat('en-US', { timeZone: iana, timeZoneName: 'short' })
+      .formatToParts(when || new Date());
+    return (p.find(x => x.type === 'timeZoneName') || {}).value || iana;
+  } catch { return iana; }
 }
 function fmtPrice(cents) {
   const n = (Number(cents) || 0) / 100;
@@ -114,10 +124,12 @@ function render(d) {
     ? `linear-gradient(160deg, rgba(20,19,18,.40), rgba(20,19,18,.85)), url(${esc(s.hero_image)})`
     : `linear-gradient(160deg, rgba(20,19,18,.50), rgba(20,19,18,.88)), url(/img/lifestyle/lifestyle-1-1600.jpg)`;
 
+  const tz = e.time_zone || null;
+  const tzAbbr = tzAbbrev(tz, s.starts_at ? new Date(s.starts_at) : null);
   const schedHtml = d.schedule.length ? `
     <section class="es-section">
       <div class="es-eyebrow">The Day</div>
-      <h2>Schedule</h2>
+      <h2>Schedule${tzAbbr ? ` <small style="font-family:var(--font-body);font-size:.5em;color:var(--ink-3);font-weight:500;letter-spacing:.04em;text-transform:none">All times ${esc(tzAbbr)}</small>` : ''}</h2>
       <div class="es-timeline">
         ${d.schedule.map(it => `<div class="es-tl-item">
           <div class="es-tl-time">${esc(it.time||'')}</div>
@@ -178,7 +190,7 @@ function render(d) {
         <h1>${esc(s.headline || e.name || 'Tournament')}</h1>
         ${s.subhead ? `<p class="sub">${esc(s.subhead)}</p>` : ''}
         <div class="es-meta">
-          ${s.starts_at ? `<span>📅 ${esc(fmtDate(s.starts_at))}</span>` : ''}
+          ${s.starts_at ? `<span>📅 ${esc(fmtDate(s.starts_at, tz))}</span>` : ''}
           ${s.location_name ? `<span>📍 ${esc(s.location_name)}</span>` : ''}
         </div>
         <a href="#register" class="btn btn-accent">Register now →</a>

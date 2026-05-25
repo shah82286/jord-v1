@@ -19,6 +19,17 @@ const handicap  = require('./lib/handicap');         // WHS handicap math
 const scoring   = require('./lib/scoring');          // scoring engine
 const formats   = require('./lib/formats');          // game-format catalog
 const stripeHelper = require('./lib/stripe');        // Stripe Connect + Checkout
+const tzLookup     = require('tz-lookup');           // IANA time zone from lat/lon
+
+// Resolve IANA time zone (e.g. "America/Chicago") from venue coordinates.
+// Returns null when lat/lon are missing or out of range so callers can leave
+// the column NULL instead of writing a misleading default.
+function detectTimeZone(lat, lon) {
+  const la = Number(lat), lo = Number(lon);
+  if (!Number.isFinite(la) || !Number.isFinite(lo)) return null;
+  if (la < -90 || la > 90 || lo < -180 || lo > 180) return null;
+  try { return tzLookup(la, lo); } catch { return null; }
+}
 
 // Railway's container network has no working IPv6 outbound. Node 17+ resolves
 // DNS "verbatim" (IPv6 first), so smtp.gmail.com → an IPv6 address → ENETUNREACH.
@@ -275,6 +286,16 @@ try { db.exec("ALTER TABLE balls ADD COLUMN cp_penalty_ft REAL DEFAULT 0"); } ca
 // Venue coordinates (set when admin selects course from autocomplete)
 try { db.exec("ALTER TABLE events ADD COLUMN venue_lat REAL"); } catch {}
 try { db.exec("ALTER TABLE events ADD COLUMN venue_lon REAL"); } catch {}
+
+// IANA time zone (e.g. "America/Chicago"). Auto-set from venue_lat/lon via
+// tz-lookup whenever those coords change, so tee times display in the
+// course's actual local zone instead of the server's.
+try { db.exec("ALTER TABLE events ADD COLUMN time_zone TEXT"); } catch {}
+
+// Pairings: free-text cart-number field per group ("12, 13" for two carts,
+// "Walking" for none, etc.). Free-form on purpose — every event numbers
+// carts differently.
+try { db.exec("ALTER TABLE pairing_groups ADD COLUMN cart_numbers TEXT"); } catch {}
 
 // Team share code (6-char code from registration; lets players join via QR after team is finalized)
 try { db.exec("ALTER TABLE teams ADD COLUMN share_code TEXT"); } catch {}
@@ -2269,6 +2290,14 @@ app.patch('/api/events/:id', requireAuth, requireAdminOrSuper, (req, res) => {
   if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
   db.prepare(`UPDATE events SET ${updates.map(([k])=>`${k}=?`).join(',')} WHERE id=?`)
     .run(...updates.map(([,v])=>v), req.params.id);
+  // If venue coords changed, re-resolve the IANA time zone from the new
+  // lat/lon so tee times render in the course's local zone.
+  if (Object.prototype.hasOwnProperty.call(req.body, 'venue_lat') ||
+      Object.prototype.hasOwnProperty.call(req.body, 'venue_lon')) {
+    const row = db.prepare('SELECT venue_lat, venue_lon FROM events WHERE id=?').get(req.params.id);
+    const tz = detectTimeZone(row?.venue_lat, row?.venue_lon);
+    db.prepare('UPDATE events SET time_zone=? WHERE id=?').run(tz, req.params.id);
+  }
   broadcast(req.params.id);
   res.json(db.prepare('SELECT * FROM events WHERE id=?').get(req.params.id));
 });
@@ -3634,13 +3663,14 @@ app.post('/api/admin/tournament-requests/:id/accept', requireAuth, requireSuper,
   const brandUrl = r.charity_url || r.event_url || null;
 
   const eventId = uid('EVT');
+  const draftTz = detectTimeZone(draft.venue_lat, draft.venue_lon);
   db.prepare(`INSERT INTO events
-    (id,name,venue,starts_at,ends_at,has_longest_drive,has_closest_pin,admin_phone,admin_id,venue_lat,venue_lon,
+    (id,name,venue,starts_at,ends_at,has_longest_drive,has_closest_pin,admin_phone,admin_id,venue_lat,venue_lon,time_zone,
      is_charity,brand_enabled,brand_logo,brand_accent,brand_url)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
     .run(eventId, draft.name, draft.venue, draft.starts_at, draft.ends_at,
          draft.has_longest_drive, draft.has_closest_pin, draft.admin_phone, ownerAdminId,
-         draft.venue_lat, draft.venue_lon,
+         draft.venue_lat, draft.venue_lon, draftTz,
          draft.is_charity, brandEnabled, brandLogo, brandAccent, brandUrl);
   db.prepare(`UPDATE tournament_requests SET status='accepted', created_event_id=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(eventId, id);
 
@@ -4668,7 +4698,7 @@ app.delete('/api/admin/events/:id/packages/:pkgId', requireAuth, requireAdminOrS
 app.get('/api/event-sites/:slug', (req, res) => {
   const site = db.prepare('SELECT * FROM event_sites WHERE slug=? AND published=1').get(req.params.slug);
   if (!site) return res.status(404).json({ error: 'Event not found' });
-  const event = db.prepare(`SELECT id, name, venue, is_charity, brand_logo, brand_accent, brand_url, admin_id
+  const event = db.prepare(`SELECT id, name, venue, time_zone, is_charity, brand_logo, brand_accent, brand_url, admin_id
                             FROM events WHERE id=?`).get(site.event_id);
   const packages = db.prepare(`SELECT id, name, description, price_cents, includes_players, quantity_limit
                                FROM registration_packages
@@ -5245,7 +5275,7 @@ app.post('/api/admin/events/:id/walkups', requireAuth, requireAdminOrSuper, requ
 // players who don't appear in any pairing_member row.
 
 app.get('/api/admin/events/:id/pairings', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
-  const groups = db.prepare(`SELECT id, name, starting_hole, tee_time, sort_order, notes, created_at
+  const groups = db.prepare(`SELECT id, name, starting_hole, tee_time, cart_numbers, sort_order, notes, created_at
                              FROM pairing_groups
                              WHERE event_id=?
                              ORDER BY sort_order, starting_hole, created_at`).all(req.params.id);
@@ -5303,12 +5333,13 @@ app.post('/api/admin/events/:id/pairings/groups', requireAuth, requireAdminOrSup
   const id = uid('GRP');
   const nextSort = (db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS n FROM pairing_groups WHERE event_id=?')
     .get(req.params.id).n || 0) + 1;
-  db.prepare(`INSERT INTO pairing_groups (id, event_id, name, starting_hole, tee_time, sort_order, notes, created_by)
-              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+  db.prepare(`INSERT INTO pairing_groups (id, event_id, name, starting_hole, tee_time, cart_numbers, sort_order, notes, created_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, req.params.id,
          String(b.name || `Group ${nextSort}`).trim().slice(0, 80),
          b.starting_hole != null && b.starting_hole !== '' ? Math.max(1, Math.min(18, Number(b.starting_hole) || 0)) || null : null,
          (b.tee_time || '').trim().slice(0, 20) || null,
+         (b.cart_numbers || '').trim().slice(0, 40) || null,
          b.sort_order != null ? Number(b.sort_order) : nextSort,
          (b.notes || '').trim().slice(0, 200) || null,
          req.admin.id);
@@ -5323,11 +5354,12 @@ app.patch('/api/admin/events/:id/pairings/groups/:groupId', requireAuth, require
     name:          b.name          != null ? String(b.name).trim().slice(0,80) : cur.name,
     starting_hole: b.starting_hole !== undefined ? (b.starting_hole === '' || b.starting_hole == null ? null : Math.max(1, Math.min(18, Number(b.starting_hole) || 0)) || null) : cur.starting_hole,
     tee_time:      b.tee_time      !== undefined ? (String(b.tee_time||'').trim().slice(0,20) || null) : cur.tee_time,
+    cart_numbers:  b.cart_numbers  !== undefined ? (String(b.cart_numbers||'').trim().slice(0,40) || null) : cur.cart_numbers,
     sort_order:    b.sort_order    != null ? Number(b.sort_order) : cur.sort_order,
     notes:         b.notes         !== undefined ? (String(b.notes||'').trim().slice(0,200) || null) : cur.notes,
   };
-  db.prepare(`UPDATE pairing_groups SET name=?, starting_hole=?, tee_time=?, sort_order=?, notes=? WHERE id=?`)
-    .run(n.name, n.starting_hole, n.tee_time, n.sort_order, n.notes, req.params.groupId);
+  db.prepare(`UPDATE pairing_groups SET name=?, starting_hole=?, tee_time=?, cart_numbers=?, sort_order=?, notes=? WHERE id=?`)
+    .run(n.name, n.starting_hole, n.tee_time, n.cart_numbers, n.sort_order, n.notes, req.params.groupId);
   res.json({ ok: true });
 });
 
@@ -5451,6 +5483,7 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   '/admin/events/:id/site/edit':      'admin/event-site-editor.html',
   '/admin/events/:id/registrations':  'admin/event-registrations.html',
   '/admin/events/:id/check-in':       'admin/event-checkin.html',
+  '/admin/events/:id/pairings/poster': 'admin/event-pairings-poster.html',
   '/admin/events/:id/pairings':       'admin/event-pairings.html',
   '/admin/events/:id':       'admin/editor.html',
   '/admin/events/:id/:tab':  'admin/editor.html',

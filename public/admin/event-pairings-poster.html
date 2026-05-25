@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pairings poster · JORD Admin</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+  <style>
+    /* Default page size is the print target — 24×36 in. Browser print-to-PDF
+       picks this up via @page; the on-screen preview is scaled down so an
+       organizer can review before printing. */
+    @page { size: 24in 36in; margin: 0; }
+
+    :root {
+      --poster-bg: #F6F1E7;
+      --poster-ink: #14110C;
+      --poster-ink-2: #4A3F2E;
+      --poster-rule: #1A1612;
+      --poster-accent: #B8884D;
+    }
+
+    /* Screen preview: shrink the 24×36 sheet to fit the viewport with letter-style margins.
+       The .poster element holds the real print dimensions; transform scales it for the screen. */
+    body { background:#2a2622; margin:0; font-family:var(--font-body, 'Inter', system-ui, sans-serif); color:var(--poster-ink); }
+    .toolbar { position:sticky; top:0; z-index:10; background:rgba(20,19,18,.92); color:#F6F1E7;
+      padding:14px 22px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;
+      border-bottom:1px solid #3a3329; font-size:14px; }
+    .toolbar .grow { flex:1; }
+    .toolbar .pill { background:rgba(184,136,77,.18); color:#E5C690; border:1px solid rgba(184,136,77,.35);
+      padding:5px 10px; border-radius:999px; font-size:12px; font-weight:600; letter-spacing:.04em; }
+    .toolbar button, .toolbar a { background:#B8884D; color:#14110C; border:none; padding:9px 16px;
+      border-radius:6px; font-weight:700; font-size:13px; cursor:pointer; text-decoration:none;
+      font-family:inherit; letter-spacing:.02em; }
+    .toolbar button.ghost, .toolbar a.ghost { background:transparent; color:#F6F1E7; border:1px solid #4a4239; }
+    .toolbar button:disabled { opacity:.5; cursor:not-allowed; }
+
+    .stage { padding:24px; display:flex; justify-content:center; }
+
+    /* The print sheet itself. Real-world dimensions, scaled for screen via JS. */
+    .poster {
+      width: 24in;
+      height: 36in;
+      background: var(--poster-bg);
+      color: var(--poster-ink);
+      padding: 1in 1.1in 1.1in;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: .5in;
+      box-shadow: 0 10px 60px rgba(0,0,0,.45);
+      transform-origin: top center;
+      box-sizing: border-box;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* Decorative saffron rule that runs the height of the sheet. */
+    .poster::before {
+      content:''; position:absolute; left:0; top:0; bottom:0; width:.35in;
+      background: linear-gradient(180deg, var(--poster-accent) 0%, #8a6638 100%);
+    }
+
+    /* Header */
+    .p-head { display:flex; flex-direction:column; gap:.18in; padding-left:.5in; border-bottom:2px solid var(--poster-rule); padding-bottom:.45in; }
+    .p-eyebrow { font-size:18pt; letter-spacing:.32em; text-transform:uppercase; color:var(--poster-accent); font-weight:700; }
+    .p-title { font-family:'Playfair Display', Georgia, serif; font-size:96pt; line-height:.95; letter-spacing:-.015em; margin:0; font-weight:700; }
+    .p-sub  { display:flex; gap:.4in; flex-wrap:wrap; font-size:20pt; color:var(--poster-ink-2); align-items:baseline; }
+    .p-sub strong { color:var(--poster-ink); font-weight:600; }
+
+    /* Body — group grid */
+    .p-body { padding-left:.5in; }
+    .p-grid {
+      display:grid; gap:.35in;
+      grid-template-columns: repeat(3, 1fr);
+      align-content:start;
+    }
+    .p-card {
+      background:#fff;
+      border:1.5px solid var(--poster-rule);
+      border-radius:.18in;
+      padding:.25in .28in .28in;
+      display:grid;
+      grid-template-columns: 1.4in 1fr;
+      gap:.2in;
+      page-break-inside:avoid;
+      break-inside:avoid;
+      min-height:1.9in;
+    }
+    .p-card .hole {
+      background: var(--poster-rule); color: var(--poster-bg);
+      border-radius:.12in;
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      font-family:'Playfair Display', Georgia, serif;
+      padding:.1in 0;
+    }
+    .p-card .hole .lbl { font-family:inherit; font-size:11pt; letter-spacing:.24em; text-transform:uppercase; color:var(--poster-accent); margin-bottom:-2pt; font-weight:600; }
+    .p-card .hole .num { font-size:72pt; line-height:.9; font-weight:700; }
+    .p-card .hole.no-hole .num { font-size:40pt; }
+
+    .p-card .body { display:flex; flex-direction:column; justify-content:space-between; min-width:0; }
+    .p-card .body .top { display:flex; flex-direction:column; gap:.05in; min-width:0; }
+    .p-card .name { font-family:'Playfair Display', Georgia, serif; font-size:22pt; font-weight:700; letter-spacing:-.01em;
+      line-height:1.05; word-break:break-word; }
+    .p-card .meta { display:flex; gap:.18in; flex-wrap:wrap; font-size:12pt; color:var(--poster-ink-2); }
+    .p-card .meta span strong { color:var(--poster-ink); }
+    .p-card ol { margin:.12in 0 0; padding:0 0 0 .25in; font-size:15pt; line-height:1.25; }
+    .p-card ol li { margin-bottom:.02in; font-weight:500; }
+    .p-card ol li.empty { color:#999; font-style:italic; list-style:none; padding-left:0; }
+
+    /* Footer */
+    .p-foot { padding-left:.5in; border-top:2px solid var(--poster-rule); padding-top:.35in;
+      display:flex; justify-content:space-between; align-items:baseline;
+      font-size:13pt; color:var(--poster-ink-2); }
+    .p-foot .brand { font-family:'Playfair Display', Georgia, serif; font-size:18pt; color:var(--poster-ink); }
+    .p-foot .brand .acc { color:var(--poster-accent); }
+
+    /* Print: lose the toolbar + stage padding, render full bleed. */
+    @media print {
+      body { background:#fff; }
+      .toolbar { display:none !important; }
+      .stage { padding:0; }
+      .poster { transform:none !important; box-shadow:none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="toolbar">
+  <strong>Pairings poster · 24 × 36 in</strong>
+  <span class="pill" id="tz-pill" style="display:none"></span>
+  <span class="grow"></span>
+  <a class="ghost" id="back-link" href="#">← Back to pairings</a>
+  <button id="print-btn" disabled>Print / Save as PDF</button>
+</div>
+
+<div class="stage">
+  <div class="poster" id="poster">
+    <div style="grid-column:1/-1;padding:1in;color:var(--poster-ink-2)">Loading pairings…</div>
+  </div>
+</div>
+
+<script src="/js/jord.js"></script>
+<script src="/admin/_shared/auth.js"></script>
+<script>
+const esc = JORD.escapeHtml;
+const $ = (s, r = document) => r.querySelector(s);
+if (!JORD.getToken()) location.href = '/admin';
+
+const parts = location.pathname.split('/').filter(Boolean);
+const eventId = parts[2]; // /admin/events/:id/pairings/poster
+$('#back-link').href = '/admin/events/' + eventId + '/pairings';
+
+function tzAbbrev(iana, when) {
+  if (!iana) return '';
+  try {
+    const p = new Intl.DateTimeFormat('en-US', { timeZone: iana, timeZoneName: 'short' })
+      .formatToParts(when || new Date());
+    return (p.find(x => x.type === 'timeZoneName') || {}).value || iana;
+  } catch { return iana; }
+}
+
+function fmtEventDate(iso, iana) {
+  if (!iso) return '';
+  try {
+    const opts = { weekday:'long', month:'long', day:'numeric', year:'numeric' };
+    if (iana) opts.timeZone = iana;
+    return new Date(iso).toLocaleDateString('en-US', opts);
+  } catch { return iso; }
+}
+
+// Scale the 24×36 poster down so the screen preview fits comfortably.
+// On real print the @page rule wins; this is preview-only.
+function rescale() {
+  const poster = $('#poster');
+  // available width minus stage padding (24px each side)
+  const avail = window.innerWidth - 48;
+  // 24 inches at 96 CSS DPI = 2304 px
+  const target = 24 * 96;
+  const scale = Math.min(1, avail / target);
+  poster.style.transform = `scale(${scale.toFixed(4)})`;
+  // Reserve the post-scale height so the page scrolls correctly.
+  poster.style.marginBottom = `${(1 - scale) * 36 * 96 * -1}px`;
+}
+window.addEventListener('resize', rescale);
+
+async function load() {
+  try {
+    const [ev, d] = await Promise.all([
+      JORD.api('/api/events/' + eventId),
+      JORD.api('/api/admin/events/' + eventId + '/pairings'),
+    ]);
+    render(ev, d);
+    $('#print-btn').disabled = false;
+    $('#print-btn').onclick = () => window.print();
+  } catch (e) {
+    if (e.status === 401) location.href = '/admin';
+    else $('#poster').innerHTML = `<div style="padding:1in;color:#a33">${esc(e.message || 'Failed to load')}</div>`;
+  }
+}
+
+function render(ev, d) {
+  const iana = ev?.time_zone || null;
+  const abbrev = tzAbbrev(iana, ev?.starts_at ? new Date(ev.starts_at) : new Date());
+  if (abbrev) { $('#tz-pill').textContent = 'Times in ' + abbrev; $('#tz-pill').style.display = ''; }
+
+  // Sort groups by starting hole (shotgun ordering); fall back to sort_order.
+  const groups = (d.groups || []).slice().sort((a, b) => {
+    if (a.starting_hole != null && b.starting_hole != null) return a.starting_hole - b.starting_hole;
+    if (a.starting_hole != null) return -1;
+    if (b.starting_hole != null) return 1;
+    return (a.sort_order || 0) - (b.sort_order || 0);
+  });
+
+  const dateLine = fmtEventDate(ev?.starts_at, iana);
+  const venue = ev?.venue || '';
+
+  $('#poster').innerHTML = `
+    <div class="p-head">
+      <div class="p-eyebrow">Pairings · Tee Sheet</div>
+      <h1 class="p-title">${esc(ev?.name || 'Tournament')}</h1>
+      <div class="p-sub">
+        ${dateLine ? `<span>📅 <strong>${esc(dateLine)}</strong></span>` : ''}
+        ${venue ? `<span>📍 <strong>${esc(venue)}</strong></span>` : ''}
+        ${abbrev ? `<span>🕐 <strong>${esc(abbrev)}</strong></span>` : ''}
+      </div>
+    </div>
+
+    <div class="p-body">
+      <div class="p-grid">
+        ${groups.map(g => renderCard(g, abbrev)).join('') || '<div style="padding:1in;color:#a33;font-size:16pt">No pairings yet — head back to the pairings page to create groups.</div>'}
+      </div>
+    </div>
+
+    <div class="p-foot">
+      <div class="brand">Powered by <span class="acc">JORD</span> Golf</div>
+      <div>Printed ${esc(new Date().toLocaleString('en-US', iana ? { timeZone: iana } : {}))}</div>
+    </div>
+  `;
+  rescale();
+}
+
+function renderCard(g, abbrev) {
+  const holeHtml = g.starting_hole != null
+    ? `<div class="hole"><div class="lbl">Hole</div><div class="num">${g.starting_hole}</div></div>`
+    : `<div class="hole no-hole"><div class="lbl">Tee</div><div class="num">${esc(g.tee_time || '—')}</div></div>`;
+  const meta = [];
+  if (g.starting_hole != null && g.tee_time) meta.push(`<span><strong>${esc(g.tee_time)}</strong>${abbrev ? ' ' + esc(abbrev) : ''}</span>`);
+  if (g.cart_numbers) meta.push(`<span>Cart <strong>${esc(g.cart_numbers)}</strong></span>`);
+  const members = (g.members || []);
+  return `<div class="p-card">
+    ${holeHtml}
+    <div class="body">
+      <div class="top">
+        <div class="name">${esc(g.name || 'Group')}</div>
+        ${meta.length ? `<div class="meta">${meta.join('')}</div>` : ''}
+        <ol>${members.length ? members.map(m => `<li>${esc(m.player_name || '')}</li>`).join('') : '<li class="empty">No players assigned yet</li>'}</ol>
+      </div>
+    </div>
+  </div>`;
+}
+
+ADMIN.requireAuth({ adminOrSuper: true }).then(load);
+</script>
+</body>
+</html>

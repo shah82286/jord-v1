@@ -395,6 +395,50 @@ console.log('\n🔌 Tournament Scoring Routes\n');
  ['GET','/api/rounds/:roundId/leaderboard'],['GET','/api/rounds/:roundId/stream'],
 ].forEach(([m,p])=> test(`${m} ${p}`, ()=>assert(src.includes(`app.${m.toLowerCase()}('${p}'`),'Missing')));
 
+console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
+{
+  test('tz-lookup module is required at the top of server.js',
+    () => assert(src.includes("require('tz-lookup')") || src.includes('require("tz-lookup")'), 'Missing tz-lookup require'));
+  test('detectTimeZone helper defined', () => assert(src.includes('function detectTimeZone('), 'Missing helper'));
+  test('events.time_zone column migration present',
+    () => assert(src.includes("ALTER TABLE events ADD COLUMN time_zone"), 'Missing migration'));
+  test('pairing_groups.cart_numbers column migration present',
+    () => assert(src.includes("ALTER TABLE pairing_groups ADD COLUMN cart_numbers"), 'Missing migration'));
+  test('PATCH /api/events/:id re-resolves time zone when coords change',
+    () => assert(src.includes('detectTimeZone(row?.venue_lat, row?.venue_lon)'), 'Missing tz re-resolution'));
+  test('tournament_requests accept INSERT writes time_zone',
+    () => assert(src.includes('detectTimeZone(draft.venue_lat, draft.venue_lon)'), 'Missing tz on event INSERT'));
+  test('pairings group POST accepts cart_numbers',
+    () => assert(/INSERT INTO pairing_groups[^;]*cart_numbers/.test(src), 'POST not updating cart_numbers'));
+  test('pairings group PATCH writes cart_numbers',
+    () => assert(/UPDATE pairing_groups SET[^;]*cart_numbers=\?/.test(src), 'PATCH not updating cart_numbers'));
+  test('GET pairings SELECT includes cart_numbers',
+    () => assert(/SELECT[^;]*cart_numbers[^;]*FROM pairing_groups/.test(src), 'GET not selecting cart_numbers'));
+  // tz-lookup itself: sanity check that the package loads + returns a plausible IANA name.
+  const tzLookup = require('tz-lookup');
+  test('tz-lookup resolves Pebble Beach to America/Los_Angeles',
+    () => assert(tzLookup(36.5687, -121.9505) === 'America/Los_Angeles', `got ${tzLookup(36.5687, -121.9505)}`));
+  test('tz-lookup resolves a Chicago-area course to America/Chicago',
+    () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
+}
+
+console.log('\n🖼  Poster + Pairings Page Routes\n');
+{
+  test('/admin/events/:id/pairings/poster route registered',
+    () => assert(src.includes("'/admin/events/:id/pairings/poster'"), 'Missing poster route'));
+  const fs = require('fs');
+  test('event-pairings-poster.html exists',
+    () => assert(fs.existsSync('./public/admin/event-pairings-poster.html'), 'Missing poster file'));
+  const posterHtml = fs.readFileSync('./public/admin/event-pairings-poster.html', 'utf8');
+  test('Poster declares 24×36 in via @page',
+    () => assert(/@page\s*\{\s*size:\s*24in\s+36in/i.test(posterHtml), 'Missing 24×36 @page rule'));
+  const pairingsHtml = fs.readFileSync('./public/admin/event-pairings.html', 'utf8');
+  test('Pairings page renders a cart_numbers input',
+    () => assert(pairingsHtml.includes('data-edit="cart_numbers"'), 'Missing cart input'));
+  test('Pairings page links to the poster route',
+    () => assert(pairingsHtml.includes('/pairings/poster'), 'Missing poster link'));
+}
+
 console.log('\n'+'─'.repeat(52));
 console.log(`\n📊  ${passed}/${total} passed  |  ${failed} failed\n`);
 if(!failed) console.log('🎉 All tests passing — system ready to deploy!\n');

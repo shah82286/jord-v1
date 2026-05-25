@@ -2,6 +2,71 @@
 
 ---
 
+## v3.38.0 — 2026-05-25
+### Session 53 — Timezones, cart numbers, 24×36 pairings poster
+
+Three additions on top of the v3.37 pairings flow, all aimed at the
+day-of-tournament experience: events now know their local time zone, every
+pairing group can record cart numbers, and there's a print-shop-ready
+24×36 in poster of the pairings sheet.
+
+#### What changed
+- **Time zones (auto-detected from venue lat/lon)**
+  - New dependency `tz-lookup@^6.x` — small zero-runtime lookup of an IANA
+    zone from lat/lon (~135 KB), pure JS, no service calls.
+  - New `events.time_zone` column (`ALTER TABLE`, idempotent).
+  - Helper `detectTimeZone(lat, lon)` on the server. Returns `null` for
+    out-of-range or non-numeric coords so the column stays NULL instead
+    of writing a misleading default.
+  - **Auto-resolution points**:
+    - `PATCH /api/events/:id` — when `venue_lat` or `venue_lon` is in the
+      patch body, re-resolves the zone after the update.
+    - Tournament-request acceptance — `INSERT INTO events` now writes
+      `time_zone` from the request's venue coords.
+  - **Display surfaces**:
+    - Public event site (`/e/:slug`) — hero date and Schedule heading
+      include the local abbreviation (`CDT`, `EDT`, etc.).
+    - Pairings page — each group card shows a `Times shown in <ABBR>`
+      hint when the group has a tee time set; print sheet appends the
+      abbreviation next to tee times.
+    - Event-site editor — the Date & Time field shows
+      "Detected time zone: America/Chicago (CDT)" or a hint to set
+      coords if not yet detected.
+- **Cart numbers on pairings**
+  - New `pairing_groups.cart_numbers` column (`ALTER TABLE`, idempotent).
+  - Free text on purpose — events number carts differently
+    ("12, 13" for two carts, "Walking" for none, "1A/1B" for paired numbering).
+  - Endpoints updated: `GET /api/admin/events/:id/pairings` (SELECT),
+    `POST /…/pairings/groups` (validation + INSERT),
+    `PATCH /…/pairings/groups/:groupId` (UPDATE).
+  - UI: new "Carts" input on each group card, alongside Hole and Tee
+    time. Print sheet appends `· Cart 12, 13` to the group header.
+- **24 × 36 in pairings poster**
+  - New page `/admin/events/:id/pairings/poster` →
+    `public/admin/event-pairings-poster.html`.
+  - `@page { size: 24in 36in; margin: 0; }` — browser print-to-PDF
+    keeps it in spec; no PDF library, no server-side rendering.
+  - On-brand: cream `#F6F1E7` background, saffron accent rule, Playfair
+    Display for titles, 96 pt event name, 72 pt hole numbers in inverted
+    saffron tiles.
+  - Layout: 3-column card grid. Each card has a big inverted hole tile
+    on the left and group name + tee time + cart numbers + numbered
+    member list on the right. Sorts by starting hole.
+  - Screen preview: the 24×36 sheet is scaled down to fit the viewport
+    via CSS transform so organizers can review before printing; print
+    media resets the transform.
+  - "Poster (24×36)" button added to the pairings page actions.
+
+#### Tested
+- **155/155 unit tests pass** (16 new): tz-lookup wiring, helper presence,
+  schema migrations, cart-number endpoint plumbing, poster route + file +
+  `@page` rule presence, and real tz-lookup sanity checks (Pebble Beach
+  → `America/Los_Angeles`, Chicago → `America/Chicago`).
+- Schema migrations are `IF NOT EXISTS` / `ALTER TABLE` wrapped in
+  try/catch — idempotent against existing prod DB.
+
+---
+
 ## v3.37.0 — 2026-05-24
 ### Session 52 — E2: pairings + hole assignments + auto-assign + print
 

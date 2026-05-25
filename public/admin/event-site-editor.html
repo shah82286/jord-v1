@@ -44,7 +44,16 @@ if (!JORD.getToken()) location.href = '/admin';
 
 const parts = location.pathname.split('/').filter(Boolean);
 const eventId = parts[2];  // /admin/events/:id/site/edit
-const state = { site: null, packages: [], schedule: [], faq: [], eventName: '' };
+const state = { site: null, packages: [], schedule: [], faq: [], eventName: '', timeZone: null };
+
+function tzAbbrev(iana, when) {
+  if (!iana) return '';
+  try {
+    const p = new Intl.DateTimeFormat('en-US', { timeZone: iana, timeZoneName: 'short' })
+      .formatToParts(when || new Date());
+    return (p.find(x => x.type === 'timeZoneName') || {}).value || iana;
+  } catch { return iana; }
+}
 
 document.getElementById('topbar').appendChild(
   JORD.renderTopbar('Event Site', JORD.el('a',{class:'btn btn-ghost',href:'/admin'},'← Admin')));
@@ -54,6 +63,7 @@ async function load() {
     const d = await JORD.api('/api/admin/events/'+eventId+'/site');
     const ev = await JORD.api('/api/events/'+eventId);
     state.eventName = ev?.name || 'Event';
+    state.timeZone = ev?.time_zone || null;
     state.site = d.site || {};
     state.packages = d.packages || [];
     try { state.stripe = await JORD.api('/api/admin/stripe/account'); }
@@ -122,7 +132,11 @@ function render() {
         <div class="field"><label>Headline</label>
           <input class="input" id="f-headline" value="${esc(s.headline||'')}" placeholder="Fall Charity Classic"/></div>
         <div class="field"><label>Date &amp; time</label>
-          <input class="input" id="f-starts" type="datetime-local" value="${esc(toLocalDt(s.starts_at))}" /></div>
+          <input class="input" id="f-starts" type="datetime-local" value="${esc(toLocalDt(s.starts_at))}" />
+          <div class="hint">${state.timeZone
+            ? `Detected time zone: <strong>${esc(state.timeZone)}</strong> (${esc(tzAbbrev(state.timeZone, s.starts_at ? new Date(s.starts_at) : null))}) — auto-detected from the course's coordinates.`
+            : `Set the course coordinates on the admin map page to auto-detect the time zone.`}</div>
+        </div>
         <div class="field" style="grid-column:1/-1"><label>Subhead</label>
           <input class="input" id="f-subhead" value="${esc(s.subhead||'')}" placeholder="A day on the links to support …" /></div>
         <div class="field" style="grid-column:1/-1"><label>Location</label>

@@ -62,10 +62,13 @@
       font-size:18px; padding:0 4px; line-height:1; }
     .pr-group-head .del:hover { color:#c0392b; }
 
-    .pr-group-meta { display:flex; gap:6px; margin-bottom:8px; }
+    .pr-group-meta { display:flex; gap:6px; margin-bottom:6px; flex-wrap:wrap; }
     .pr-group-meta input { flex:1; padding:6px 8px; font-size:12px; border:1px solid var(--border);
       border-radius:var(--r-sm); background:var(--bg); color:var(--ink); min-width:0; }
-    .pr-group-meta input.hole { max-width:80px; }
+    .pr-group-meta input.hole { max-width:70px; flex:0 0 70px; }
+    .pr-group-meta input.cart { flex:0 0 110px; max-width:140px; }
+    .pr-group-meta input.tee  { flex:1 1 130px; }
+    .pr-tz-hint { font-size:11px; color:var(--ink-3); margin:-2px 0 8px 2px; }
 
     .pr-group-members { display:flex; flex-direction:column; gap:4px; flex:1; min-height:80px;
       background:var(--bg); border-radius:var(--r-md); padding:6px; border:1px dashed var(--border); }
@@ -180,15 +183,30 @@ const eventId = parts[2]; // /admin/events/:id/pairings
 
 const state = {
   eventName: '',
+  timeZone: null,    // IANA, e.g. "America/Chicago" — null when venue coords haven't been set
+  tzAbbrev: '',      // e.g. "CDT" — derived on load() so we don't recompute per render
   groups: [], players: [], totals: { players_total: 0, players_assigned: 0, groups: 0 },
   q: '',
   selectedPlayer: null,  // { reg_id, player_index } — for tap-to-assign on mobile
 };
 
+// Short tz label like "CDT" / "EDT" for a given IANA name. Falls back to the
+// raw IANA string when the locale can't produce a short abbreviation.
+function tzAbbrev(iana, when) {
+  if (!iana) return '';
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', { timeZone: iana, timeZoneName: 'short' })
+      .formatToParts(when || new Date());
+    return (parts.find(p => p.type === 'timeZoneName') || {}).value || iana;
+  } catch { return iana; }
+}
+
 async function load() {
   try {
     const ev = await JORD.api('/api/events/' + eventId);
     state.eventName = ev?.name || 'Event';
+    state.timeZone = ev?.time_zone || null;
+    state.tzAbbrev = tzAbbrev(state.timeZone, ev?.starts_at ? new Date(ev.starts_at) : new Date());
     const d = await JORD.api('/api/admin/events/' + eventId + '/pairings');
     state.groups = d.groups || [];
     state.players = d.players || [];
@@ -214,6 +232,7 @@ function render() {
       <div class="actions">
         <a class="btn btn-ghost" href="/admin/events/${esc(eventId)}/check-in">✓ Check-in</a>
         <button class="btn btn-ghost" id="btn-print">⎙ Print sheet</button>
+        <a class="btn btn-ghost" href="/admin/events/${esc(eventId)}/pairings/poster" target="_blank" rel="noopener">🖼 Poster (24×36)</a>
         <button class="btn btn-ghost" id="btn-auto">⚡ Auto-assign</button>
         <button class="btn btn-primary" id="btn-add-group">+ New group</button>
       </div>
@@ -289,6 +308,9 @@ function renderGroup(g) {
         <div class="name">${esc(m.player_name || '')}</div>
         <button class="x" data-action="unassign" data-group="${esc(g.id)}" data-reg="${esc(m.registration_id)}" data-idx="${m.player_index}" title="Remove">×</button>
       </div>`).join('');
+  // Show the tz abbrev next to the tee-time row only when there's a value;
+  // empty groups don't need the hint visually.
+  const teeHint = (g.tee_time && state.tzAbbrev) ? `<div class="pr-tz-hint">Times shown in ${esc(state.tzAbbrev)}</div>` : '';
   return `<div class="pr-group ${memberCount >= 4 ? 'is-full' : ''}" data-group="${esc(g.id)}">
     <div class="pr-group-head">
       <input class="name" type="text" value="${esc(g.name)}" data-edit="name" data-group="${esc(g.id)}" />
@@ -297,7 +319,9 @@ function renderGroup(g) {
     <div class="pr-group-meta">
       <input class="hole" type="number" min="1" max="18" placeholder="Hole" value="${g.starting_hole != null ? g.starting_hole : ''}" data-edit="starting_hole" data-group="${esc(g.id)}" />
       <input class="tee"  type="text"   placeholder="Tee time (e.g. 8:15 AM)" value="${esc(g.tee_time || '')}" data-edit="tee_time" data-group="${esc(g.id)}" />
+      <input class="cart" type="text"   placeholder="Carts (e.g. 12, 13)"    value="${esc(g.cart_numbers || '')}" data-edit="cart_numbers" data-group="${esc(g.id)}" />
     </div>
+    ${teeHint}
     <div class="pr-group-members" data-group="${esc(g.id)}">${memberHtml}</div>
     <div class="pr-group-count ${memberCount >= 4 ? 'is-full' : ''}">${memberCount} player${memberCount === 1 ? '' : 's'}</div>
   </div>`;
@@ -441,20 +465,24 @@ function printSheet() {
     if (b.starting_hole != null) return 1;
     return a.sort_order - b.sort_order;
   });
+  const tzSuffix = state.tzAbbrev ? ` ${state.tzAbbrev}` : '';
   $('#print-sheet').innerHTML = `
     <h1>${esc(state.eventName)}</h1>
     <h2>Pairings sheet · printed ${new Date().toLocaleDateString()}</h2>
-    ${sorted.map(g => `<div class="pr-print-group">
-      <div class="head">
-        <div class="name">${esc(g.name)}</div>
-        <div class="start">
-          ${g.starting_hole != null ? `Hole ${g.starting_hole}` : ''}
-          ${g.starting_hole != null && g.tee_time ? ' · ' : ''}
-          ${g.tee_time ? esc(g.tee_time) : ''}
+    ${sorted.map(g => {
+      const startBits = [
+        g.starting_hole != null ? `Hole ${g.starting_hole}` : '',
+        g.tee_time ? esc(g.tee_time) + tzSuffix : '',
+        g.cart_numbers ? `Cart ${esc(g.cart_numbers)}` : '',
+      ].filter(Boolean).join(' · ');
+      return `<div class="pr-print-group">
+        <div class="head">
+          <div class="name">${esc(g.name)}</div>
+          <div class="start">${startBits}</div>
         </div>
-      </div>
-      <ol>${g.members.map(m => `<li>${esc(m.player_name)}</li>`).join('') || '<li style="color:#999;font-style:italic;list-style:none">(empty)</li>'}</ol>
-    </div>`).join('')}
+        <ol>${g.members.map(m => `<li>${esc(m.player_name)}</li>`).join('') || '<li style="color:#999;font-style:italic;list-style:none">(empty)</li>'}</ol>
+      </div>`;
+    }).join('')}
   `;
   document.body.classList.add('printing');
   setTimeout(() => {
