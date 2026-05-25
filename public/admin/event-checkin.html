@@ -121,57 +121,95 @@
 <!-- Walk-up modal -->
 <div class="modal-overlay" id="walkup-modal">
   <div class="modal">
-    <h2>Walk-up registration</h2>
-    <div class="sub">Someone showed up without registering online. Capture them quickly.</div>
-    <div class="err" id="walkup-err"></div>
+    <!-- Form view -->
+    <div id="wu-form-view">
+      <h2>Walk-up registration</h2>
+      <div class="sub">Someone showed up without registering online. Capture them quickly.</div>
+      <div class="err" id="walkup-err"></div>
 
-    <div class="field">
-      <label>Package <span style="color:var(--red)">*</span></label>
-      <select id="wu-package"></select>
-    </div>
-
-    <div class="field">
-      <label>Buyer name <span style="color:var(--red)">*</span></label>
-      <input type="text" id="wu-buyer-name" autocomplete="name" />
-    </div>
-
-    <div class="row">
       <div class="field">
-        <label>Email <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
-        <input type="email" id="wu-buyer-email" autocomplete="email" />
+        <label>Package <span style="color:var(--red)">*</span></label>
+        <select id="wu-package"></select>
+      </div>
+
+      <div class="field">
+        <label>Buyer name <span style="color:var(--red)">*</span></label>
+        <input type="text" id="wu-buyer-name" autocomplete="name" />
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Email <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+          <input type="email" id="wu-buyer-email" autocomplete="email" />
+        </div>
+        <div class="field">
+          <label>Phone <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
+          <input type="tel" id="wu-buyer-phone" autocomplete="tel" />
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Players <span id="wu-player-count" style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0"></span></label>
+        <div id="wu-players"></div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Paid how?</label>
+          <select id="wu-method">
+            <option value="stripe">Stripe — card / Apple Pay (QR code)</option>
+            <option value="cash" selected>Cash</option>
+            <option value="check">Check</option>
+            <option value="venmo">Venmo / Zelle</option>
+            <option value="card_external">Card (Square / outside reader)</option>
+            <option value="comp">Comp (free)</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>Amount paid</label>
+          <input type="number" id="wu-amount" step="0.01" min="0" />
+        </div>
+      </div>
+
+      <!-- Conditional reference field — appears for methods where a note is useful -->
+      <div class="field" id="wu-ref-field" style="display:none">
+        <label id="wu-ref-label">Reference / note</label>
+        <input type="text" id="wu-reference" maxlength="80" />
+        <div class="help" id="wu-ref-help" style="color:var(--ink-3);font-size:12px;margin-top:6px"></div>
+      </div>
+
+      <!-- Stripe method explainer -->
+      <div id="wu-stripe-hint" style="display:none;background:rgba(184,136,77,0.08);border:1px solid rgba(184,136,77,0.30);border-radius:var(--r-md);padding:10px 12px;margin-bottom:var(--s-3);font-size:13px;color:var(--ink-2)">
+        <strong style="color:var(--accent)">→ Hit submit</strong> and we'll show a QR code the buyer can scan with their phone. They'll pay via card or Apple Pay/Google Pay — the money lands in your Stripe balance with JORD's 3% fee.
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-ghost" data-close-modal>Cancel</button>
+        <button class="btn btn-primary" id="wu-submit">Add &amp; check in</button>
+      </div>
+    </div>
+
+    <!-- Stripe success view (QR code + link) -->
+    <div id="wu-stripe-view" style="display:none">
+      <h2>Have the buyer scan this</h2>
+      <div class="sub">Auto-checks-in once payment completes. Refresh this page if it doesn't update.</div>
+      <div style="text-align:center;padding:var(--s-3) 0">
+        <img id="wu-qr" alt="Payment QR code" style="width:240px;height:240px;border:1px solid var(--border);border-radius:var(--r-md);background:#fff;padding:8px" />
       </div>
       <div class="field">
-        <label>Phone <span style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0">(optional)</span></label>
-        <input type="tel" id="wu-buyer-phone" autocomplete="tel" />
+        <label>Or share this link</label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="wu-link" readonly style="flex:1;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:12px" />
+          <button class="btn btn-primary" id="wu-link-copy" style="padding:0 16px">Copy</button>
+        </div>
       </div>
-    </div>
-
-    <div class="field">
-      <label>Players <span id="wu-player-count" style="color:var(--ink-3);font-weight:400;text-transform:none;letter-spacing:0"></span></label>
-      <div id="wu-players"></div>
-    </div>
-
-    <div class="row">
-      <div class="field">
-        <label>Paid how?</label>
-        <select id="wu-method">
-          <option value="cash">Cash</option>
-          <option value="card">Card (Square/etc)</option>
-          <option value="check">Check</option>
-          <option value="venmo">Venmo / Zelle</option>
-          <option value="comp">Comp (free)</option>
-          <option value="other">Other</option>
-        </select>
+      <div style="text-align:center;margin:var(--s-3) 0;font-size:13px;color:var(--ink-2)" id="wu-stripe-status">
+        ⏳ Waiting for payment…
       </div>
-      <div class="field">
-        <label>Amount paid</label>
-        <input type="number" id="wu-amount" step="0.01" min="0" />
+      <div class="actions">
+        <button class="btn btn-ghost" id="wu-stripe-close">Close</button>
       </div>
-    </div>
-
-    <div class="actions">
-      <button class="btn btn-ghost" data-close-modal>Cancel</button>
-      <button class="btn btn-primary" id="wu-submit">Add & check in</button>
     </div>
   </div>
 </div>
@@ -361,12 +399,29 @@ function wireRows() {
 }
 
 // ─── WALK-UP MODAL ─────────────────────────────────────────────
+// Reference field hints per payment method — what's useful to capture in
+// the audit trail. `label` overrides the field label; null means hide the
+// reference field entirely (cash needs no note).
+const METHOD_HINTS = {
+  cash:           { label: null,                 help: '' },
+  check:          { label: 'Check number',       help: 'For your audit trail. Optional but recommended.' },
+  venmo:          { label: 'Venmo / Zelle handle or last 4 of transaction',
+                    help: 'Helps reconcile against the Venmo activity feed later.' },
+  card_external:  { label: 'Reference (last 4 of card, receipt #)', help: 'Optional, for your records.' },
+  comp:           { label: 'Comp reason',        help: 'e.g. Volunteer, raffle winner, board member.' },
+  other:          { label: 'Note',               help: 'Anything you want to record about the payment.' },
+  stripe:         { label: null,                 help: '' },
+};
+
+let walkupState = { stripePoll: null, lastSessionId: null };
+
 function openWalkup() {
   if (state.packages.length === 0) {
     alert('Add a registration package first under "Edit site" before recording walk-ups.');
     return;
   }
-  // Populate package dropdown
+  $('#wu-form-view').style.display = '';
+  $('#wu-stripe-view').style.display = 'none';
   const sel = $('#wu-package');
   sel.innerHTML = state.packages.map(p =>
     `<option value="${esc(p.id)}" data-players="${p.includes_players || 1}" data-price="${p.price_cents || 0}">${esc(p.name)} — ${fmtMoney(p.price_cents)}</option>`
@@ -374,9 +429,11 @@ function openWalkup() {
   $('#wu-buyer-name').value = '';
   $('#wu-buyer-email').value = '';
   $('#wu-buyer-phone').value = '';
+  $('#wu-reference').value = '';
   $('#wu-method').value = 'cash';
   $('#walkup-err').classList.remove('show');
   syncWalkupPackage();
+  syncMethod();
   $('#walkup-modal').classList.add('open');
   setTimeout(() => $('#wu-buyer-name').focus(), 100);
 }
@@ -395,21 +452,51 @@ function syncWalkupPackage() {
   ).join('');
 }
 
+// Show/hide reference field + Stripe hint based on the selected method,
+// and adjust the amount + submit button copy.
+function syncMethod() {
+  const m = $('#wu-method').value;
+  const hint = METHOD_HINTS[m] || { label: null, help: '' };
+
+  // Reference field
+  if (hint.label) {
+    $('#wu-ref-field').style.display = '';
+    $('#wu-ref-label').textContent = hint.label;
+    $('#wu-ref-help').textContent  = hint.help;
+  } else {
+    $('#wu-ref-field').style.display = 'none';
+    $('#wu-reference').value = '';
+  }
+
+  // Comp → zero out amount
+  if (m === 'comp') $('#wu-amount').value = '0.00';
+  // Stripe → submit copy
+  $('#wu-stripe-hint').style.display = (m === 'stripe') ? '' : 'none';
+  $('#wu-submit').textContent = (m === 'stripe') ? 'Generate payment QR →' : 'Add & check in';
+}
+
 $('#open-walkup').onclick = openWalkup;
 $('#wu-package').onchange = syncWalkupPackage;
+$('#wu-method').onchange  = syncMethod;
 
 $('#wu-submit').onclick = async () => {
   const errBox = $('#walkup-err');
   errBox.classList.remove('show');
   const buyer = $('#wu-buyer-name').value.trim();
+  const method = $('#wu-method').value;
   if (!buyer) { errBox.textContent = 'Buyer name required'; errBox.classList.add('show'); return; }
   const players = Array.from($$('.wu-player')).map(i => i.value.trim()).filter(Boolean).map(name => ({ name }));
   if (players.length === 0) { errBox.textContent = 'Add at least one player name'; errBox.classList.add('show'); return; }
   const amtDollars = parseFloat($('#wu-amount').value || '0');
+  if (method === 'stripe' && amtDollars < 0.50) {
+    errBox.textContent = 'Stripe charges must be at least $0.50';
+    errBox.classList.add('show'); return;
+  }
   const btn = $('#wu-submit');
-  btn.disabled = true; btn.textContent = 'Adding…';
+  const origLabel = btn.textContent;
+  btn.disabled = true; btn.textContent = method === 'stripe' ? 'Creating QR…' : 'Adding…';
   try {
-    await JORD.api(`/api/admin/events/${eventId}/walkups`, {
+    const res = await JORD.api(`/api/admin/events/${eventId}/walkups`, {
       method: 'POST',
       body: {
         package_id:     $('#wu-package').value,
@@ -418,17 +505,72 @@ $('#wu-submit').onclick = async () => {
         buyer_phone:    $('#wu-buyer-phone').value.trim(),
         players,
         amount_cents:   Math.round((amtDollars || 0) * 100),
-        payment_method: $('#wu-method').value,
+        payment_method: method,
+        reference:      $('#wu-reference').value.trim(),
       },
     });
-    $('#walkup-modal').classList.remove('open');
-    await load();
+
+    if (res.checkout_url) {
+      // Stripe path — swap to QR view
+      showStripeView(res);
+    } else {
+      $('#walkup-modal').classList.remove('open');
+      await load();
+    }
   } catch (e) {
     errBox.textContent = e.message || 'Could not create walk-up';
     errBox.classList.add('show');
   } finally {
-    btn.disabled = false; btn.textContent = 'Add & check in';
+    btn.disabled = false; btn.textContent = origLabel;
   }
+};
+
+function showStripeView(res) {
+  $('#wu-form-view').style.display = 'none';
+  $('#wu-stripe-view').style.display = '';
+  // Use the free qrserver.com API to render the QR — no client dep, no
+  // server work. If it ever fails, the URL + copy button still works.
+  $('#wu-qr').src = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(res.checkout_url)}`;
+  $('#wu-link').value = res.checkout_url;
+  $('#wu-stripe-status').innerHTML = '⏳ Waiting for payment…';
+  walkupState.lastSessionId = res.session_id;
+
+  // Poll the check-in endpoint every 3s to detect when the webhook
+  // flips the walk-up to paid (and auto-checks-in everyone).
+  if (walkupState.stripePoll) clearInterval(walkupState.stripePoll);
+  let tries = 0;
+  walkupState.stripePoll = setInterval(async () => {
+    tries++;
+    try {
+      const d = await JORD.api('/api/admin/events/' + eventId + '/checkin');
+      // If the walk-up's players now appear as checked-in, payment landed.
+      const matched = (d.players || []).some(p => p.reg_id === res.id && p.checked_in_at);
+      if (matched) {
+        clearInterval(walkupState.stripePoll);
+        $('#wu-stripe-status').innerHTML = '✓ <strong style="color:#1f7e2a">Paid — players checked in</strong>';
+        // Refresh main list in the background
+        state.players = d.players; state.totals = d.totals;
+        refreshList();
+      } else if (tries > 120) {
+        // 6 minutes — give up polling, organizer can refresh later
+        clearInterval(walkupState.stripePoll);
+        $('#wu-stripe-status').innerHTML = 'Still waiting. Refresh the page to check.';
+      }
+    } catch {/* keep polling */}
+  }, 3000);
+}
+
+$('#wu-link-copy').onclick = () => {
+  const inp = $('#wu-link'); inp.select();
+  navigator.clipboard.writeText(inp.value).then(() => {
+    $('#wu-link-copy').textContent = '✓';
+    setTimeout(() => $('#wu-link-copy').textContent = 'Copy', 1500);
+  });
+};
+$('#wu-stripe-close').onclick = () => {
+  if (walkupState.stripePoll) clearInterval(walkupState.stripePoll);
+  $('#walkup-modal').classList.remove('open');
+  load();
 };
 
 // Modal close handlers

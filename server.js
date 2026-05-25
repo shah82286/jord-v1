@@ -729,6 +729,22 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req,
                       WHERE id=? AND payment_status!='paid'`)
             .run(session.id, regId);
           console.log(`[Stripe] Registration ${regId} marked paid (session ${session.id})`);
+
+          // Walk-up Stripe payments: buyer is standing at the desk, auto-
+          // check-in their roster (skip if any check-ins already exist so
+          // a repeated webhook fire doesn't duplicate).
+          if (session.metadata.walkup === '1') {
+            const reg = db.prepare('SELECT players_json FROM registrations WHERE id=?').get(regId);
+            const existing = db.prepare('SELECT COUNT(*) AS n FROM checkins WHERE registration_id=?').get(regId).n;
+            if (reg && existing === 0) {
+              let players = [];
+              try { players = JSON.parse(reg.players_json || '[]'); } catch {}
+              const ins = db.prepare(`INSERT INTO checkins (registration_id, player_index, player_name)
+                                      VALUES (?, ?, ?)`);
+              players.forEach((p, i) => ins.run(regId, i, p.name));
+              console.log(`[Stripe] Walk-up ${regId} auto-checked-in ${players.length} player(s)`);
+            }
+          }
         }
         break;
       }
@@ -5099,10 +5115,18 @@ app.delete('/api/admin/events/:id/registrations/:regId/players/:playerIndex/chec
 });
 
 // Walk-up = someone shows up at the registration table without having signed
-// up online. Creates a paid registration with payment_mode='manual' so it
-// shows up in dashboards/totals; auto-checks-in everyone on the roster.
-app.post('/api/admin/events/:id/walkups', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
-  const { package_id, buyer_name, buyer_email, buyer_phone, players, amount_cents, payment_method } = req.body || {};
+// up online. Two payment paths:
+//   • Manual methods (cash / check / venmo / comp / other) — organizer
+//     collected the money themselves. Walk-up is created PAID + everyone is
+//     auto-checked-in. Optional `reference` is captured for the audit trail
+//     (check number, Venmo handle, comp reason, etc.).
+//   • Stripe — creates the walk-up as PENDING + opens a Checkout Session
+//     against the organizer's Connect account. Returns the URL so the UI
+//     can show a QR code on the registration-desk screen. The webhook
+//     (checkout.session.completed) flips it to paid AND auto-checks-in.
+app.post('/api/admin/events/:id/walkups', requireAuth, requireAdminOrSuper, requireEventAccess, async (req, res) => {
+  const { package_id, buyer_name, buyer_email, buyer_phone, players,
+          amount_cents, payment_method, reference } = req.body || {};
   if (!package_id || !buyer_name) return res.status(400).json({ error: 'package_id and buyer_name required' });
 
   const pkg = db.prepare('SELECT id, name, price_cents, includes_players FROM registration_packages WHERE id=? AND event_id=?')
@@ -5112,10 +5136,64 @@ app.post('/api/admin/events/:id/walkups', requireAuth, requireAdminOrSuper, requ
   const playersArr = Array.isArray(players) ? players.filter(p => p && p.name) : [];
   const amt = amount_cents != null && amount_cents !== '' ? Math.max(0, Number(amount_cents)) : pkg.price_cents;
   const id = crypto.randomBytes(8).toString('hex');
-  // We tag the payment method into refund_reason as a quick audit cell
-  // ("cash", "card-square", "comp", etc.) without inventing a new column.
-  const methodNote = String(payment_method || 'manual').trim().slice(0, 40);
+  const method = String(payment_method || 'cash').trim().toLowerCase().slice(0, 20);
+  const ref    = String(reference || '').trim().slice(0, 80);
+  const methodLabel = ref ? `${method} · ${ref}` : method;
 
+  const isStripeWalkup = method === 'stripe';
+
+  // ── Stripe walk-up: pending until paid, opens Checkout Session.
+  if (isStripeWalkup) {
+    if (amt < 50) return res.status(400).json({ error: 'Stripe charges must be at least $0.50' });
+    if (stripeHelper.mode !== 'stripe') {
+      return res.status(503).json({ error: 'Stripe is not configured on this server' });
+    }
+
+    const event = db.prepare('SELECT id, name, admin_id FROM events WHERE id=?').get(req.params.id);
+    const organizer = db.prepare('SELECT stripe_account_id, stripe_charges_enabled FROM admins WHERE id=?').get(event.admin_id);
+    if (!organizer?.stripe_account_id || !organizer.stripe_charges_enabled) {
+      return res.status(503).json({ error: 'Organizer Stripe account is not ready for charges' });
+    }
+
+    const fee = stripeHelper.feeCents(amt);
+    db.prepare(`INSERT INTO registrations
+      (id, event_id, package_id, buyer_name, buyer_email, buyer_phone, players_json,
+       amount_cents, platform_fee_cents, payment_status, payment_mode, description)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'stripe', ?)`)
+      .run(id, req.params.id, pkg.id, buyer_name.trim(),
+           (buyer_email || '').trim().toLowerCase() || null,
+           (buyer_phone || '').trim() || null,
+           JSON.stringify(playersArr), amt, fee, 'Walk-up (stripe)');
+
+    try {
+      const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
+      const site = db.prepare('SELECT slug FROM event_sites WHERE event_id=?').get(req.params.id);
+      const session = await stripeHelper.createCheckoutSession({
+        amountCents:        amt,
+        platformFeeCents:   fee,
+        connectedAccountId: organizer.stripe_account_id,
+        productName:        `${event.name} · Walk-up registration`,
+        productDescription: pkg.name,
+        buyerEmail:         (buyer_email || '').trim().toLowerCase() || undefined,
+        metadata: {
+          registration_id: id,
+          event_id:        req.params.id,
+          walkup:          '1',  // webhook uses this to auto-check-in
+        },
+        successUrl: `${APP_URL}/e/${site ? site.slug : ''}/confirmation/${id}?session_id={CHECKOUT_SESSION_ID}`,
+        cancelUrl:  `${APP_URL}/admin/events/${req.params.id}/check-in?canceled=${id}`,
+      });
+      db.prepare('UPDATE registrations SET stripe_session_id=? WHERE id=?').run(session.id, id);
+      return res.json({ id, status: 'pending', checkout_url: session.url, session_id: session.id });
+    } catch (e) {
+      console.error('[Stripe walkup]', e);
+      db.prepare("UPDATE registrations SET payment_status='failed' WHERE id=?").run(id);
+      return res.status(502).json({ error: e.message || 'Stripe checkout creation failed' });
+    }
+  }
+
+  // ── Manual methods (cash / check / venmo / comp / other):
+  // record as paid right now, auto-check-in everyone.
   db.prepare(`INSERT INTO registrations
     (id, event_id, package_id, buyer_name, buyer_email, buyer_phone, players_json,
      amount_cents, platform_fee_cents, payment_status, payment_mode, paid_at, description)
@@ -5123,15 +5201,13 @@ app.post('/api/admin/events/:id/walkups', requireAuth, requireAdminOrSuper, requ
     .run(id, req.params.id, pkg.id, buyer_name.trim(),
          (buyer_email || '').trim().toLowerCase() || null,
          (buyer_phone || '').trim() || null,
-         JSON.stringify(playersArr), amt, `Walk-up (${methodNote})`);
+         JSON.stringify(playersArr), amt, `Walk-up (${methodLabel})`);
 
-  // Auto-check-in every named player on the walk-up roster (they're standing
-  // at the desk right now — no point asking the organizer to tap again).
   const insertCheckin = db.prepare(`INSERT INTO checkins (registration_id, player_index, player_name, checked_in_by)
                                     VALUES (?, ?, ?, ?)`);
   playersArr.forEach((p, i) => insertCheckin.run(id, i, p.name, req.admin.id));
 
-  res.json({ id, players_checked_in: playersArr.length });
+  res.json({ id, status: 'paid', players_checked_in: playersArr.length });
 });
 
 app.get('/api/users/me', requireUser, (req, res) => {

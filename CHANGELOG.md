@@ -2,6 +2,64 @@
 
 ---
 
+## v3.36.0 — 2026-05-24
+### Session 51 — Walk-ups: Stripe (QR/link) + reference notes
+
+The walk-up modal now supports real Stripe card payment via QR code (no
+hardware needed), and the other payment methods capture an optional
+reference (check #, Venmo handle, comp reason) for the audit trail.
+
+#### What changed
+- **`POST /api/admin/events/:id/walkups`** — extended:
+  - New `payment_method: 'stripe'` branch creates the walk-up as
+    `pending` and opens a Stripe Checkout Session on the organizer's
+    Connect account (same Connect flow as online registration). Returns
+    `{ checkout_url, session_id }` so the UI can show a QR code.
+    Session metadata includes `walkup: '1'` so the webhook auto-checks
+    everyone in when payment lands.
+  - New `reference` field (≤80 chars) for manual methods. Persists in
+    the `description` field as "Walk-up (check · 1234)" or similar so
+    the audit trail is complete.
+- **Stripe webhook** — `checkout.session.completed` now also auto-
+  checks-in every player on the walk-up roster when
+  `session.metadata.walkup === '1'`. Idempotent (skips if check-ins
+  already exist).
+- **Walk-up modal UI** (`event-checkin.html`):
+  - **New default option**: "Stripe — card / Apple Pay (QR code)" at
+    the top of the dropdown.
+  - **Contextual reference field** — appears for check / Venmo /
+    external card / comp / other with a hint label and helper text per
+    method. Cash and Stripe don't show it (cash needs no note; Stripe
+    has its own receipt).
+  - **Comp** automatically zeros out the amount field.
+  - **Stripe submit** swaps the button copy to "Generate payment QR →"
+    and shows an explainer banner before submission.
+  - **Stripe success view** — replaces the form with a 240×240 QR
+    image (rendered via the free api.qrserver.com endpoint), the
+    payment URL with a Copy button, and a live "Waiting for payment…"
+    status that polls the check-in endpoint every 3s and updates to
+    "✓ Paid — players checked in" once the webhook fires.
+
+#### Tested
+- **132/132 unit tests pass** (no new endpoints; just extended the
+  existing `POST /walkups`).
+- Manual: code path for each method branch reviewed; Stripe walk-up
+  flow exercised in sandbox previously via the registration flow that
+  uses the same `createCheckoutSession` helper.
+
+#### Notes
+- QR code uses the free `api.qrserver.com` endpoint — no key needed,
+  no rate limits documented. If it ever goes down, the copy-link
+  fallback keeps the flow working. Easy to swap to a self-hosted lib
+  later if needed.
+- All other payment methods (cash, check, Venmo, comp, other) were
+  already functional — they just record the method + amount and mark
+  the walk-up paid. This release adds the optional reference field so
+  organizers can capture context (e.g., check number) that previously
+  required a separate paper note.
+
+---
+
 ## v3.35.0 — 2026-05-24
 ### Session 50 — E2 (Run the day): mobile-first check-in + walk-ups
 
