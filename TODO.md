@@ -16,6 +16,13 @@ on `/e/:slug/register` → Stripe Checkout → webhook fires
 test keys (`sk_test_…`). When ready for real money: open `#STRIPE-LIVE`
 to swap sandbox keys for live keys and re-onboard Connect in live mode.
 
+**#STRIPE-TERMINAL — Tap-to-Pay / Stripe Terminal hardware for walk-ups + on-course sales**
+The walk-up flow already supports Stripe via QR code (buyer scans, pays on their phone — no hardware needed). Adding Tap-to-Pay would let an organizer tap a card directly on their phone or a reader for one-touch in-person sales. Two paths:
+  1. **Tap-to-Pay on iPhone/Android** — no hardware purchase, uses phone NFC. Requires the Stripe SDK in a real mobile app (won't work in mobile web browser, so JORD would need a wrapper app — Capacitor / native shell — first). iOS requires Apple Business approval; Android is more open.
+  2. **Stripe Terminal hardware** — `bbpos-wisepad3` reader (~$60) pairs via Bluetooth to a phone/tablet. Works through a browser via Stripe Terminal JS SDK. Simpler to integrate (no app store) but requires buying readers.
+
+Useful beyond walk-ups: on-course mulligan packs, drink-cart payments, raffle ticket sales, awards-dinner add-ons. The Connect plumbing is already in place (each organizer's Connect account becomes the destination for Terminal charges, same 3% platform fee). Pick this up once JORD-the-business is ready to either (a) build a native mobile wrapper app, or (b) ship branded readers to organizers.
+
 **#STRIPE-LIVE — Switch from sandbox to live keys**
 When JORD is ready to take real money: (1) flip Stripe Dashboard to
 live mode, (2) re-do Connect platform setup in live mode (the platform
