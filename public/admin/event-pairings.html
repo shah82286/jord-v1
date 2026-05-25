@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Pairings · JORD Admin</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+  <style>
+    .pr-wrap { max-width: 1280px; margin: 0 auto; padding: var(--s-5) var(--s-4) var(--s-7); }
+
+    .pr-head { display:flex; justify-content:space-between; align-items:flex-end;
+      gap:var(--s-3); flex-wrap:wrap; margin-bottom:var(--s-4); }
+    .pr-head .eyebrow { font-size:11px; letter-spacing:.22em; text-transform:uppercase;
+      color:var(--ink-3); font-weight:700; }
+    .pr-head h1 { font-family:var(--font-display); font-size:clamp(1.8rem,4vw,2.4rem);
+      letter-spacing:-0.02em; line-height:1.1; margin:6px 0 4px; }
+    .pr-head .actions { display:flex; gap:var(--s-2); flex-wrap:wrap; }
+
+    /* Stat strip */
+    .pr-stats { display:flex; gap:var(--s-3); margin-bottom:var(--s-4); flex-wrap:wrap; }
+    .pr-stat { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+      padding:12px 18px; min-width:140px; }
+    .pr-stat .k { font-size:11px; letter-spacing:.18em; text-transform:uppercase;
+      color:var(--ink-3); font-weight:700; }
+    .pr-stat .v { font-family:var(--font-display); font-size:1.6rem; line-height:1.1; margin-top:4px; }
+
+    /* Layout: two columns on desktop, stacked on mobile */
+    .pr-layout { display:grid; gap:var(--s-3); grid-template-columns: 320px 1fr; }
+    @media (max-width: 900px) { .pr-layout { grid-template-columns: 1fr; } }
+
+    /* Player pool (left column) */
+    .pr-pool { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+      padding:var(--s-3); position:sticky; top:var(--s-3); max-height: calc(100vh - 60px); overflow:auto; }
+    @media (max-width: 900px) { .pr-pool { position: static; max-height: 320px; } }
+    .pr-pool h3 { font-family:var(--font-display); font-size:1.1rem; margin-bottom:6px; }
+    .pr-pool .sub { font-size:12px; color:var(--ink-3); margin-bottom:var(--s-3); }
+    .pr-pool input[type=search] { width:100%; padding:9px 12px; font-size:13px;
+      border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg); color:var(--ink);
+      margin-bottom:8px; }
+    .pr-pool-list { display:flex; flex-direction:column; gap:6px; }
+    .pr-pool-item { padding:10px 12px; background:var(--bg); border:1px solid var(--border);
+      border-radius:var(--r-md); cursor:grab; user-select:none; font-size:14px;
+      display:flex; align-items:center; gap:8px; }
+    .pr-pool-item:hover { border-color:var(--ink); }
+    .pr-pool-item.is-selected { background:rgba(184,136,77,0.10); border-color:var(--accent); }
+    .pr-pool-item .name { font-weight:600; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pr-pool-item .meta { font-size:11px; color:var(--ink-3); white-space:nowrap; }
+    .pr-pool-item .ci-dot { width:8px; height:8px; border-radius:50%; background:var(--border); flex-shrink:0; }
+    .pr-pool-item.is-checkedin .ci-dot { background:#1f7e2a; }
+
+    /* Groups column */
+    .pr-groups { display:grid; gap:var(--s-3); grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); align-content:start; }
+    .pr-group { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+      padding:var(--s-3); display:flex; flex-direction:column; min-height:160px; }
+    .pr-group.is-drop-target { border-color:var(--accent); background:rgba(184,136,77,0.06); }
+    .pr-group.is-full { border-style:dashed; }
+    .pr-group-head { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+    .pr-group-head input.name { flex:1; padding:6px 8px; font-size:14px; font-weight:700;
+      border:1px solid transparent; background:transparent; border-radius:var(--r-sm); color:var(--ink); }
+    .pr-group-head input.name:focus { background:var(--bg); border-color:var(--border); outline:none; }
+    .pr-group-head .del { background:none; border:none; cursor:pointer; color:var(--ink-3);
+      font-size:18px; padding:0 4px; line-height:1; }
+    .pr-group-head .del:hover { color:#c0392b; }
+
+    .pr-group-meta { display:flex; gap:6px; margin-bottom:8px; }
+    .pr-group-meta input { flex:1; padding:6px 8px; font-size:12px; border:1px solid var(--border);
+      border-radius:var(--r-sm); background:var(--bg); color:var(--ink); min-width:0; }
+    .pr-group-meta input.hole { max-width:80px; }
+
+    .pr-group-members { display:flex; flex-direction:column; gap:4px; flex:1; min-height:80px;
+      background:var(--bg); border-radius:var(--r-md); padding:6px; border:1px dashed var(--border); }
+    .pr-member { padding:8px 10px; background:var(--surface); border-radius:var(--r-sm);
+      display:flex; align-items:center; gap:8px; font-size:13px; }
+    .pr-member .pos { width:18px; color:var(--ink-3); font-size:11px; font-weight:700; }
+    .pr-member .name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pr-member .x { background:none; border:none; cursor:pointer; color:var(--ink-3); font-size:14px; padding:0 4px; }
+    .pr-member .x:hover { color:#c0392b; }
+    .pr-empty-group { padding:var(--s-3); text-align:center; color:var(--ink-3); font-size:12px; font-style:italic; }
+
+    .pr-group-count { font-size:11px; color:var(--ink-3); margin-top:6px; text-align:right; font-weight:600; }
+    .pr-group-count.is-full { color:#1f7e2a; }
+
+    /* Add-group dashed card */
+    .pr-add-group { border:2px dashed var(--border); border-radius:var(--r-lg);
+      padding:var(--s-4); display:flex; align-items:center; justify-content:center;
+      cursor:pointer; min-height:160px; color:var(--ink-3); font-weight:600; transition:all var(--t-fast); }
+    .pr-add-group:hover { border-color:var(--ink); color:var(--ink); background:var(--surface); }
+
+    /* Modal (reuse from check-in page) */
+    .modal-overlay { position:fixed; inset:0; background:rgba(20,19,18,.55); backdrop-filter:blur(2px);
+      display:none; align-items:center; justify-content:center; z-index:50; padding:var(--s-3); }
+    .modal-overlay.open { display:flex; }
+    .modal { background:var(--bg); border-radius:var(--r-lg); width:100%; max-width:440px;
+      padding:var(--s-4); border:1px solid var(--border); box-shadow:0 10px 40px rgba(0,0,0,.20); }
+    .modal h2 { font-family:var(--font-display); font-size:1.4rem; margin-bottom:8px; }
+    .modal .sub { color:var(--ink-2); font-size:14px; margin-bottom:var(--s-3); }
+    .modal label { display:block; font-size:12px; font-weight:600; color:var(--ink-2);
+      letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
+    .modal select, .modal input[type=number] {
+      width:100%; padding:11px 13px; border:1px solid var(--border); border-radius:var(--r-md);
+      background:var(--surface); color:var(--ink); font-size:15px; font-family:inherit; }
+    .modal .field { margin-bottom:var(--s-3); }
+    .modal .row { display:grid; grid-template-columns:1fr 1fr; gap:var(--s-2); }
+    .modal .actions { display:flex; gap:var(--s-2); justify-content:flex-end;
+      padding-top:var(--s-3); border-top:1px solid var(--border); margin-top:var(--s-3); }
+    .modal .checkbox { display:flex; align-items:center; gap:8px; cursor:pointer;
+      font-weight:400; text-transform:none; letter-spacing:0; color:var(--ink); font-size:14px; }
+
+    /* Print sheet */
+    @media print {
+      body * { visibility: hidden; }
+      .pr-print, .pr-print * { visibility: visible; }
+      .pr-print { position: absolute; left: 0; top: 0; width: 100%; padding: 24px; }
+      .pr-print-group { page-break-inside: avoid; }
+    }
+    .pr-print { display:none; }
+    body.printing .pr-print { display:block; }
+    .pr-print h1 { font-family:var(--font-display); font-size:24pt; margin-bottom:6px; }
+    .pr-print h2 { font-size:11pt; color:#666; font-weight:400; margin-bottom:20px; }
+    .pr-print-group { border:1px solid #999; border-radius:6px; padding:12px; margin-bottom:10px; }
+    .pr-print-group .head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    .pr-print-group .name { font-weight:700; font-size:14pt; }
+    .pr-print-group .start { font-size:11pt; color:#444; }
+    .pr-print-group ul { list-style:decimal; padding-left:24px; }
+    .pr-print-group li { font-size:12pt; padding:3px 0; }
+  </style>
+</head>
+<body>
+<main class="pr-wrap" id="view"><p class="mini">Loading…</p></main>
+
+<!-- Print sheet container (hidden until print) -->
+<div class="pr-print" id="print-sheet"></div>
+
+<!-- Auto-assign modal -->
+<div class="modal-overlay" id="auto-modal">
+  <div class="modal">
+    <h2>Auto-assign groups</h2>
+    <div class="sub">Distribute unassigned players into groups. Existing groups are kept unless you tick "Replace all".</div>
+
+    <div class="field">
+      <label>Strategy</label>
+      <select id="aa-strategy">
+        <option value="sequential">Sequential — keep registered foursomes together</option>
+        <option value="random">Random — shuffle everyone</option>
+        <option value="alphabetical">Alphabetical by player name</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label>Group size</label>
+        <input type="number" id="aa-size" value="4" min="1" max="8" />
+      </div>
+      <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end">
+        <label class="checkbox"><input type="checkbox" id="aa-shotgun" /> Shotgun: assign starting holes 1-18</label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label class="checkbox"><input type="checkbox" id="aa-replace" /> Replace all existing groups first (wipes current pairings)</label>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-ghost" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="aa-confirm">Auto-assign</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/jord.js"></script>
+<script src="/admin/_shared/auth.js"></script>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => r.querySelectorAll(s);
+const esc = JORD.escapeHtml;
+if (!JORD.getToken()) location.href = '/admin';
+
+const parts = location.pathname.split('/').filter(Boolean);
+const eventId = parts[2]; // /admin/events/:id/pairings
+
+const state = {
+  eventName: '',
+  groups: [], players: [], totals: { players_total: 0, players_assigned: 0, groups: 0 },
+  q: '',
+  selectedPlayer: null,  // { reg_id, player_index } — for tap-to-assign on mobile
+};
+
+async function load() {
+  try {
+    const ev = await JORD.api('/api/events/' + eventId);
+    state.eventName = ev?.name || 'Event';
+    const d = await JORD.api('/api/admin/events/' + eventId + '/pairings');
+    state.groups = d.groups || [];
+    state.players = d.players || [];
+    state.totals = d.totals || state.totals;
+    render();
+  } catch (e) {
+    if (e.status === 401) location.href = '/admin';
+    else $('#view').innerHTML = `<div class="card"><p style="color:var(--red)">${esc(e.message)}</p></div>`;
+  }
+}
+
+function render() {
+  const t = state.totals;
+  const unassigned = t.players_total - t.players_assigned;
+
+  $('#view').innerHTML = `
+    <div class="pr-head">
+      <div>
+        <a href="/admin/events/${esc(eventId)}" class="pill-link" style="font-size:13px;color:var(--ink-2)">← Back to event</a>
+        <div class="eyebrow" style="margin-top:6px">${esc(state.eventName)}</div>
+        <h1>Pairings</h1>
+      </div>
+      <div class="actions">
+        <a class="btn btn-ghost" href="/admin/events/${esc(eventId)}/check-in">✓ Check-in</a>
+        <button class="btn btn-ghost" id="btn-print">⎙ Print sheet</button>
+        <button class="btn btn-ghost" id="btn-auto">⚡ Auto-assign</button>
+        <button class="btn btn-primary" id="btn-add-group">+ New group</button>
+      </div>
+    </div>
+
+    <div class="pr-stats">
+      <div class="pr-stat"><div class="k">Players</div><div class="v">${t.players_total}</div></div>
+      <div class="pr-stat"><div class="k">Assigned</div><div class="v">${t.players_assigned}</div></div>
+      <div class="pr-stat"><div class="k">Unassigned</div><div class="v" style="color:${unassigned > 0 ? 'var(--accent)' : 'var(--ink)'}">${unassigned}</div></div>
+      <div class="pr-stat"><div class="k">Groups</div><div class="v">${t.groups}</div></div>
+    </div>
+
+    <div class="pr-layout">
+      <div class="pr-pool">
+        <h3>Unassigned players</h3>
+        <div class="sub">Tap to select, then tap a group to assign. Or drag and drop.</div>
+        <input type="search" id="q" placeholder="Filter…" value="${esc(state.q)}" />
+        <div class="pr-pool-list" id="pool-list">${renderPool()}</div>
+      </div>
+
+      <div class="pr-groups" id="groups">
+        ${state.groups.map(g => renderGroup(g)).join('')}
+        <div class="pr-add-group" id="add-group">+ New group</div>
+      </div>
+    </div>
+  `;
+
+  $('#q').addEventListener('input', e => { state.q = e.target.value; refreshPool(); });
+  $('#btn-add-group').onclick = createGroup;
+  $('#add-group').onclick = createGroup;
+  $('#btn-print').onclick = printSheet;
+  $('#btn-auto').onclick = openAutoModal;
+  wireGroupEvents();
+  wirePoolEvents();
+}
+
+function renderPool() {
+  const ql = state.q.trim().toLowerCase();
+  const rows = state.players.filter(p => {
+    if (p.assigned) return false;
+    if (!ql) return true;
+    return (p.player_name || '').toLowerCase().includes(ql) ||
+           (p.buyer_name  || '').toLowerCase().includes(ql);
+  });
+  if (rows.length === 0) {
+    return `<div style="padding:var(--s-3);text-align:center;color:var(--ink-3);font-size:13px">
+      ${state.players.length === 0 ? 'No paid registrations yet.' : 'All players assigned 🎉'}
+    </div>`;
+  }
+  return rows.map(p => {
+    const sel = state.selectedPlayer && state.selectedPlayer.reg_id === p.reg_id && state.selectedPlayer.player_index === p.player_index;
+    return `<div class="pr-pool-item ${p.checked_in?'is-checkedin':''} ${sel?'is-selected':''}"
+      draggable="true"
+      data-reg="${esc(p.reg_id)}" data-idx="${p.player_index}" data-name="${esc(p.player_name)}">
+      <span class="ci-dot" title="${p.checked_in?'Checked in':'Not checked in'}"></span>
+      <span class="name">${esc(p.player_name)}</span>
+      <span class="meta">${esc(p.buyer_name !== p.player_name ? p.buyer_name : '')}</span>
+    </div>`;
+  }).join('');
+}
+
+function refreshPool() {
+  $('#pool-list').innerHTML = renderPool();
+  wirePoolEvents();
+}
+
+function renderGroup(g) {
+  const memberCount = g.members.length;
+  const memberHtml = g.members.length === 0
+    ? '<div class="pr-empty-group">Drop or tap-assign players here</div>'
+    : g.members.map((m, i) => `<div class="pr-member">
+        <div class="pos">${i+1}</div>
+        <div class="name">${esc(m.player_name || '')}</div>
+        <button class="x" data-action="unassign" data-group="${esc(g.id)}" data-reg="${esc(m.registration_id)}" data-idx="${m.player_index}" title="Remove">×</button>
+      </div>`).join('');
+  return `<div class="pr-group ${memberCount >= 4 ? 'is-full' : ''}" data-group="${esc(g.id)}">
+    <div class="pr-group-head">
+      <input class="name" type="text" value="${esc(g.name)}" data-edit="name" data-group="${esc(g.id)}" />
+      <button class="del" data-action="del-group" data-group="${esc(g.id)}" title="Delete group">×</button>
+    </div>
+    <div class="pr-group-meta">
+      <input class="hole" type="number" min="1" max="18" placeholder="Hole" value="${g.starting_hole != null ? g.starting_hole : ''}" data-edit="starting_hole" data-group="${esc(g.id)}" />
+      <input class="tee"  type="text"   placeholder="Tee time (e.g. 8:15 AM)" value="${esc(g.tee_time || '')}" data-edit="tee_time" data-group="${esc(g.id)}" />
+    </div>
+    <div class="pr-group-members" data-group="${esc(g.id)}">${memberHtml}</div>
+    <div class="pr-group-count ${memberCount >= 4 ? 'is-full' : ''}">${memberCount} player${memberCount === 1 ? '' : 's'}</div>
+  </div>`;
+}
+
+// ─── Pool interactions ───────────────────────────────────────
+function wirePoolEvents() {
+  $$('.pr-pool-item').forEach(el => {
+    el.onclick = () => {
+      const reg = el.dataset.reg, idx = Number(el.dataset.idx);
+      const same = state.selectedPlayer && state.selectedPlayer.reg_id === reg && state.selectedPlayer.player_index === idx;
+      state.selectedPlayer = same ? null : { reg_id: reg, player_index: idx, player_name: el.dataset.name };
+      refreshPool();
+    };
+    el.ondragstart = (e) => {
+      e.dataTransfer.setData('text/plain', JSON.stringify({ reg_id: el.dataset.reg, player_index: Number(el.dataset.idx), player_name: el.dataset.name }));
+      e.dataTransfer.effectAllowed = 'move';
+    };
+  });
+}
+
+// ─── Group interactions ─────────────────────────────────────
+function wireGroupEvents() {
+  // Tap-to-assign: tap a group when a player is selected
+  $$('.pr-group').forEach(el => {
+    el.onclick = (e) => {
+      // Don't trigger when clicking inputs or buttons inside the group
+      if (e.target.matches('input, button, .x')) return;
+      if (!state.selectedPlayer) return;
+      const groupId = el.dataset.group;
+      assignToGroup(groupId, state.selectedPlayer);
+    };
+    // Drag-drop targets
+    el.ondragover = (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; el.classList.add('is-drop-target'); };
+    el.ondragleave = () => el.classList.remove('is-drop-target');
+    el.ondrop = async (e) => {
+      e.preventDefault(); el.classList.remove('is-drop-target');
+      try {
+        const data = JSON.parse(e.dataTransfer.getData('text/plain'));
+        assignToGroup(el.dataset.group, data);
+      } catch {}
+    };
+  });
+
+  // Inline edit handlers
+  $$('[data-edit]').forEach(input => {
+    input.onchange = () => updateGroupField(input.dataset.group, input.dataset.edit, input.value);
+  });
+
+  // Delete-group buttons
+  $$('[data-action="del-group"]').forEach(b => {
+    b.onclick = (e) => { e.stopPropagation(); deleteGroup(b.dataset.group); };
+  });
+
+  // Unassign-member buttons
+  $$('[data-action="unassign"]').forEach(b => {
+    b.onclick = (e) => { e.stopPropagation(); unassignMember(b.dataset.group, b.dataset.reg, Number(b.dataset.idx)); };
+  });
+}
+
+async function createGroup() {
+  try {
+    await JORD.api(`/api/admin/events/${eventId}/pairings/groups`, { method: 'POST', body: {} });
+    await load();
+  } catch (e) { alert(e.message || 'Could not create group'); }
+}
+
+async function updateGroupField(groupId, field, value) {
+  const body = { [field]: value };
+  try {
+    await JORD.api(`/api/admin/events/${eventId}/pairings/groups/${groupId}`, { method: 'PATCH', body });
+    // Don't reload — just update local state to avoid jarring re-render mid-edit
+    const g = state.groups.find(x => x.id === groupId);
+    if (g) g[field] = value;
+  } catch (e) { alert(e.message || 'Could not update group'); }
+}
+
+async function deleteGroup(groupId) {
+  const g = state.groups.find(x => x.id === groupId);
+  if (g && g.members.length > 0 && !confirm(`Delete "${g.name}" and unassign ${g.members.length} player(s)?`)) return;
+  try {
+    await JORD.api(`/api/admin/events/${eventId}/pairings/groups/${groupId}`, { method: 'DELETE' });
+    await load();
+  } catch (e) { alert(e.message || 'Could not delete group'); }
+}
+
+async function assignToGroup(groupId, player) {
+  try {
+    await JORD.api(`/api/admin/events/${eventId}/pairings/groups/${groupId}/members`, {
+      method: 'POST',
+      body: { registration_id: player.reg_id, player_index: player.player_index, player_name: player.player_name },
+    });
+    state.selectedPlayer = null;
+    await load();
+  } catch (e) { alert(e.message || 'Could not assign player'); }
+}
+
+async function unassignMember(groupId, regId, idx) {
+  try {
+    await JORD.api(`/api/admin/events/${eventId}/pairings/groups/${groupId}/members/${regId}/${idx}`, { method: 'DELETE' });
+    await load();
+  } catch (e) { alert(e.message || 'Could not remove player'); }
+}
+
+// ─── AUTO-ASSIGN ────────────────────────────────────────────
+function openAutoModal() {
+  $('#aa-strategy').value = 'sequential';
+  $('#aa-size').value = 4;
+  $('#aa-shotgun').checked = false;
+  $('#aa-replace').checked = false;
+  $('#auto-modal').classList.add('open');
+}
+$('#aa-confirm').onclick = async () => {
+  const btn = $('#aa-confirm');
+  btn.disabled = true; btn.textContent = 'Assigning…';
+  try {
+    const res = await JORD.api(`/api/admin/events/${eventId}/pairings/auto-assign`, {
+      method: 'POST',
+      body: {
+        strategy:   $('#aa-strategy').value,
+        group_size: Number($('#aa-size').value || 4),
+        shotgun:    $('#aa-shotgun').checked,
+        replace:    $('#aa-replace').checked,
+      },
+    });
+    $('#auto-modal').classList.remove('open');
+    await load();
+    alert(`Created ${res.groups_created} group(s), assigned ${res.players_assigned} player(s).`);
+  } catch (e) {
+    alert(e.message || 'Auto-assign failed');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Auto-assign';
+  }
+};
+
+// ─── PRINT SHEET ────────────────────────────────────────────
+function printSheet() {
+  const sorted = [...state.groups].sort((a, b) => {
+    if (a.starting_hole != null && b.starting_hole != null) return a.starting_hole - b.starting_hole;
+    if (a.starting_hole != null) return -1;
+    if (b.starting_hole != null) return 1;
+    return a.sort_order - b.sort_order;
+  });
+  $('#print-sheet').innerHTML = `
+    <h1>${esc(state.eventName)}</h1>
+    <h2>Pairings sheet · printed ${new Date().toLocaleDateString()}</h2>
+    ${sorted.map(g => `<div class="pr-print-group">
+      <div class="head">
+        <div class="name">${esc(g.name)}</div>
+        <div class="start">
+          ${g.starting_hole != null ? `Hole ${g.starting_hole}` : ''}
+          ${g.starting_hole != null && g.tee_time ? ' · ' : ''}
+          ${g.tee_time ? esc(g.tee_time) : ''}
+        </div>
+      </div>
+      <ol>${g.members.map(m => `<li>${esc(m.player_name)}</li>`).join('') || '<li style="color:#999;font-style:italic;list-style:none">(empty)</li>'}</ol>
+    </div>`).join('')}
+  `;
+  document.body.classList.add('printing');
+  setTimeout(() => {
+    window.print();
+    document.body.classList.remove('printing');
+  }, 100);
+}
+
+// Modal close handlers
+$$('[data-close-modal]').forEach(b => {
+  b.onclick = () => $$('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+});
+$$('.modal-overlay').forEach(o => {
+  o.addEventListener('click', e => { if (e.target === o) o.classList.remove('open'); });
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') $$('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+});
+
+ADMIN.requireAuth({ adminOrSuper: true }).then(load);
+</script>
+</body>
+</html>

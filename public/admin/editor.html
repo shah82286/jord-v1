@@ -344,6 +344,7 @@
           <a class="btn btn-ghost" id="btn-view-site-edit" href="#">✎ Site</a>
           <a class="btn btn-ghost" id="btn-view-registrations" href="#">📋 Registrations</a>
           <a class="btn btn-ghost" id="btn-view-checkin" href="#">✓ Check-in</a>
+          <a class="btn btn-ghost" id="btn-view-pairings" href="#">⛳ Pairings</a>
           <button class="btn btn-ghost" id="btn-view-leaderboard">📺 Leaderboard</button>
           <button class="btn btn-ghost" id="btn-view-monitor">🎛 Monitor</button>
           <button class="btn btn-ghost" id="btn-export">⬇ Export CSV</button>
@@ -1812,6 +1813,7 @@
     $('#btn-view-site-edit').href = `/admin/events/${currentEvent.id}/site/edit`;
     $('#btn-view-registrations').href = `/admin/events/${currentEvent.id}/registrations`;
     $('#btn-view-checkin').href = `/admin/events/${currentEvent.id}/check-in`;
+    $('#btn-view-pairings').href = `/admin/events/${currentEvent.id}/pairings`;
 
     const status  = currentEvent.status;
     const endBtn  = $('#btn-end-event');

@@ -630,6 +630,34 @@ db.exec(`
     PRIMARY KEY (registration_id, player_index),
     FOREIGN KEY (registration_id) REFERENCES registrations(id) ON DELETE CASCADE
   );
+
+  CREATE TABLE IF NOT EXISTS pairing_groups (
+    id              TEXT PRIMARY KEY,
+    event_id        TEXT NOT NULL,
+    name            TEXT NOT NULL,        -- "Group 1" / "Smith Foursome"
+    starting_hole   INTEGER,              -- 1..18 (NULL for tee-time events)
+    tee_time        TEXT,                 -- "08:15 AM" — free text so we don't fight time-zone math
+    sort_order      INTEGER DEFAULT 0,    -- for manual reordering
+    notes           TEXT,                 -- cart pairing, dietary, etc.
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    created_by      TEXT,                 -- admin id
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_pairing_groups_event ON pairing_groups(event_id, sort_order, starting_hole);
+
+  CREATE TABLE IF NOT EXISTS pairing_members (
+    group_id         TEXT NOT NULL,
+    event_id         TEXT NOT NULL,        -- denormalized for the uniqueness constraint
+    registration_id  TEXT NOT NULL,
+    player_index     INTEGER NOT NULL,
+    player_name      TEXT,                 -- snapshotted
+    position         INTEGER DEFAULT 0,    -- order within the group (1st, 2nd, ...)
+    PRIMARY KEY (group_id, registration_id, player_index),
+    UNIQUE (event_id, registration_id, player_index),  -- a player is in at most one group per event
+    FOREIGN KEY (group_id) REFERENCES pairing_groups(id) ON DELETE CASCADE,
+    FOREIGN KEY (registration_id) REFERENCES registrations(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_pairing_members_event ON pairing_members(event_id);
 `);
 
 // ─── AUTH HELPERS ────────────────────────────────────────────────────────────
@@ -5210,6 +5238,198 @@ app.post('/api/admin/events/:id/walkups', requireAuth, requireAdminOrSuper, requ
   res.json({ id, status: 'paid', players_checked_in: playersArr.length });
 });
 
+// ─── PAIRINGS (E2: groups + hole assignments / tee times) ───────────────────
+// Player-centric data model: each row in `pairing_members` is one player in
+// one group. A player (= registration_id + player_index) can be in AT MOST
+// one group per event (UNIQUE constraint). Unassigned-player pool = paid
+// players who don't appear in any pairing_member row.
+
+app.get('/api/admin/events/:id/pairings', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const groups = db.prepare(`SELECT id, name, starting_hole, tee_time, sort_order, notes, created_at
+                             FROM pairing_groups
+                             WHERE event_id=?
+                             ORDER BY sort_order, starting_hole, created_at`).all(req.params.id);
+
+  const members = db.prepare(`SELECT m.group_id, m.registration_id, m.player_index, m.player_name, m.position,
+                                     r.buyer_name, r.payment_status
+                              FROM pairing_members m
+                              JOIN registrations r ON r.id = m.registration_id
+                              WHERE m.event_id=?
+                              ORDER BY m.position`).all(req.params.id);
+  const byGroup = {};
+  for (const m of members) (byGroup[m.group_id] = byGroup[m.group_id] || []).push(m);
+
+  // Build the full player pool (paid registrations + parent-only, walk-ups
+  // included). Then mark which are assigned so the UI can show the
+  // unassigned pool.
+  const regs = db.prepare(`SELECT r.id, r.buyer_name, r.players_json, r.payment_status, r.payment_mode
+                           FROM registrations r
+                           WHERE r.event_id=? AND r.payment_status IN ('paid','partial_refund')
+                             AND r.parent_registration_id IS NULL`).all(req.params.id);
+  const assignedKey = new Set(members.map(m => `${m.registration_id}:${m.player_index}`));
+  const checkins = db.prepare(`SELECT registration_id, player_index FROM checkins
+                               WHERE registration_id IN (${regs.map(()=>'?').join(',') || "''"})`
+                              ).all(...regs.map(r => r.id));
+  const checkedKey = new Set(checkins.map(c => `${c.registration_id}:${c.player_index}`));
+
+  const allPlayers = [];
+  for (const r of regs) {
+    let roster = [];
+    try { roster = JSON.parse(r.players_json || '[]'); } catch {}
+    roster.forEach((p, i) => {
+      const key = `${r.id}:${i}`;
+      allPlayers.push({
+        reg_id: r.id, player_index: i, player_name: p.name || '(unnamed)',
+        buyer_name: r.buyer_name, payment_mode: r.payment_mode,
+        assigned: assignedKey.has(key),
+        checked_in: checkedKey.has(key),
+      });
+    });
+  }
+
+  res.json({
+    groups: groups.map(g => ({ ...g, members: byGroup[g.id] || [] })),
+    players: allPlayers,
+    totals: {
+      players_total:    allPlayers.length,
+      players_assigned: allPlayers.filter(p => p.assigned).length,
+      groups:           groups.length,
+    },
+  });
+});
+
+app.post('/api/admin/events/:id/pairings/groups', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const b = req.body || {};
+  const id = uid('GRP');
+  const nextSort = (db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS n FROM pairing_groups WHERE event_id=?')
+    .get(req.params.id).n || 0) + 1;
+  db.prepare(`INSERT INTO pairing_groups (id, event_id, name, starting_hole, tee_time, sort_order, notes, created_by)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, req.params.id,
+         String(b.name || `Group ${nextSort}`).trim().slice(0, 80),
+         b.starting_hole != null && b.starting_hole !== '' ? Math.max(1, Math.min(18, Number(b.starting_hole) || 0)) || null : null,
+         (b.tee_time || '').trim().slice(0, 20) || null,
+         b.sort_order != null ? Number(b.sort_order) : nextSort,
+         (b.notes || '').trim().slice(0, 200) || null,
+         req.admin.id);
+  res.json({ id });
+});
+
+app.patch('/api/admin/events/:id/pairings/groups/:groupId', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const b = req.body || {};
+  const cur = db.prepare('SELECT * FROM pairing_groups WHERE id=? AND event_id=?').get(req.params.groupId, req.params.id);
+  if (!cur) return res.status(404).json({ error: 'Group not found' });
+  const n = {
+    name:          b.name          != null ? String(b.name).trim().slice(0,80) : cur.name,
+    starting_hole: b.starting_hole !== undefined ? (b.starting_hole === '' || b.starting_hole == null ? null : Math.max(1, Math.min(18, Number(b.starting_hole) || 0)) || null) : cur.starting_hole,
+    tee_time:      b.tee_time      !== undefined ? (String(b.tee_time||'').trim().slice(0,20) || null) : cur.tee_time,
+    sort_order:    b.sort_order    != null ? Number(b.sort_order) : cur.sort_order,
+    notes:         b.notes         !== undefined ? (String(b.notes||'').trim().slice(0,200) || null) : cur.notes,
+  };
+  db.prepare(`UPDATE pairing_groups SET name=?, starting_hole=?, tee_time=?, sort_order=?, notes=? WHERE id=?`)
+    .run(n.name, n.starting_hole, n.tee_time, n.sort_order, n.notes, req.params.groupId);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/events/:id/pairings/groups/:groupId', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  // CASCADE on pairing_members handles the unassignments.
+  db.prepare('DELETE FROM pairing_groups WHERE id=? AND event_id=?').run(req.params.groupId, req.params.id);
+  res.json({ ok: true });
+});
+
+app.post('/api/admin/events/:id/pairings/groups/:groupId/members', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const { registration_id, player_index, player_name } = req.body || {};
+  if (!registration_id || player_index == null) return res.status(400).json({ error: 'registration_id and player_index required' });
+  // Verify group exists in this event
+  const group = db.prepare('SELECT id FROM pairing_groups WHERE id=? AND event_id=?').get(req.params.groupId, req.params.id);
+  if (!group) return res.status(404).json({ error: 'Group not found' });
+  // Remove existing assignment if any (move semantics)
+  db.prepare('DELETE FROM pairing_members WHERE event_id=? AND registration_id=? AND player_index=?')
+    .run(req.params.id, registration_id, player_index);
+  const pos = (db.prepare('SELECT COALESCE(MAX(position), 0) AS n FROM pairing_members WHERE group_id=?').get(req.params.groupId).n || 0) + 1;
+  db.prepare(`INSERT INTO pairing_members (group_id, event_id, registration_id, player_index, player_name, position)
+              VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(req.params.groupId, req.params.id, registration_id, Number(player_index),
+         (player_name || '').trim() || null, pos);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/events/:id/pairings/groups/:groupId/members/:regId/:idx', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  db.prepare('DELETE FROM pairing_members WHERE group_id=? AND registration_id=? AND player_index=?')
+    .run(req.params.groupId, req.params.regId, Number(req.params.idx));
+  res.json({ ok: true });
+});
+
+// Auto-assign: create N groups of `size` and distribute paid (unassigned)
+// players. Strategy:
+//   'random'       — shuffle the unassigned pool
+//   'alphabetical' — sort by player_name
+//   'sequential'   — keep existing order (groups by registration so a
+//                    foursome registration stays together)
+// Sets starting_hole 1..N when `shotgun` is true so each group has a hole.
+app.post('/api/admin/events/:id/pairings/auto-assign', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const { strategy = 'sequential', group_size = 4, shotgun = false, replace = false } = req.body || {};
+  const size = Math.max(1, Math.min(8, Number(group_size) || 4));
+
+  // Optionally wipe everything first.
+  if (replace) {
+    db.prepare('DELETE FROM pairing_groups WHERE event_id=?').run(req.params.id);
+  }
+
+  // Build pool of unassigned players
+  const regs = db.prepare(`SELECT r.id, r.buyer_name, r.players_json
+                           FROM registrations r
+                           WHERE r.event_id=? AND r.payment_status IN ('paid','partial_refund')
+                             AND r.parent_registration_id IS NULL`).all(req.params.id);
+  const assigned = new Set(
+    db.prepare('SELECT registration_id || ":" || player_index AS k FROM pairing_members WHERE event_id=?')
+      .all(req.params.id).map(r => r.k)
+  );
+  let pool = [];
+  for (const r of regs) {
+    let roster = [];
+    try { roster = JSON.parse(r.players_json || '[]'); } catch {}
+    roster.forEach((p, i) => {
+      const key = `${r.id}:${i}`;
+      if (!assigned.has(key)) pool.push({ reg_id: r.id, player_index: i, player_name: p.name || `(unnamed ${i+1})`, buyer_name: r.buyer_name });
+    });
+  }
+
+  if (strategy === 'random') {
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+  } else if (strategy === 'alphabetical') {
+    pool.sort((a, b) => (a.player_name || '').localeCompare(b.player_name || ''));
+  }
+  // 'sequential' uses the order as-built (groups buyers together).
+
+  const existingGroupCount = db.prepare('SELECT COUNT(*) AS n FROM pairing_groups WHERE event_id=?').get(req.params.id).n;
+  const totalGroupsNeeded = Math.ceil(pool.length / size);
+  let createdGroups = 0;
+
+  const insGroup = db.prepare(`INSERT INTO pairing_groups (id, event_id, name, starting_hole, sort_order, created_by)
+                               VALUES (?, ?, ?, ?, ?, ?)`);
+  const insMember = db.prepare(`INSERT INTO pairing_members (group_id, event_id, registration_id, player_index, player_name, position)
+                                VALUES (?, ?, ?, ?, ?, ?)`);
+
+  const tx = db.transaction(() => {
+    for (let g = 0; g < totalGroupsNeeded; g++) {
+      const sortOrder = existingGroupCount + g + 1;
+      const groupId = uid('GRP');
+      const hole = shotgun ? ((sortOrder - 1) % 18) + 1 : null;
+      insGroup.run(groupId, req.params.id, `Group ${sortOrder}`, hole, sortOrder, req.admin.id);
+      createdGroups++;
+      const slice = pool.slice(g * size, g * size + size);
+      slice.forEach((p, i) => insMember.run(groupId, req.params.id, p.reg_id, p.player_index, p.player_name, i + 1));
+    }
+  });
+  tx();
+
+  res.json({ ok: true, groups_created: createdGroups, players_assigned: pool.length });
+});
+
 app.get('/api/users/me', requireUser, (req, res) => {
   res.json({ user: {
     id: req.user.id, name: req.user.name, email: req.user.email,
@@ -5231,6 +5451,7 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   '/admin/events/:id/site/edit':      'admin/event-site-editor.html',
   '/admin/events/:id/registrations':  'admin/event-registrations.html',
   '/admin/events/:id/check-in':       'admin/event-checkin.html',
+  '/admin/events/:id/pairings':       'admin/event-pairings.html',
   '/admin/events/:id':       'admin/editor.html',
   '/admin/events/:id/:tab':  'admin/editor.html',
   '/admin/stripe-connect':       'admin/stripe-connect.html',

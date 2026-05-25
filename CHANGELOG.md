@@ -2,6 +2,86 @@
 
 ---
 
+## v3.37.0 — 2026-05-24
+### Session 52 — E2: pairings + hole assignments + auto-assign + print
+
+Second slice of E2 ships. Organizers can now group registered players
+into pairings (foursomes by default, configurable), assign starting
+holes for shotgun starts or tee times for tee-time starts, and print
+a clean pairings sheet for the morning meeting.
+
+#### What changed
+- **Schema** — two new tables:
+  - `pairing_groups` (id, event_id, name, starting_hole, tee_time,
+    sort_order, notes, created_at, created_by). UNIQUE indexed by
+    event + sort_order.
+  - `pairing_members` (group_id, event_id, registration_id,
+    player_index, player_name, position). **UNIQUE constraint on
+    (event_id, registration_id, player_index)** — a player can only
+    appear in one group per event; moving them auto-unassigns from
+    the previous group.
+- **Endpoints** (all `requireAuth + requireAdminOrSuper + requireEventAccess`):
+  - `GET /api/admin/events/:id/pairings` → groups (with members) +
+    full player pool with `assigned` and `checked_in` flags + totals
+    (`players_total`, `players_assigned`, `groups`).
+  - `POST /…/pairings/groups` — create new group (auto-names `Group N`).
+  - `PATCH /…/pairings/groups/:groupId` — update name, starting_hole
+    (1-18), tee_time (free text), sort_order, notes.
+  - `DELETE /…/pairings/groups/:groupId` — CASCADE removes members.
+  - `POST /…/pairings/groups/:groupId/members` — assign a player. If
+    they're already in another group, moves them.
+  - `DELETE /…/pairings/groups/:groupId/members/:regId/:idx` — unassign.
+  - `POST /…/pairings/auto-assign` — distribute unassigned players into
+    groups. Strategies: `sequential` (keep registered foursomes
+    together), `random` (shuffle), `alphabetical`. Options:
+    `group_size` (1-8, default 4), `shotgun` (assign starting holes
+    1-18 cyclically), `replace` (wipe existing groups first).
+- **New page `/admin/events/:id/pairings`** —
+  `event-pairings.html`. Two-column layout (sticky 320px player pool
+  on the left, group grid on the right; collapses to stacked on
+  mobile under 900px):
+  - **Player pool** — searchable, shows a green dot for checked-in
+    players, buyer name when different from player name.
+  - **Tap-to-assign**: tap a player to select (saffron highlight), tap
+    a group to assign. Works one-handed on mobile.
+  - **Drag-and-drop**: drag a player onto a group on desktop.
+  - **Inline editing**: group name, starting hole (1-18), and tee time
+    are editable directly on the group card; PATCHes the API on blur.
+  - **Auto-assign modal**: strategy + group size + shotgun toggle +
+    replace toggle. Returns counts after assignment.
+  - **Print sheet**: opens a print-friendly view sorted by starting
+    hole, then sort_order. Uses CSS `@media print` to hide everything
+    except the sheet.
+- **New editor top-bar button**: `⛳ Pairings` alongside Check-in,
+  Registrations, Site.
+
+#### Tested
+- **139/139 unit tests pass** (7 new route presence checks).
+- Schema migrations idempotent (`CREATE TABLE IF NOT EXISTS`).
+
+#### Design notes
+- **Player pool excludes add-ons**: add-on charges (mulligan packs,
+  late additions) don't have their own players — they're tied to
+  parent registrations whose roster is already in the pool. The
+  `parent_registration_id IS NULL` filter keeps the pool clean.
+- **UNIQUE constraint enforces single-assignment**: moving a player
+  from Group A to Group B is two SQL operations (delete from A,
+  insert into B); the constraint catches dupes server-side.
+- **Tee time is free text**, not a real time. Avoids time-zone math
+  and lets organizers write "8:15 AM (back 9)" or whatever they
+  actually use on a starter sheet.
+- **Print uses CSS-only**: no popup window, no PDF library. The print
+  sheet HTML lives hidden in the page and `body.printing` swaps
+  visibility right before `window.print()` fires.
+
+#### E2 remaining
+- Wire scoring engine to the event (each registered player becomes a
+  scoring entry on game day; lets the Clubhouse formats run against
+  the actual field).
+- Clone past tournament (quick "Copy from" prefill for recurring events).
+
+---
+
 ## v3.36.0 — 2026-05-24
 ### Session 51 — Walk-ups: Stripe (QR/link) + reference notes
 
