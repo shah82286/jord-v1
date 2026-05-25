@@ -44,7 +44,8 @@ if (!JORD.getToken()) location.href = '/admin';
 
 const parts = location.pathname.split('/').filter(Boolean);
 const eventId = parts[2];  // /admin/events/:id/site/edit
-const state = { site: null, packages: [], schedule: [], faq: [], eventName: '', timeZone: null };
+const state = { site: null, packages: [], schedule: [], faq: [], eventName: '', timeZone: null,
+                 brandLogo: null, brandAccent: null, brandEnabled: false, brandDirty: false };
 
 function tzAbbrev(iana, when) {
   if (!iana) return '';
@@ -64,6 +65,10 @@ async function load() {
     const ev = await JORD.api('/api/events/'+eventId);
     state.eventName = ev?.name || 'Event';
     state.timeZone = ev?.time_zone || null;
+    state.brandLogo = ev?.brand_logo || null;
+    state.brandAccent = ev?.brand_accent || null;
+    state.brandEnabled = !!ev?.brand_enabled;
+    state.brandDirty = false;
     state.site = d.site || {};
     state.packages = d.packages || [];
     try { state.stripe = await JORD.api('/api/admin/stripe/account'); }
@@ -149,6 +154,24 @@ function render() {
     </div>
 
     <div class="card">
+      <h2 class="card-title">Logo &amp; branding</h2>
+      <p class="hint" style="margin-bottom:var(--s-3)">Used on the public event site header, on the registration confirmation page, and on the printable <strong>pairings poster</strong> (24&nbsp;×&nbsp;36&nbsp;in). PNG or JPG, ideally with a transparent background. Max ~2.5&nbsp;MB.</p>
+      <div style="display:flex;align-items:center;gap:var(--s-4);flex-wrap:wrap">
+        <div id="logo-preview" style="width:160px;height:120px;background:#fff;border:1px solid var(--border);border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;padding:10px;flex-shrink:0">
+          ${state.brandLogo
+            ? `<img src="${esc(state.brandLogo)}" alt="Event logo" style="max-width:100%;max-height:100%;object-fit:contain" />`
+            : `<span class="mini" style="color:var(--ink-3);text-align:center">No logo yet</span>`}
+        </div>
+        <div style="flex:1;min-width:220px">
+          <input type="file" id="f-logo-file" accept="image/png,image/jpeg,image/svg+xml,image/webp" style="display:none" />
+          <button class="btn btn-ghost" id="btn-logo-upload" type="button">⬆ ${state.brandLogo ? 'Replace logo' : 'Upload logo'}</button>
+          ${state.brandLogo ? '<button class="btn btn-ghost" id="btn-logo-remove" type="button" style="margin-left:6px;color:#a33">Remove</button>' : ''}
+          <div class="hint" id="logo-msg" style="margin-top:8px">${state.brandLogo ? 'Logo saved with the event.' : 'No logo on this event yet.'}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <h2 class="card-title">About</h2>
       <textarea class="textarea" id="f-about" rows="5" placeholder="What is the event raising money for? Who runs it? What's the format?">${esc(s.about_html||'')}</textarea>
     </div>
@@ -195,6 +218,80 @@ function render() {
   $('#addFaq').onclick   = () => { state.faq.push({q:'', a:''}); renderFaq(); };
   $('#addPkg').onclick   = () => createPackage();
   $('#saveBtn').onclick  = save;
+  wireLogoHandlers();
+}
+
+// Max payload accepted by the events PATCH for brand_logo. The server tolerates
+// up to ~2.8 MB; we leave a buffer so the JSON envelope doesn't push it over.
+const LOGO_MAX_BYTES = 2_500_000;
+
+// Refresh just the logo card's preview tile + button labels. We don't
+// re-run render() here because it rebuilds the whole form and would
+// trash any unsaved edits in the other fields.
+function refreshLogoCard() {
+  const tile = $('#logo-preview');
+  if (tile) {
+    tile.innerHTML = state.brandLogo
+      ? `<img src="${state.brandLogo}" alt="Event logo" style="max-width:100%;max-height:100%;object-fit:contain" />`
+      : `<span class="mini" style="color:var(--ink-3);text-align:center">No logo yet</span>`;
+  }
+  const uploadBtn = $('#btn-logo-upload');
+  if (uploadBtn) uploadBtn.textContent = `⬆ ${state.brandLogo ? 'Replace logo' : 'Upload logo'}`;
+
+  // Add/remove the "Remove" button to match logo presence.
+  let removeBtn = $('#btn-logo-remove');
+  if (state.brandLogo && !removeBtn) {
+    removeBtn = document.createElement('button');
+    removeBtn.id = 'btn-logo-remove';
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn btn-ghost';
+    removeBtn.style.cssText = 'margin-left:6px;color:#a33';
+    removeBtn.textContent = 'Remove';
+    uploadBtn.insertAdjacentElement('afterend', removeBtn);
+    removeBtn.onclick = onRemoveLogo;
+  } else if (!state.brandLogo && removeBtn) {
+    removeBtn.remove();
+  }
+}
+
+function onRemoveLogo() {
+  state.brandLogo = null;
+  state.brandDirty = true;
+  refreshLogoCard();
+  const msg = $('#logo-msg');
+  if (msg) { msg.textContent = 'Logo cleared — press "Save changes" to apply.'; msg.style.color = 'var(--ink-2)'; }
+}
+
+function wireLogoHandlers() {
+  const fileInput = $('#f-logo-file');
+  const uploadBtn = $('#btn-logo-upload');
+  const removeBtn = $('#btn-logo-remove');
+  const msg = $('#logo-msg');
+
+  if (uploadBtn) uploadBtn.onclick = () => fileInput.click();
+  if (removeBtn) removeBtn.onclick = onRemoveLogo;
+
+  if (fileInput) fileInput.onchange = () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) return;
+    if (file.size > LOGO_MAX_BYTES) {
+      msg.textContent = `Image is too large (${(file.size/1024/1024).toFixed(1)} MB). Try one under 2.5 MB.`;
+      msg.style.color = '#a33';
+      fileInput.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      state.brandLogo = reader.result;       // data:image/...;base64,...
+      state.brandEnabled = true;             // any uploaded logo implies "use my branding"
+      state.brandDirty = true;
+      refreshLogoCard();
+      msg.textContent = 'Logo selected — press "Save changes" to apply.';
+      msg.style.color = 'var(--ink-2)';
+      fileInput.value = '';                  // allow re-selecting the same file later
+    };
+    reader.readAsDataURL(file);
+  };
 }
 
 function toLocalDt(s) {
@@ -334,6 +431,16 @@ async function save() {
   const btn = $('#saveBtn'); btn.disabled = true; btn.textContent = 'Saving…';
   try {
     await JORD.api(`/api/admin/events/${eventId}/site`, { method:'PUT', body });
+    // If the logo was added/replaced/removed, persist that to the events
+    // table separately. We patch alongside the site save so a single Save
+    // click handles both sides.
+    if (state.brandDirty) {
+      await JORD.api(`/api/events/${eventId}`, { method:'PATCH', body: {
+        brand_logo: state.brandLogo,
+        brand_enabled: state.brandLogo ? 1 : 0,
+      }});
+      state.brandDirty = false;
+    }
     state.site = { ...state.site, ...body, schedule_json: JSON.stringify(body.schedule), faq_json: JSON.stringify(body.faq) };
     $('#saveStatus').textContent = 'Saved ✓';
     JORD.success('Event site saved');

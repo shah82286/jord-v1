@@ -2286,6 +2286,20 @@ app.patch('/api/events/:id', requireAuth, requireAdminOrSuper, (req, res) => {
     'ctp_green_polygon','ctp_pin_lat','ctp_pin_lon','ctp_hole_distance_yards',
     'cp_off_green_penalty_ft','admin_phone','venue_lat','venue_lon','zone_visibility',
     'is_charity','brand_enabled','brand_logo','brand_accent','brand_url'];
+  // Guard the logo payload: only accept a base64 image data URL under the
+  // SQLite-friendly ceiling. An empty/null value clears the logo. Anything
+  // else (random strings, oversized blobs) is rejected so we never write
+  // garbage into the events row.
+  if (Object.prototype.hasOwnProperty.call(req.body, 'brand_logo')) {
+    const v = req.body.brand_logo;
+    if (v == null || v === '') {
+      req.body.brand_logo = null;
+    } else if (typeof v === 'string' && /^data:image\//i.test(v) && v.length < 2_800_000) {
+      // valid; pass through
+    } else {
+      return res.status(400).json({ error: 'brand_logo must be an image data URL under 2.5 MB.' });
+    }
+  }
   const updates = Object.entries(req.body).filter(([k]) => allowed.includes(k));
   if (!updates.length) return res.status(400).json({ error: 'Nothing to update' });
   db.prepare(`UPDATE events SET ${updates.map(([k])=>`${k}=?`).join(',')} WHERE id=?`)

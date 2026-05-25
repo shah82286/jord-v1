@@ -124,6 +124,23 @@
   .tee-list { display: flex; flex-direction: column; gap: var(--s-2); }
   .tee-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: var(--surface-2); border-radius: var(--r-sm); }
   .pill-link { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--r-pill); background: var(--surface-2); color: var(--primary); font-size: 12px; font-weight: 600; }
+  /* Editor header — always allow buttons to wrap. On wide screens they sit
+     to the right of the title; once there's no room they wrap onto their
+     own line(s) instead of squeezing the title into a one-word column. */
+  #view-editor > .row.row-between { flex-wrap: wrap; row-gap: var(--s-3); align-items: flex-start; }
+  #view-editor > .row.row-between > .col { flex: 1 1 280px; min-width: 0; }
+  #view-editor > .row.row-between > .row { flex-wrap: wrap; gap: var(--s-2); justify-content: flex-end; }
+  #view-editor > .row.row-between > .row .btn { font-size: 13px; }
+  #view-editor #event-name { word-break: break-word; }
+
+  /* When the header buttons can't fit alongside the title, drop them to
+     a full-width row so each button stays tappable. Eight buttons + a
+     reasonable title column need ~1300 px to live side-by-side. */
+  @media (max-width: 1300px) {
+    #view-editor > .row.row-between { flex-direction: column; align-items: stretch; }
+    #view-editor > .row.row-between > .row { justify-content: flex-start; }
+  }
+
   @media (max-width: 800px) {
     .editor-grid { grid-template-columns: 1fr; }
     .editor-nav { display: flex; flex-direction: row; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: var(--s-1); padding-bottom: var(--s-2); padding-right: 220px; position: relative; }
@@ -139,10 +156,9 @@
     #view-list > .row.row-between > .row .btn { flex: 1 1 auto; min-width: 0; font-size: 11px; padding: 7px 8px; min-height: 36px; white-space: nowrap; }
     #view-list > .row.row-between > .row #btn-new-event { flex-basis: 100%; order: -1; } /* New event button on its own row, first */
 
-    /* Event editor header — stack name and buttons */
-    #view-editor > .row.row-between { flex-direction: column; align-items: flex-start; gap: var(--s-3); }
-    #view-editor > .row.row-between > .row { flex-wrap: wrap; gap: var(--s-2); }
-    #view-editor > .row.row-between > .row .btn { font-size: 12px; padding: 8px 12px; min-height: 36px; }
+    /* Event editor header — keep buttons wrapping (rules already applied
+       above for everything <=1100); just tighten button styling at phone size */
+    #view-editor > .row.row-between > .row .btn { font-size: 12px; padding: 8px 12px; min-height: 36px; flex: 0 1 auto; }
 
     /* Map tools — wrap on mobile so all items are visible in multiple rows */
     .map-tools { flex-wrap: wrap; padding-bottom: 0; gap: 4px; }

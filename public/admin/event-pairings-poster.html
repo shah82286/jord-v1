@@ -60,9 +60,12 @@
     }
 
     /* Header */
-    .p-head { display:flex; flex-direction:column; gap:.18in; padding-left:.5in; border-bottom:2px solid var(--poster-rule); padding-bottom:.45in; }
+    .p-head { display:grid; grid-template-columns: 1fr auto; gap:.5in; padding-left:.5in; border-bottom:2px solid var(--poster-rule); padding-bottom:.45in; align-items:center; }
+    .p-head .text { display:flex; flex-direction:column; gap:.18in; min-width:0; }
+    .p-head .logo { display:flex; align-items:center; justify-content:center; padding:.15in; max-width:3.6in; }
+    .p-head .logo img { max-width:100%; max-height:2.4in; object-fit:contain; }
     .p-eyebrow { font-size:18pt; letter-spacing:.32em; text-transform:uppercase; color:var(--poster-accent); font-weight:700; }
-    .p-title { font-family:'Playfair Display', Georgia, serif; font-size:96pt; line-height:.95; letter-spacing:-.015em; margin:0; font-weight:700; }
+    .p-title { font-family:'Playfair Display', Georgia, serif; font-size:96pt; line-height:.95; letter-spacing:-.015em; margin:0; font-weight:700; word-wrap:break-word; }
     .p-sub  { display:flex; gap:.4in; flex-wrap:wrap; font-size:20pt; color:var(--poster-ink-2); align-items:baseline; }
     .p-sub strong { color:var(--poster-ink); font-weight:600; }
 
@@ -213,15 +216,21 @@ function render(ev, d) {
   const dateLine = fmtEventDate(ev?.starts_at, iana);
   const venue = ev?.venue || '';
 
+  // Show the event's brand logo on the right side of the header when one
+  // exists (uploaded via /admin/events/:id/site/edit → Logo & branding).
+  const logoSrc = (ev && ev.brand_logo && typeof ev.brand_logo === 'string') ? ev.brand_logo : '';
   $('#poster').innerHTML = `
     <div class="p-head">
-      <div class="p-eyebrow">Pairings · Tee Sheet</div>
-      <h1 class="p-title">${esc(ev?.name || 'Tournament')}</h1>
-      <div class="p-sub">
-        ${dateLine ? `<span>📅 <strong>${esc(dateLine)}</strong></span>` : ''}
-        ${venue ? `<span>📍 <strong>${esc(venue)}</strong></span>` : ''}
-        ${abbrev ? `<span>🕐 <strong>${esc(abbrev)}</strong></span>` : ''}
+      <div class="text">
+        <div class="p-eyebrow">Pairings · Tee Sheet</div>
+        <h1 class="p-title">${esc(ev?.name || 'Tournament')}</h1>
+        <div class="p-sub">
+          ${dateLine ? `<span>📅 <strong>${esc(dateLine)}</strong></span>` : ''}
+          ${venue ? `<span>📍 <strong>${esc(venue)}</strong></span>` : ''}
+          ${abbrev ? `<span>🕐 <strong>${esc(abbrev)}</strong></span>` : ''}
+        </div>
       </div>
+      ${logoSrc ? `<div class="logo"><img src="${esc(logoSrc)}" alt="${esc(ev.name || 'Event')} logo" /></div>` : ''}
     </div>
 
     <div class="p-body">

@@ -2,6 +2,43 @@
 
 ---
 
+## v3.38.1 — 2026-05-25
+### Session 53b — Editor header layout + event logo on poster
+
+Two follow-ups to v3.38 driven by feedback on the live site.
+
+#### What changed
+- **Event editor header (`/admin/events/:id`)** — the header was squeezing
+  the event name into a one-word column whenever the 8 action buttons
+  (Site / Registrations / Check-in / Pairings / Leaderboard / Monitor /
+  Export CSV / Start) had to share the row. New rules:
+  - The row now `flex-wrap`s and the title column gets `flex: 1 1 280px`
+    so it always has at least enough room to render the name + meta.
+  - At ≤ 1300 px viewport, the buttons drop to their own full-width row
+    underneath the title (so 8 buttons stay tappable instead of being
+    crammed into 600 px).
+- **Event logo upload** — new "Logo & branding" card in the event-site
+  editor (`/admin/events/:id/site/edit`):
+  - File picker (PNG / JPG / SVG / WebP, max 2.5 MB), live preview tile,
+    Remove button.
+  - Logo persists to `events.brand_logo` via `PATCH /api/events/:id`
+    when the user clicks Save. `brand_enabled` flips to 1 implicitly
+    when a logo is set.
+  - Server-side guard added on `brand_logo`: must be a `data:image/…`
+    URL under 2.8 MB, else the patch is rejected with 400 (prevents
+    garbage / oversized blobs ever reaching the row).
+- **Poster (`/admin/events/:id/pairings/poster`)** — the header is now
+  a 2-column grid; when `event.brand_logo` is set, the logo renders at
+  up to 2.4 in tall on the right of the header. Falls back to the
+  title-only layout otherwise.
+
+#### Tested
+- 155/155 unit tests pass (no new tests — these are UI/CSS changes plus
+  a small server-side validator).
+- Verified no secrets in diff.
+
+---
+
 ## v3.38.0 — 2026-05-25
 ### Session 53 — Timezones, cart numbers, 24×36 pairings poster
 
