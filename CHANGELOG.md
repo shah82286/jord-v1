@@ -2,6 +2,71 @@
 
 ---
 
+## v3.41.0 — 2026-05-25
+### Session 57 — Sponsorships (E3 phase 1)
+
+First slice of the Raise-Money phase (E3) ships. Organizers can now sell
+non-playing sponsorships (hole sponsors, cart sponsors, beverage sponsors,
+etc.) through the same Stripe Connect flow that already powers player
+registration. The public event site renders a separate Sponsorships
+section with type-specific framing.
+
+#### What changed
+- **Schema** — two new columns on `registration_packages` (the existing
+  table is reused as the unified catalog):
+  - `package_kind TEXT DEFAULT 'registration'` discriminates player
+    tickets from sponsorships.
+  - `sponsor_type TEXT` picks from a known catalog (title, hole, cart,
+    beverage, food, hole_in_one, longest_drive, closest_to_pin,
+    scorecard, leaderboard, foursome, custom).
+- **Server**:
+  - `SPONSOR_TYPES` whitelist on the server validates the sponsor type
+    on POST/PATCH; unknown values get coerced to null.
+  - `POST/PATCH /api/admin/events/:id/packages` now accepts
+    `package_kind` + `sponsor_type`, and the minimum `includes_players`
+    relaxes from 1 to 0 for sponsorships (a "hole sponsor" doesn't get
+    a player slot).
+  - `GET /api/event-sites/:slug` now returns `sponsorships: [...]`
+    alongside `packages: [...]` — split by `package_kind`.
+- **Admin event-site editor** (`/admin/events/:id/site/edit`):
+  - New "Sponsorships" card with an 11-tile quick-add catalog:
+    🏆 Title · ⛳ Hole · 🏌 Cart · 🍻 Beverage · 🍴 Food · 🎯 Hole-in-One ·
+    🚀 LD · 🥏 CTP · 📋 Scorecard · 📺 Leaderboard · 👥 Foursome.
+  - Each tile carries a starter price and description; tap to seed a
+    new sponsorship row inline.
+  - "+ Add custom sponsorship" button for anything outside the catalog.
+  - Tiles for already-added types render disabled to prevent dupes.
+  - Renderer refactored to be ID-keyed (was index-keyed) so registration
+    packages + sponsorships can coexist in a single state.packages
+    array without aliasing.
+- **Public event site** (`/e/:slug`):
+  - When the event has sponsorships, the existing Sponsorships section
+    renders them as cards with the sponsor-type emoji chip, price,
+    description, and quantity-remaining when capped. "Become a sponsor →"
+    button hits the same `/register?pkg=…` flow.
+  - When there are no sponsorships, falls back to the original generic
+    pitch text so the section doesn't disappear.
+- **Registration page** (`/e/:slug/register?pkg=…`):
+  - Sponsorship-aware: detects `package_kind='sponsorship'`, allows
+    0-player rosters (skips the player section), swaps the page title
+    to "Confirm your sponsorship", the order-summary label to
+    "You're sponsoring", and the success button to "Confirm sponsorship".
+  - Looks up the package by id across BOTH `packages` and
+    `sponsorships` so the URL works for either kind.
+
+#### Out of scope for this slice
+- Fundraising goal bar (next slice).
+- Revenue / expense dashboard (next slice).
+- Cash donations as standalone items.
+- Klaviyo email blast.
+
+#### Tested
+- **189/189 unit tests pass** (+11 new) covering: migrations, server
+  whitelist, payload split, admin UI surface, public CTA, register
+  page adaptation.
+
+---
+
 ## v3.40.0 — 2026-05-25
 ### Session 56 — Clone past tournament
 

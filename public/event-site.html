@@ -156,6 +156,34 @@ function render(d) {
       </div>
     </section>` : '';
 
+  const sponsors = Array.isArray(d.sponsorships) ? d.sponsorships : [];
+  const sponsorEmoji = {
+    title:'🏆', hole:'⛳', cart:'🏌', beverage:'🍻', food:'🍴', hole_in_one:'🎯',
+    longest_drive:'🚀', closest_to_pin:'🥏', scorecard:'📋', leaderboard:'📺',
+    foursome:'👥', custom:'✨',
+  };
+  const sponsorHtml = sponsors.length ? `
+    <section class="es-section">
+      <div class="es-eyebrow">Sponsorships</div>
+      <h2>Sponsor this <em>event</em></h2>
+      <div class="lead"><p>Put your brand in front of every golfer at the event. Pick a sponsorship below to check out — payment goes straight to the organizer.</p></div>
+      ${!regOpen ? `<p style="background:rgba(184,136,77,0.10);border:1px solid rgba(184,136,77,0.30);color:var(--accent);padding:14px 18px;border-radius:var(--r-md);margin-top:var(--s-2);font-size:14px;font-weight:600">⏳ Sponsorship checkout opens once the organizer finishes payment setup.</p>` : ''}
+      <div class="es-packages" style="margin-top:var(--s-4)">
+        ${sponsors.map(p => `<div class="es-pkg">
+          <div class="includes" style="display:inline-flex;align-items:center;gap:6px;background:rgba(184,136,77,0.10);color:var(--accent);padding:4px 10px;border-radius:var(--r-pill);font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">${sponsorEmoji[p.sponsor_type] || '✨'} ${esc((p.sponsor_type || 'custom').replace(/_/g, ' '))}</div>
+          <div class="name">${esc(p.name)}</div>
+          <div class="desc">${esc(p.description || '')}</div>
+          <div class="price">${fmtPrice(p.price_cents)}<small>${p.quantity_limit ? `${p.quantity_limit} available` : 'one-time'}</small></div>
+          <button class="btn ${regOpen?'btn-primary':'btn-ghost'} btn-lg btn-block" data-sponsor-pkg="${p.id}" ${regOpen?'':'disabled'}>${regOpen ? 'Become a sponsor →' : 'Coming soon'}</button>
+        </div>`).join('')}
+      </div>
+    </section>` : `
+    <section class="es-section">
+      <div class="es-eyebrow">Sponsorships</div>
+      <h2>Sponsor this <em>event</em></h2>
+      <div class="lead"><p>Looking to put your business in front of every golfer at this event? Contact the organizer below to discuss tiers.</p></div>
+    </section>`;
+
   const faqHtml = d.faq.length ? `
     <section class="es-section">
       <div class="es-eyebrow">FAQ</div>
@@ -215,11 +243,7 @@ function render(d) {
 
     ${pkgHtml}
 
-    <section class="es-section">
-      <div class="es-eyebrow">Sponsorships</div>
-      <h2>Sponsor this <em>event</em></h2>
-      <div class="lead"><p>Looking to put your business in front of every golfer at this event? Sponsorships are open — contact the organizer below to discuss tiers.</p></div>
-    </section>
+    ${sponsorHtml}
 
     ${faqHtml}
     ${contactHtml}
@@ -229,9 +253,11 @@ function render(d) {
       <img src="/img/logos/script-black.png" alt="JORD Golf" />
     </footer>`;
 
-  // Package "Register" buttons → registration flow
-  document.querySelectorAll('[data-pkg]').forEach(b => b.onclick = () => {
-    const pkgId = b.getAttribute('data-pkg');
+  // Package "Register" + sponsorship "Become a sponsor" buttons both flow
+  // through the same checkout (registration packages with 0 players just
+  // skip the player roster step on the register page).
+  document.querySelectorAll('[data-pkg], [data-sponsor-pkg]').forEach(b => b.onclick = () => {
+    const pkgId = b.getAttribute('data-pkg') || b.getAttribute('data-sponsor-pkg');
     location.href = `/e/${encodeURIComponent(slug)}/register?pkg=${encodeURIComponent(pkgId)}`;
   });
 

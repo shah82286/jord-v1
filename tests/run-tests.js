@@ -426,6 +426,36 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
 }
 
+console.log('\n💰 Sponsorships (E3 phase 1)\n');
+{
+  test('registration_packages.package_kind column migrated',
+    () => assert(src.includes("ALTER TABLE registration_packages ADD COLUMN package_kind"), 'Missing package_kind migration'));
+  test('registration_packages.sponsor_type column migrated',
+    () => assert(src.includes("ALTER TABLE registration_packages ADD COLUMN sponsor_type"), 'Missing sponsor_type migration'));
+  test('SPONSOR_TYPES catalog defined',
+    () => assert(src.includes('const SPONSOR_TYPES'), 'Missing SPONSOR_TYPES set'));
+  test('POST packages accepts package_kind',
+    () => assert(/INSERT INTO registration_packages[^;]*package_kind/.test(src), 'Insert not writing package_kind'));
+  test('PATCH packages accepts package_kind + sponsor_type',
+    () => assert(/UPDATE registration_packages[^;]*package_kind=\?, sponsor_type=\?/.test(src), 'Update missing sponsor fields'));
+  test('Sponsorships allow includes_players = 0',
+    () => assert(src.includes("kind === 'sponsorship' ? 0 : 1"), 'Min-player branch missing'));
+  test('GET /api/event-sites/:slug returns sponsorships separately',
+    () => assert(src.includes('sponsorships') && src.includes("p.package_kind === 'sponsorship'"), 'Public payload not split'));
+  const fs = require('fs');
+  const editorHtml = fs.readFileSync('./public/admin/event-site-editor.html', 'utf8');
+  test('Event-site editor has SPONSOR_CATALOG with 11 types',
+    () => assert(editorHtml.includes('SPONSOR_CATALOG') && (editorHtml.match(/type:\s*'[a-z_]+'/g) || []).length >= 11, 'Catalog missing or short'));
+  test('Event-site editor exposes Sponsorships card',
+    () => assert(editorHtml.includes('id="sponsorList"') && editorHtml.includes('addCustomSponsor'), 'Sponsorship card not wired'));
+  const siteHtml = fs.readFileSync('./public/event-site.html', 'utf8');
+  test('Public event-site renders Become-a-sponsor buttons',
+    () => assert(siteHtml.includes('data-sponsor-pkg') && siteHtml.includes('Become a sponsor'), 'Sponsor CTA missing'));
+  const regHtml = fs.readFileSync('./public/event-register.html', 'utf8');
+  test('Register page handles sponsorship packages (0-player skip)',
+    () => assert(regHtml.includes('isSponsor') && regHtml.includes('sponsorships'), 'Register page not sponsor-aware'));
+}
+
 console.log('\n📋 Clone past tournament\n');
 {
   test('Clone endpoint registered with sourceId param',

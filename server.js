@@ -297,6 +297,13 @@ try { db.exec("ALTER TABLE events ADD COLUMN time_zone TEXT"); } catch {}
 // carts differently.
 try { db.exec("ALTER TABLE pairing_groups ADD COLUMN cart_numbers TEXT"); } catch {}
 
+// Sponsorships (E3): registration_packages doubles as the sponsorship
+// catalog. `package_kind` discriminates the two; `sponsor_type` picks
+// from a known catalog (hole, cart, beverage, etc.) so the public site
+// can render a recognizable sponsor card.
+try { db.exec("ALTER TABLE registration_packages ADD COLUMN package_kind TEXT DEFAULT 'registration'"); } catch {}
+try { db.exec("ALTER TABLE registration_packages ADD COLUMN sponsor_type TEXT"); } catch {}
+
 // Team share code (6-char code from registration; lets players join via QR after team is finalized)
 try { db.exec("ALTER TABLE teams ADD COLUMN share_code TEXT"); } catch {}
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_teams_share_code ON teams(share_code)"); } catch {}
@@ -4778,18 +4785,30 @@ app.put('/api/admin/events/:id/site', requireAuth, requireAdminOrSuper, requireE
   res.json({ ok: true });
 });
 
+// The catalog of recognized sponsor types. Server-side because the public
+// event-site renders sponsorship cards with type-specific framing.
+const SPONSOR_TYPES = new Set([
+  'title', 'hole', 'cart', 'beverage', 'food', 'hole_in_one',
+  'longest_drive', 'closest_to_pin', 'scorecard', 'leaderboard',
+  'foursome', 'custom',
+]);
+
 app.post('/api/admin/events/:id/packages', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
   const b = req.body || {};
   if (!b.name) return res.status(400).json({ error: 'Package name required' });
+  const kind = b.package_kind === 'sponsorship' ? 'sponsorship' : 'registration';
+  const sType = (kind === 'sponsorship' && SPONSOR_TYPES.has(b.sponsor_type)) ? b.sponsor_type : null;
+  // Sponsorships often have 0 playing slots; registrations need at least 1.
+  const minPlayers = kind === 'sponsorship' ? 0 : 1;
   const id = uid('PKG');
   db.prepare(`INSERT INTO registration_packages
-    (id, event_id, name, description, price_cents, includes_players, quantity_limit, sort_order, active)
-    VALUES (?,?,?,?,?,?,?,?,1)`).run(
+    (id, event_id, name, description, price_cents, includes_players, quantity_limit, sort_order, active, package_kind, sponsor_type)
+    VALUES (?,?,?,?,?,?,?,?,1,?,?)`).run(
     id, req.params.id, String(b.name).trim(), b.description || null,
     Math.max(0, Number(b.price_cents) || 0),
-    Math.max(1, Number(b.includes_players) || 1),
+    Math.max(minPlayers, Number(b.includes_players) ?? minPlayers),
     b.quantity_limit != null && b.quantity_limit !== '' ? Number(b.quantity_limit) : null,
-    Number(b.sort_order) || 0);
+    Number(b.sort_order) || 0, kind, sType);
   res.json({ id });
 });
 
@@ -4798,18 +4817,28 @@ app.patch('/api/admin/events/:id/packages/:pkgId', requireAuth, requireAdminOrSu
   const cur = db.prepare('SELECT * FROM registration_packages WHERE id=? AND event_id=?')
     .get(req.params.pkgId, req.params.id);
   if (!cur) return res.status(404).json({ error: 'Package not found' });
+  const kind = b.package_kind != null
+    ? (b.package_kind === 'sponsorship' ? 'sponsorship' : 'registration')
+    : (cur.package_kind || 'registration');
+  const minPlayers = kind === 'sponsorship' ? 0 : 1;
   const n = {
     name: b.name != null ? String(b.name).trim() : cur.name,
     description: b.description != null ? b.description : cur.description,
     price_cents: b.price_cents != null ? Math.max(0, Number(b.price_cents) || 0) : cur.price_cents,
-    includes_players: b.includes_players != null ? Math.max(1, Number(b.includes_players) || 1) : cur.includes_players,
+    includes_players: b.includes_players != null
+      ? Math.max(minPlayers, Number(b.includes_players) ?? minPlayers)
+      : cur.includes_players,
     quantity_limit: b.quantity_limit !== undefined ? (b.quantity_limit === '' || b.quantity_limit == null ? null : Number(b.quantity_limit)) : cur.quantity_limit,
     sort_order: b.sort_order != null ? (Number(b.sort_order) || 0) : cur.sort_order,
     active: b.active != null ? (b.active ? 1 : 0) : cur.active,
+    package_kind: kind,
+    sponsor_type: kind === 'sponsorship'
+      ? (b.sponsor_type !== undefined ? (SPONSOR_TYPES.has(b.sponsor_type) ? b.sponsor_type : null) : cur.sponsor_type)
+      : null,
   };
   db.prepare(`UPDATE registration_packages
-    SET name=?, description=?, price_cents=?, includes_players=?, quantity_limit=?, sort_order=?, active=?
-    WHERE id=?`).run(n.name, n.description, n.price_cents, n.includes_players, n.quantity_limit, n.sort_order, n.active, req.params.pkgId);
+    SET name=?, description=?, price_cents=?, includes_players=?, quantity_limit=?, sort_order=?, active=?, package_kind=?, sponsor_type=?
+    WHERE id=?`).run(n.name, n.description, n.price_cents, n.includes_players, n.quantity_limit, n.sort_order, n.active, n.package_kind, n.sponsor_type, req.params.pkgId);
   res.json({ ok: true });
 });
 
@@ -4825,10 +4854,14 @@ app.get('/api/event-sites/:slug', (req, res) => {
   if (!site) return res.status(404).json({ error: 'Event not found' });
   const event = db.prepare(`SELECT id, name, venue, time_zone, is_charity, brand_logo, brand_accent, brand_url, admin_id
                             FROM events WHERE id=?`).get(site.event_id);
-  const packages = db.prepare(`SELECT id, name, description, price_cents, includes_players, quantity_limit
-                               FROM registration_packages
-                               WHERE event_id=? AND active=1
-                               ORDER BY sort_order, price_cents`).all(site.event_id);
+  const allPackages = db.prepare(`SELECT id, name, description, price_cents, includes_players, quantity_limit, package_kind, sponsor_type
+                                  FROM registration_packages
+                                  WHERE event_id=? AND active=1
+                                  ORDER BY sort_order, price_cents`).all(site.event_id);
+  // Split player tickets vs sponsorships so the public site can render each
+  // in its own section with the right framing ("Register" vs "Become a sponsor").
+  const packages     = allPackages.filter(p => (p.package_kind || 'registration') !== 'sponsorship');
+  const sponsorships = allPackages.filter(p => p.package_kind === 'sponsorship');
   // Registration is "open" only when Stripe is configured AND the organizer
   // has a Connect account with charges enabled. In mock mode it's open by
   // default (test path).
@@ -4840,7 +4873,7 @@ app.get('/api/event-sites/:slug', (req, res) => {
   delete event.admin_id; // don't leak organizer id to public site
   const parseJson = s => { try { return JSON.parse(s || '[]'); } catch { return []; } };
   res.json({
-    site, event, packages,
+    site, event, packages, sponsorships,
     schedule: parseJson(site.schedule_json),
     faq:      parseJson(site.faq_json),
     registration_open,

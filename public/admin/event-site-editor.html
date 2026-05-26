@@ -210,9 +210,17 @@ function render() {
     </div>
 
     <div class="card">
-      <h2 class="card-title">${lbl('Registration packages', "What people buy on your registration page. Each package can be a Foursome ($1,000 / 4 players), Single ($250 / 1 player), Hole Sponsor ($500 / 0 players), etc. Add as many as you sell.")}</h2>
+      <h2 class="card-title">${lbl('Registration packages', "Player tickets — Foursome, Single, etc. The number-of-players field controls how big the buyer's roster section is at checkout.")}</h2>
       <div id="pkgList"></div>
       <button class="btn btn-primary" id="addPkg">+ Add package</button>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">${lbl('Sponsorships', "Non-playing items your event can sell — hole signs, beverage carts, scorecard branding, etc. Sponsors check out through the same Stripe flow as players; the number-of-players field defaults to 0.")}</h2>
+      <p class="hint" style="margin-bottom:var(--s-3)">Tap a tile below to quick-add a common sponsorship at a starter price you can edit. Or click "+ Add custom" for anything else.</p>
+      <div id="sponsorCatalog" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:var(--s-2);margin-bottom:var(--s-3)"></div>
+      <div id="sponsorList"></div>
+      <button class="btn btn-ghost" id="addCustomSponsor">+ Add custom sponsorship</button>
     </div>
 
     <div class="save-bar"><div class="row">
@@ -220,12 +228,147 @@ function render() {
       <button class="btn btn-primary btn-lg" id="saveBtn">Save changes</button>
     </div></div>`;
 
-  renderSched(); renderFaq(); renderPackages();
+  renderSched(); renderFaq(); renderPackages(); renderSponsorCatalog(); renderSponsorships();
   $('#addSched').onclick = () => { state.schedule.push({time:'', title:'', note:''}); renderSched(); };
   $('#addFaq').onclick   = () => { state.faq.push({q:'', a:''}); renderFaq(); };
   $('#addPkg').onclick   = () => createPackage();
+  $('#addCustomSponsor').onclick = () => createSponsorship({ sponsor_type: 'custom', name: 'Custom sponsorship' });
   $('#saveBtn').onclick  = save;
   wireLogoHandlers();
+}
+
+// Standard sponsorship catalog — shown as quick-add tiles in the editor and
+// drives the sponsor-card framing on the public page. Sort order matches
+// what most charity events list. `suggested` is starter pricing in cents.
+const SPONSOR_CATALOG = [
+  { type: 'title',           name: 'Title Sponsor',           emoji: '🏆', desc: 'Featured at the top of the event with logo on all materials.', suggested: 500000 },
+  { type: 'hole',            name: 'Hole Sponsor',            emoji: '⛳', desc: 'Logo sign at one hole on the course.',                          suggested:  25000 },
+  { type: 'cart',            name: 'Cart Sponsor',            emoji: '🏌',  desc: 'Branding on every cart in the field.',                          suggested: 100000 },
+  { type: 'beverage',        name: 'Beverage Sponsor',        emoji: '🍻', desc: 'Branding on beverage carts and refreshment stations.',        suggested:  75000 },
+  { type: 'food',            name: 'Food / Dinner Sponsor',   emoji: '🍴', desc: 'Recognition at the dinner reception and food stations.',      suggested: 100000 },
+  { type: 'hole_in_one',     name: 'Hole-in-One Sponsor',     emoji: '🎯', desc: 'Tied to the hole-in-one contest hole and prize.',             suggested:  75000 },
+  { type: 'longest_drive',   name: 'Longest Drive Sponsor',   emoji: '🚀', desc: 'Branding on the LD contest hole and prize.',                   suggested:  50000 },
+  { type: 'closest_to_pin',  name: 'Closest to Pin Sponsor',  emoji: '🥏', desc: 'Branding on the CTP contest hole and prize.',                  suggested:  50000 },
+  { type: 'scorecard',       name: 'Scorecard Sponsor',       emoji: '📋', desc: 'Logo on every printed scorecard handed out at the bag drop.', suggested:  35000 },
+  { type: 'leaderboard',     name: 'Leaderboard Sponsor',     emoji: '📺', desc: 'Branding on the live leaderboard during play.',                suggested:  50000 },
+  { type: 'foursome',        name: 'Sponsoring Foursome',     emoji: '👥', desc: 'Includes a foursome plus event-day branding.',                 suggested: 150000 },
+];
+
+// Active state: which catalog tiles have already been added? Drives the
+// "disabled" look on tiles so the same hole-sponsor isn't added twice.
+function sponsorTypesInUse() {
+  return new Set(state.packages
+    .filter(p => p.package_kind === 'sponsorship' && p.sponsor_type)
+    .map(p => p.sponsor_type));
+}
+
+function renderSponsorCatalog() {
+  const used = sponsorTypesInUse();
+  $('#sponsorCatalog').innerHTML = SPONSOR_CATALOG.map(c => {
+    const inUse = used.has(c.type);
+    return `<button class="sponsor-tile" data-add-sponsor="${c.type}" type="button"
+      ${inUse ? 'disabled' : ''}
+      title="${esc(c.desc)}"
+      style="
+        text-align:left; padding:14px; background:var(--surface); color:var(--ink);
+        border:1px solid var(--border); border-radius:var(--r-md); cursor:${inUse ? 'default' : 'pointer'};
+        font-family:inherit; line-height:1.3; ${inUse ? 'opacity:0.45;' : ''}
+        display:flex; flex-direction:column; gap:4px;
+      ">
+      <span style="font-size:22px;line-height:1">${c.emoji}</span>
+      <strong style="font-size:14px;font-weight:700">${esc(c.name)}</strong>
+      <span class="mini" style="color:var(--ink-3);font-size:11px">${inUse ? 'Added ✓' : 'From $' + (c.suggested/100).toFixed(0)}</span>
+    </button>`;
+  }).join('');
+  $('#sponsorCatalog').querySelectorAll('[data-add-sponsor]').forEach(b => {
+    b.onclick = () => {
+      const cat = SPONSOR_CATALOG.find(c => c.type === b.dataset.addSponsor);
+      if (cat) createSponsorship({ sponsor_type: cat.type, name: cat.name, description: cat.desc, price_cents: cat.suggested });
+    };
+  });
+}
+
+async function createSponsorship(seed) {
+  try {
+    const body = {
+      name: seed.name,
+      description: seed.description || '',
+      price_cents: seed.price_cents ?? 0,
+      includes_players: 0,
+      sort_order: state.packages.filter(p => p.package_kind === 'sponsorship').length,
+      package_kind: 'sponsorship',
+      sponsor_type: seed.sponsor_type || 'custom',
+    };
+    const r = await JORD.api(`/api/admin/events/${eventId}/packages`, { method: 'POST', body });
+    state.packages.push({ id: r.id, ...body, quantity_limit: null, active: 1 });
+    renderSponsorCatalog();
+    renderSponsorships();
+    JORD.success('Sponsorship added — edit price / name then Save changes.');
+  } catch(e){ JORD.error(e.message); }
+}
+
+function renderSponsorships() {
+  const fmtPrice = c => '$' + ((Number(c)||0)/100).toLocaleString();
+  const items = state.packages.filter(p => p.package_kind === 'sponsorship');
+  if (!items.length) {
+    $('#sponsorList').innerHTML = '<p class="mini" style="color:var(--ink-3);margin-bottom:var(--s-3)">No sponsorships yet. Tap a tile above to add one.</p>';
+    return;
+  }
+  $('#sponsorList').innerHTML = items.map(p => `
+    <div class="pkg" data-pkg="${p.id}">
+      <div class="pkg-head">
+        <div><strong>${esc(p.name)}</strong>
+          <div class="pkg-meta">${fmtPrice(p.price_cents)} · sponsorship${p.quantity_limit?' · limit '+p.quantity_limit:''}</div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-ghost" data-edit-sponsor="${p.id}">Edit</button>
+          <button class="icon-btn" data-del-sponsor="${p.id}" title="Delete">✕</button>
+        </div>
+      </div>
+      <div id="sponsorEdit-${p.id}" hidden>
+        <div class="grid">
+          <div class="field"><label>Name</label><input class="input" data-spf="name" data-id="${p.id}" value="${esc(p.name)}" /></div>
+          <div class="field"><label>Price (USD)</label><input class="input" type="number" min="0" step="0.01" data-spf="price" data-id="${p.id}" value="${(Number(p.price_cents)||0)/100}" /></div>
+          <div class="field"><label>Quantity limit</label><input class="input" type="number" min="0" data-spf="qty" data-id="${p.id}" value="${p.quantity_limit??''}" /></div>
+          <div class="field" style="grid-column:1/-1"><label>Description</label>
+            <textarea class="textarea" data-spf="desc" data-id="${p.id}" rows="2">${esc(p.description||'')}</textarea></div>
+        </div>
+        <button class="btn btn-primary" data-save-sponsor="${p.id}">Save sponsorship</button>
+      </div>
+    </div>`).join('');
+
+  $('#sponsorList').querySelectorAll('[data-edit-sponsor]').forEach(b => b.onclick = () => {
+    const el = $(`#sponsorEdit-${b.dataset.editSponsor}`);
+    el.hidden = !el.hidden;
+  });
+  $('#sponsorList').querySelectorAll('[data-del-sponsor]').forEach(b => b.onclick = async () => {
+    if (!await JORD.confirm('Delete this sponsorship?', { danger:true })) return;
+    try {
+      await JORD.api(`/api/admin/events/${eventId}/packages/${b.dataset.delSponsor}`, { method:'DELETE' });
+      state.packages = state.packages.filter(p => p.id !== b.dataset.delSponsor);
+      renderSponsorCatalog();
+      renderSponsorships();
+      JORD.success('Sponsorship deleted');
+    } catch(e){ JORD.error(e.message); }
+  });
+  $('#sponsorList').querySelectorAll('[data-save-sponsor]').forEach(b => b.onclick = async () => {
+    const id = b.dataset.saveSponsor;
+    const get = (k) => $(`#sponsorList [data-spf="${k}"][data-id="${id}"]`).value.trim();
+    const body = {
+      name: get('name'),
+      description: $(`#sponsorList [data-spf="desc"][data-id="${id}"]`).value,
+      price_cents: Math.round((Number(get('price'))||0) * 100),
+      quantity_limit: get('qty') === '' ? null : Number(get('qty')),
+      package_kind: 'sponsorship',
+    };
+    try {
+      await JORD.api(`/api/admin/events/${eventId}/packages/${id}`, { method:'PATCH', body });
+      const p = state.packages.find(x => x.id === id);
+      if (p) Object.assign(p, body);
+      renderSponsorships();
+      JORD.success('Sponsorship saved');
+    } catch(e){ JORD.error(e.message); }
+  });
 }
 
 // Max payload accepted by the events PATCH for brand_logo. The server tolerates
@@ -348,7 +491,11 @@ function renderFaq() {
 
 function renderPackages() {
   const fmtPrice = c => '$' + ((Number(c)||0)/100).toLocaleString();
-  $('#pkgList').innerHTML = state.packages.map((p,i)=>`
+  // Show only registration packages here — sponsorships have their own card
+  // below with the quick-add catalog. Keep the same index handlers; the
+  // filtered array still uses sequential indices.
+  const items = state.packages.filter(p => (p.package_kind || 'registration') !== 'sponsorship');
+  $('#pkgList').innerHTML = items.map((p,i)=>`
     <div class="pkg" data-pkg="${p.id}">
       <div class="pkg-head">
         <div><strong>${esc(p.name)}</strong>
@@ -395,9 +542,12 @@ function renderPackages() {
       quantity_limit: get('qty') === '' ? null : Number(get('qty')),
     };
     try {
-      const p = state.packages[i];
+      // `items` here is captured by closure (filtered list of registration
+      // packages). state.packages is the full list, so we look up by id.
+      const p = items[i];
       await JORD.api(`/api/admin/events/${eventId}/packages/${p.id}`, { method:'PATCH', body });
-      Object.assign(state.packages[i], body);
+      const inMain = state.packages.find(x => x.id === p.id);
+      if (inMain) Object.assign(inMain, body);
       renderPackages();
       JORD.success('Package saved');
     } catch(e){ JORD.error(e.message); }

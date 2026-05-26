@@ -99,7 +99,10 @@ function playerInputs(n) {
 
 function render(d) {
   const { site, event, packages, registration_open, payment_mode } = d;
-  const pkg = packages.find(p => p.id === pkgId) || packages[0];
+  // The pkg id can point at either a player ticket (packages[]) or a
+  // sponsorship (sponsorships[]) — both flow through the same checkout.
+  const allItems = [...(packages || []), ...((d.sponsorships) || [])];
+  const pkg = allItems.find(p => p.id === pkgId) || packages[0];
   if (!pkg) {
     document.getElementById('app').innerHTML =
       `<div class="gate"><h1 style="font-family:var(--font-display)">No packages available</h1>
@@ -127,7 +130,11 @@ function render(d) {
 
   const fee = Math.round((pkg.price_cents || 0) * 0.03);
   const total = (pkg.price_cents || 0) + fee;
-  const playerCount = Math.max(1, Number(pkg.includes_players) || 1);
+  const isSponsor = (pkg.package_kind || 'registration') === 'sponsorship';
+  // Sponsorships allow 0 players; player tickets need at least 1 in the roster.
+  const playerCount = isSponsor
+    ? Math.max(0, Number(pkg.includes_players) || 0)
+    : Math.max(1, Number(pkg.includes_players) || 1);
   const isFree = pkg.price_cents === 0;
   const isTestMode = payment_mode !== 'stripe' || /sk_test|pk_test/i.test(''); // server only exposes mode, never the key
   const canceled = new URLSearchParams(location.search).get('canceled') === '1';
@@ -135,8 +142,10 @@ function render(d) {
   document.getElementById('app').innerHTML = `
     <div class="er-wrap">
       <div class="er-eyebrow">${esc(site.headline || event.name || 'Event')}</div>
-      <h1>Complete your <em>registration</em></h1>
-      <p class="lead">A few details and you're in. ${isFree ? 'This package is free.' : 'You\'ll be redirected to a secure checkout to pay.'}</p>
+      <h1>${isSponsor ? `Confirm your <em>sponsorship</em>` : `Complete your <em>registration</em>`}</h1>
+      <p class="lead">${isSponsor
+        ? `Thanks for sponsoring. ${isFree ? 'This sponsorship is free.' : `You'll be redirected to a secure checkout to pay.`}`
+        : `A few details and you're in. ${isFree ? 'This package is free.' : `You'll be redirected to a secure checkout to pay.`}`}</p>
 
       ${canceled ? `<div class="er-error" style="display:block;background:rgba(184,136,77,0.10);color:var(--accent);border-color:rgba(184,136,77,0.35);margin-bottom:var(--s-4)">
         Checkout was canceled — your details are still here, just hit pay when you're ready.
@@ -164,10 +173,12 @@ function render(d) {
           ${playerCount > 0 ? `
             <h3>Player roster (${playerCount})</h3>
             ${playerInputs(playerCount)}
-          ` : ''}
+          ` : (isSponsor ? `<p class="hint" style="margin-top:8px">No player roster needed — this is a non-playing sponsorship.</p>` : '')}
 
           <button class="btn btn-primary er-cta" id="submit-btn" type="submit">
-            ${isFree ? 'Confirm registration →' : `Pay ${fmtPrice(total)} →`}
+            ${isFree
+              ? (isSponsor ? 'Confirm sponsorship →' : 'Confirm registration →')
+              : `Pay ${fmtPrice(total)} →`}
           </button>
           <div class="er-error" id="er-error"></div>
           <p style="font-size:12px;color:var(--ink-3);margin-top:var(--s-3);line-height:1.5;text-align:center">
@@ -178,7 +189,7 @@ function render(d) {
         </form>
 
         <aside class="er-summary">
-          <div class="label">You're registering for</div>
+          <div class="label">${isSponsor ? `You're sponsoring` : `You're registering for`}</div>
           <div class="pkg-name">${esc(pkg.name)}</div>
           <div class="event-name">${esc(event.name || '')}</div>
           ${pkg.description ? `<div class="desc">${esc(pkg.description)}</div>` : ''}
