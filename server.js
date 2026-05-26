@@ -5476,6 +5476,216 @@ app.post('/api/admin/events/:id/pairings/auto-assign', requireAuth, requireAdmin
   res.json({ ok: true, groups_created: createdGroups, players_assigned: pool.length });
 });
 
+// ─── SCORING BRIDGE (Enterprise event → Clubhouse tournament/round) ────────
+// One paid registration's player roster becomes scoring entries in a real
+// tournament so the leaderboard at /tournament/:id pulls from the field
+// the organizer already sold. The bridge is idempotent: re-running adds
+// only players that aren't already in the round.
+
+// Returns the linked tournament/round summary if scoring has been started,
+// or { tournament_id: null } if not.
+app.get('/api/admin/events/:id/scoring', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const t = db.prepare('SELECT * FROM tournaments WHERE event_id=? ORDER BY created_at DESC LIMIT 1').get(req.params.id);
+  if (!t) return res.json({ tournament_id: null });
+  const rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
+  const round = rounds[0] || null;
+  const entries = round
+    ? db.prepare('SELECT COUNT(*) AS n FROM round_entries WHERE round_id=?').get(round.id).n
+    : 0;
+  const teams = round
+    ? db.prepare('SELECT COUNT(*) AS n FROM round_teams WHERE round_id=?').get(round.id).n
+    : 0;
+  res.json({
+    tournament_id: t.id,
+    round_id: round ? round.id : null,
+    format: t.default_format,
+    name: t.name,
+    status: t.status,
+    entries_count: entries,
+    teams_count: teams,
+  });
+});
+
+// Helper: upsert a player row from a registration entry. Dedupe by phone if
+// the buyer supplied one; otherwise create a fresh player every call (we'd
+// rather have a duplicate than collapse two different people sharing a name).
+function upsertPlayerFromReg(name, phone, email, handicapIndex) {
+  let player = phone ? db.prepare('SELECT * FROM players WHERE phone=?').get(phone) : null;
+  if (player) {
+    if (handicapIndex != null) {
+      db.prepare('UPDATE players SET handicap_index=? WHERE id=?').run(handicapIndex, player.id);
+    }
+    return player;
+  }
+  const pid = uid('PLR');
+  db.prepare('INSERT INTO players (id,name,phone,email,handicap_index) VALUES (?,?,?,?,?)')
+    .run(pid, name, phone || null, email || null, handicapIndex ?? null);
+  return { id: pid, name, phone, email, handicap_index: handicapIndex ?? null };
+}
+
+// Internal: add paid registrations to the round. Returns counts. The
+// `existingEntries` set lets us skip players who are already in the round
+// (used by sync-scoring; start-scoring passes an empty set).
+function _materializeRegistrationsToRound(eventId, roundId, fmt, isTeamCard, existingKeys) {
+  const regs = db.prepare(`SELECT id, buyer_name, buyer_email, buyer_phone, players_json
+                           FROM registrations
+                           WHERE event_id=? AND payment_status IN ('paid','partial_refund')
+                             AND parent_registration_id IS NULL`).all(eventId);
+
+  let entriesAdded = 0, teamsAdded = 0, regsProcessed = 0;
+
+  const insEntryIndividual = db.prepare(`INSERT INTO round_entries (id,round_id,player_id,course_handicap) VALUES (?,?,?,?)`);
+  const insTeam = db.prepare(`INSERT INTO round_teams (id,round_id,name,team_handicap) VALUES (?,?,?,?)`);
+  const insEntryTeam = db.prepare(`INSERT INTO round_entries (id,round_id,player_id,team_id,is_team_card,course_handicap) VALUES (?,?,?,?,?,?)`);
+
+  const tx = db.transaction(() => {
+    for (const r of regs) {
+      let roster = [];
+      try { roster = JSON.parse(r.players_json || '[]'); } catch {}
+      if (!roster.length) continue;
+      regsProcessed++;
+
+      // Registration-keyed dedupe — once a registration's players are in
+      // the round, sync skips it entirely.
+      const regKey = `reg:${r.id}`;
+      if (existingKeys.has(regKey)) continue;
+
+      // Team-tier formats: each registration becomes one team. Player 0
+      // inherits the buyer's contact info (phone/email).
+      if (isTeamCard) {
+        const teamName = (r.buyer_name || roster[0]?.name || 'Team').slice(0, 80);
+        const teamId = uid('TM');
+        insTeam.run(teamId, roundId, teamName, null);
+        teamsAdded++;
+        for (let i = 0; i < roster.length; i++) {
+          const p = roster[i] || {};
+          const phone = i === 0 ? r.buyer_phone : null;
+          const email = i === 0 ? r.buyer_email : null;
+          const player = upsertPlayerFromReg(p.name || `Player ${i + 1}`, phone, email, null);
+          // First player carries the shared team scorecard (`is_team_card=1`).
+          insEntryTeam.run(uid('ENT'), roundId, player.id, teamId, i === 0 ? 1 : 0, null);
+          entriesAdded++;
+        }
+      } else {
+        // Individual-tier formats: each player gets their own entry.
+        for (let i = 0; i < roster.length; i++) {
+          const p = roster[i] || {};
+          const phone = i === 0 ? r.buyer_phone : null;
+          const email = i === 0 ? r.buyer_email : null;
+          const player = upsertPlayerFromReg(p.name || `Player ${i + 1}`, phone, email, null);
+          insEntryIndividual.run(uid('ENT'), roundId, player.id, null);
+          entriesAdded++;
+        }
+      }
+      existingKeys.add(regKey);
+    }
+  });
+  tx();
+  return { entriesAdded, teamsAdded, regsProcessed };
+}
+
+// Start scoring for an enterprise event. Creates a Clubhouse tournament
+// linked via tournaments.event_id, an initial round, and materializes
+// every paid registration into round_entries / round_teams. Idempotent
+// for the tournament/round (re-running just returns the existing IDs).
+app.post('/api/admin/events/:id/start-scoring', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const eventId = req.params.id;
+  const ev = db.prepare('SELECT * FROM events WHERE id=?').get(eventId);
+  if (!ev) return res.status(404).json({ error: 'Event not found' });
+
+  const requested = (req.body && req.body.format) || 'scramble_4p';
+  if (!scoring.SUPPORTED_FORMATS.includes(requested)) {
+    return res.status(400).json({ error: `Unknown format "${requested}"` });
+  }
+  const fmt = formats.getFormat(requested);
+  // Team-card formats use a single shared scorecard (scramble / foursomes /
+  // greensome). Anything else has each player keeping their own ball, even
+  // when grouped into a team (best ball etc.).
+  const isTeamCard = typeof fmt.allowance === 'string';
+
+  // Reuse an existing scoring setup so the button is safe to click twice.
+  const existing = db.prepare('SELECT * FROM tournaments WHERE event_id=?').get(eventId);
+  let tournamentId, roundId;
+  if (existing) {
+    tournamentId = existing.id;
+    const round = db.prepare('SELECT id FROM rounds WHERE tournament_id=? ORDER BY round_number LIMIT 1').get(tournamentId);
+    roundId = round ? round.id : null;
+    if (!roundId) {
+      // Tournament exists with no round — recover by creating one.
+      roundId = uid('RND');
+      db.prepare(`INSERT INTO rounds (id,tournament_id,round_number,round_date,format,hole_multipliers)
+                  VALUES (?,?,?,?,?,?)`).run(roundId, tournamentId, 1, ev.starts_at?.split(' ')[0] || null, requested, holeMultipliers(requested));
+    }
+  } else {
+    tournamentId = uid('TRN');
+    db.prepare(`INSERT INTO tournaments (id,type,name,admin_id,event_id,default_format,share_code,status)
+                VALUES (?,?,?,?,?,?,?,?)`)
+      .run(tournamentId, 'tournament', ev.name || 'Tournament', req.admin.id, eventId,
+           requested, uid('').slice(0, 6), 'setup');
+    roundId = uid('RND');
+    db.prepare(`INSERT INTO rounds (id,tournament_id,round_number,round_date,format,hole_multipliers)
+                VALUES (?,?,?,?,?,?)`).run(roundId, tournamentId, 1, ev.starts_at?.split(' ')[0] || null, requested, holeMultipliers(requested));
+  }
+
+  // Compute existing registration-keyed entries so we skip duplicates if
+  // the user re-clicks "Start scoring" or has a partial materialization.
+  const existingKeys = new Set();
+  const counts = _materializeRegistrationsToRound(eventId, roundId, fmt, isTeamCard, existingKeys);
+
+  res.json({
+    tournament_id: tournamentId,
+    round_id: roundId,
+    format: requested,
+    is_team_card: isTeamCard,
+    ...counts,
+  });
+});
+
+// Sync: pull in any paid registrations that weren't in the round yet (e.g.
+// walk-ups added after start-scoring ran). Same format as the existing
+// round; no format choice exposed here.
+app.post('/api/admin/events/:id/sync-scoring', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const eventId = req.params.id;
+  const t = db.prepare('SELECT * FROM tournaments WHERE event_id=?').get(eventId);
+  if (!t) return res.status(400).json({ error: 'Scoring not started yet — use Start scoring first.' });
+  const round = db.prepare('SELECT id FROM rounds WHERE tournament_id=? ORDER BY round_number LIMIT 1').get(t.id);
+  if (!round) return res.status(400).json({ error: 'No round on tournament' });
+
+  const fmt = formats.getFormat(t.default_format);
+  const isTeamCard = typeof fmt.allowance === 'string';
+
+  // existingKeys: which registrations are already represented (one team
+  // per reg for team-card, or any entry from any player in the reg).
+  const existingKeys = new Set();
+  if (isTeamCard) {
+    // Teams are named after the buyer; key by team name → registration buyer name.
+    const teams = db.prepare('SELECT name FROM round_teams WHERE round_id=?').all(round.id);
+    for (const tm of teams) existingKeys.add(`team:${tm.name}`);
+    // Also lock anything already keyed by reg id (newer flows).
+    const regs = db.prepare(`SELECT id, buyer_name FROM registrations
+                             WHERE event_id=? AND payment_status IN ('paid','partial_refund')
+                               AND parent_registration_id IS NULL`).all(eventId);
+    for (const r of regs) {
+      if (existingKeys.has(`team:${(r.buyer_name || 'Team').slice(0, 80)}`)) {
+        existingKeys.add(`reg:${r.id}`);
+      }
+    }
+  } else {
+    // Individual: match by phone where the buyer carried one.
+    const phones = db.prepare(`SELECT DISTINCT p.phone FROM round_entries re
+                               JOIN players p ON p.id = re.player_id
+                               WHERE re.round_id=? AND p.phone IS NOT NULL`).all(round.id).map(r => r.phone);
+    const phoneSet = new Set(phones);
+    const regs = db.prepare(`SELECT id, buyer_phone FROM registrations
+                             WHERE event_id=? AND payment_status IN ('paid','partial_refund')
+                               AND parent_registration_id IS NULL`).all(eventId);
+    for (const r of regs) if (r.buyer_phone && phoneSet.has(r.buyer_phone)) existingKeys.add(`reg:${r.id}`);
+  }
+
+  const counts = _materializeRegistrationsToRound(eventId, round.id, fmt, isTeamCard, existingKeys);
+  res.json({ tournament_id: t.id, round_id: round.id, ...counts });
+});
+
 app.get('/api/users/me', requireUser, (req, res) => {
   res.json({ user: {
     id: req.user.id, name: req.user.name, email: req.user.email,

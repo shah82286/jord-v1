@@ -134,6 +134,32 @@
 <!-- Print sheet container (hidden until print) -->
 <div class="pr-print" id="print-sheet"></div>
 
+<!-- Start-scoring modal -->
+<div class="modal-overlay" id="score-modal">
+  <div class="modal">
+    <h2>Start scoring</h2>
+    <div class="sub">Wire every paid registration into a live tournament leaderboard. You can keep editing pairings after this — scoring uses its own player list.</div>
+
+    <div class="field">
+      <label>Tournament format</label>
+      <select id="sc-format">
+        <option value="scramble_4p">4-person scramble (most charity events)</option>
+        <option value="scramble_2p">2-person scramble</option>
+        <option value="best_ball_4p">4-person best ball</option>
+        <option value="stroke_gross">Stroke play · gross</option>
+        <option value="stroke_net">Stroke play · net</option>
+        <option value="stableford">Stableford</option>
+      </select>
+      <div class="hint" style="font-size:12px;color:var(--ink-3);margin-top:6px">Team-card formats (scramble) treat each paid registration as one team. Individual formats give each player their own scorecard.</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-ghost" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="sc-confirm">Start scoring →</button>
+    </div>
+  </div>
+</div>
+
 <!-- Auto-assign modal -->
 <div class="modal-overlay" id="auto-modal">
   <div class="modal">
@@ -188,6 +214,7 @@ const state = {
   groups: [], players: [], totals: { players_total: 0, players_assigned: 0, groups: 0 },
   q: '',
   selectedPlayer: null,  // { reg_id, player_index } — for tap-to-assign on mobile
+  scoring: null,         // { tournament_id, round_id, format, entries_count, teams_count } — null until /scoring loads
 };
 
 // Short tz label like "CDT" / "EDT" for a given IANA name. Falls back to the
@@ -207,10 +234,14 @@ async function load() {
     state.eventName = ev?.name || 'Event';
     state.timeZone = ev?.time_zone || null;
     state.tzAbbrev = tzAbbrev(state.timeZone, ev?.starts_at ? new Date(ev.starts_at) : new Date());
-    const d = await JORD.api('/api/admin/events/' + eventId + '/pairings');
+    const [d, sc] = await Promise.all([
+      JORD.api('/api/admin/events/' + eventId + '/pairings'),
+      JORD.api('/api/admin/events/' + eventId + '/scoring').catch(() => ({ tournament_id: null })),
+    ]);
     state.groups = d.groups || [];
     state.players = d.players || [];
     state.totals = d.totals || state.totals;
+    state.scoring = (sc && sc.tournament_id) ? sc : null;
     render();
   } catch (e) {
     if (e.status === 401) location.href = '/admin';
@@ -233,6 +264,7 @@ function render() {
         <a class="btn btn-ghost" href="/admin/events/${esc(eventId)}/check-in">✓ Check-in</a>
         <button class="btn btn-ghost" id="btn-print">⎙ Print sheet</button>
         <a class="btn btn-ghost" href="/admin/events/${esc(eventId)}/pairings/poster" target="_blank" rel="noopener">🖼 Poster (24×36)</a>
+        ${renderScoringButton()}
         <button class="btn btn-ghost" id="btn-auto">⚡ Auto-assign</button>
         <button class="btn btn-primary" id="btn-add-group">+ New group</button>
       </div>
@@ -265,8 +297,73 @@ function render() {
   $('#add-group').onclick = createGroup;
   $('#btn-print').onclick = printSheet;
   $('#btn-auto').onclick = openAutoModal;
+  wireScoringButton();
   wireGroupEvents();
   wirePoolEvents();
+}
+
+// Header CTA for the scoring bridge. Three states:
+//   - no paid registrations  → button hidden (start-scoring would be a no-op)
+//   - scoring not started    → "Start scoring" (opens format-picker modal)
+//   - scoring already wired  → "View leaderboard →" (linkout) + small sync icon
+function renderScoringButton() {
+  if (state.totals.players_total === 0) return '';
+  if (state.scoring && state.scoring.tournament_id) {
+    return `
+      <a class="btn btn-primary" href="/tournament/${esc(state.scoring.tournament_id)}" target="_blank" rel="noopener">📺 Leaderboard →</a>
+      <button class="btn btn-ghost" id="btn-sync-scoring" title="Pull any newly-paid registrations into the scoring round">↻ Sync</button>
+    `;
+  }
+  return `<button class="btn btn-primary" id="btn-start-scoring">🏆 Start scoring</button>`;
+}
+
+function wireScoringButton() {
+  const start = $('#btn-start-scoring');
+  if (start) start.onclick = openScoringModal;
+  const sync = $('#btn-sync-scoring');
+  if (sync) sync.onclick = syncScoring;
+}
+
+function openScoringModal() {
+  $('#sc-format').value = 'scramble_4p';
+  $('#score-modal').classList.add('open');
+}
+$('#sc-confirm').onclick = async () => {
+  const btn = $('#sc-confirm');
+  btn.disabled = true; btn.textContent = 'Starting…';
+  try {
+    const res = await JORD.api(`/api/admin/events/${eventId}/start-scoring`, {
+      method: 'POST',
+      body: { format: $('#sc-format').value },
+    });
+    $('#score-modal').classList.remove('open');
+    // Bring the user straight to the leaderboard — that's the payoff for
+    // pressing the button. They can come back to pairings via browser history.
+    const msg = res.is_team_card
+      ? `Scoring started: ${res.teamsAdded} team(s), ${res.entriesAdded} player(s).`
+      : `Scoring started: ${res.entriesAdded} player(s).`;
+    JORD.success(msg);
+    setTimeout(() => { window.open('/tournament/' + res.tournament_id, '_blank'); load(); }, 500);
+  } catch (e) {
+    alert(e.message || 'Could not start scoring');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Start scoring →';
+  }
+};
+
+async function syncScoring() {
+  const btn = $('#btn-sync-scoring');
+  btn.disabled = true; btn.textContent = '⏳';
+  try {
+    const res = await JORD.api(`/api/admin/events/${eventId}/sync-scoring`, { method: 'POST' });
+    const added = (res.entriesAdded || 0);
+    JORD.success(added > 0 ? `Added ${added} new player(s) to the leaderboard.` : 'Already up to date — no new players to sync.');
+    await load();
+  } catch (e) {
+    alert(e.message || 'Sync failed');
+  } finally {
+    btn.disabled = false; btn.textContent = '↻ Sync';
+  }
 }
 
 function renderPool() {

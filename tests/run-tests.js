@@ -385,6 +385,9 @@ console.log('\n🔌 Tournament Scoring Routes\n');
  ['POST','/api/admin/events/:id/pairings/groups/:groupId/members'],
  ['DELETE','/api/admin/events/:id/pairings/groups/:groupId/members/:regId/:idx'],
  ['POST','/api/admin/events/:id/pairings/auto-assign'],
+ ['GET','/api/admin/events/:id/scoring'],
+ ['POST','/api/admin/events/:id/start-scoring'],
+ ['POST','/api/admin/events/:id/sync-scoring'],
  ['POST','/api/stripe/webhook'],
  ['GET','/api/admin/stripe/account'],
  ['POST','/api/admin/stripe/connect/onboard'],
@@ -420,6 +423,33 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(36.5687, -121.9505) === 'America/Los_Angeles', `got ${tzLookup(36.5687, -121.9505)}`));
   test('tz-lookup resolves a Chicago-area course to America/Chicago',
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
+}
+
+console.log('\n🏆 Scoring Bridge (registrations → tournaments)\n');
+{
+  test('GET scoring endpoint registered',
+    () => assert(src.includes("app.get('/api/admin/events/:id/scoring'"), 'Missing GET'));
+  test('POST start-scoring endpoint registered',
+    () => assert(src.includes("app.post('/api/admin/events/:id/start-scoring'"), 'Missing start-scoring'));
+  test('POST sync-scoring endpoint registered',
+    () => assert(src.includes("app.post('/api/admin/events/:id/sync-scoring'"), 'Missing sync-scoring'));
+  test('Bridge writes tournaments.event_id',
+    () => assert(/INSERT INTO tournaments[\s\S]*event_id/.test(src), 'event_id not set on tournament insert'));
+  test('Bridge has player upsert helper',
+    () => assert(src.includes('function upsertPlayerFromReg('), 'Missing upsert helper'));
+  test('Bridge respects payment_status (paid + partial_refund only)',
+    () => assert(src.includes("payment_status IN ('paid','partial_refund')"), 'Bridge processing unpaid regs'));
+  test('Bridge handles team-card formats',
+    () => assert(src.includes('isTeamCard') && src.includes('round_teams'), 'Missing team-card branch'));
+  test('Bridge validates format against SUPPORTED_FORMATS',
+    () => assert(src.includes('scoring.SUPPORTED_FORMATS.includes(requested)'), 'Format not validated'));
+  // Confirm the pairings UI surfaces the bridge.
+  const fs = require('fs');
+  const pairingsHtml = fs.readFileSync('./public/admin/event-pairings.html', 'utf8');
+  test('Pairings page exposes Start-scoring modal',
+    () => assert(pairingsHtml.includes('id="score-modal"') && pairingsHtml.includes('start-scoring'), 'Missing modal/handler'));
+  test('Pairings page renders a Leaderboard link when scoring exists',
+    () => assert(pairingsHtml.includes('/tournament/') && pairingsHtml.includes('state.scoring'), 'Missing leaderboard branch'));
 }
 
 console.log('\n🖼  Poster + Pairings Page Routes\n');

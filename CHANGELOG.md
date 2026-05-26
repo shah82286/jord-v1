@@ -2,6 +2,60 @@
 
 ---
 
+## v3.39.0 — 2026-05-25
+### Session 54 — Scoring bridge (registrations → live leaderboard)
+
+The biggest E2 piece lands: every paid registration in an enterprise event
+now auto-becomes a scoring entry, and the organizer ships from "online
+registration" to "live leaderboard at /tournament/:id" with a single click.
+
+#### What changed
+- **Scoring bridge endpoints** (`server.js`):
+  - `GET /api/admin/events/:id/scoring` — returns the linked tournament +
+    round summary if scoring has been started, or `{ tournament_id: null }`.
+  - `POST /api/admin/events/:id/start-scoring` (body: `{ format }`) —
+    creates a `tournaments` row with `event_id` set (the previously-unused
+    placeholder column), creates a `rounds` row, and materializes every
+    paid registration's `players_json` into `round_entries`. Team-card
+    formats (scramble / foursomes / greensome) also build a `round_teams`
+    row per registration so each paid foursome becomes one team. Idempotent
+    on the tournament — re-clicking returns the existing IDs and only adds
+    players that aren't already in the round.
+  - `POST /api/admin/events/:id/sync-scoring` — pulls in any paid
+    registrations added since `start-scoring` ran (e.g. walk-ups + Stripe
+    QR after kick-off). Same format as the existing round.
+- **`upsertPlayerFromReg` helper** — single dedup-by-phone path so future
+  callers can reuse it. Players without a phone number (everyone after the
+  buyer in a multi-player registration) get a fresh `players` row.
+- **Format validation** — bridge rejects any format not in
+  `scoring.SUPPORTED_FORMATS`, so the round always has a working
+  scoring engine.
+- **Pairings page UI**:
+  - New "🏆 Start scoring" header button (only shown when at least one
+    paid player exists). Opens a modal with a 6-option format picker
+    (scramble_4p default — most charity events). On confirm: POSTs
+    start-scoring, opens the leaderboard in a new tab, reloads.
+  - When scoring is already wired: the button flips to a "📺 Leaderboard →"
+    link plus a "↻ Sync" button for pulling in late registrations.
+
+#### Why the design looks like this
+- Tournaments + rounds were already wired; the gap was purely the
+  registration → round_entries link. The `tournaments.event_id` column
+  has existed as a placeholder since v3.x — this session is what
+  finally uses it.
+- Pairings stay an admin tool for cart/hole logistics. Scoring uses its
+  own canonical player list keyed on registration roster. Two parallel
+  systems by design — they're for different audiences (volunteers vs.
+  spectators).
+
+#### Tested
+- **168/168 unit tests pass** (+13 new) covering: route registration,
+  event_id wiring, payment-status filter, team-card branching, format
+  validation, helper presence, UI surface tests for the modal + the
+  leaderboard branch.
+
+---
+
 ## v3.38.1 — 2026-05-25
 ### Session 53b — Editor header layout + event logo on poster
 
