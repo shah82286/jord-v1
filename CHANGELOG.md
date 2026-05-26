@@ -2,6 +2,51 @@
 
 ---
 
+## v3.40.0 — 2026-05-25
+### Session 56 — Clone past tournament
+
+Closes a long-standing pain for organizers who run the same tournament
+year after year: re-creating last year's event from scratch was 30+
+minutes of clicking. Now it's two clicks.
+
+#### What changed
+- **New endpoint `POST /api/admin/events/:sourceId/clone`** — body:
+  `{ name, starts_at, ends_at, copy_packages, copy_site }`. Copies the
+  source event's *configuration* in a single transaction:
+  - Contest toggles (LD / CTP / combined), scoring rules (rough + OOB
+    penalties), hole distance, CTP off-green penalty.
+  - Course polygons (fairway, rough, OOB, green) — the big win for
+    same-venue yearly events.
+  - Pin coordinates, CTP green polygon, CTP pin coords.
+  - Branding (logo, accent, URL, is_charity).
+  - Admin phone, venue, venue_lat/lon.
+  - **Tee boxes** (LD tee positions on the course map).
+  - **Optional**: `registration_packages` (name, price, includes_players,
+    quantity_limit, description, sort_order, active).
+  - **Optional**: `event_sites` (about, schedule, FAQ, contact, hero
+    image, course info). Cloned site is **`published=0`** by default
+    and slug gets a 4-char suffix so it doesn't collide with the source.
+  - **Time zone**: re-resolved fresh from the copied lat/lon via
+    `tz-lookup`, so the new event's tee times render in the venue's
+    local zone without any manual step.
+  - **Not copied**: registrations, balls, scoring rounds, pairings,
+    check-ins, walk-ups, sessions. Live data stays with the source event.
+- **New-event modal** — replaces the bare `JORD.prompt('Tournament name?')`
+  with a real modal:
+  - Name (required), Copy-from dropdown (recent 50 events), Starts /
+    Ends datetime pickers.
+  - Copy-from selection reveals two checkboxes: "Copy packages" and
+    "Copy site content" (both default on).
+  - Submits to `/clone` when a source is picked, otherwise falls back
+    to the existing `POST /api/events`.
+
+#### Tested
+- **178/178 unit tests pass** (+10 new) covering: route registration,
+  status reset to 'setup', tz re-resolution, tee/site/package copying,
+  transaction wrapping, and editor UI surface.
+
+---
+
 ## v3.39.1 — 2026-05-25
 ### Session 55 — Help bubbles across the setup screens (#HELP-BUBBLES)
 

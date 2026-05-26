@@ -1029,18 +1029,108 @@
     }
   }
 
-  $('#btn-new-event').addEventListener('click', async () => {
-    const name = await JORD.prompt('Tournament name?', { placeholder: 'e.g. Spring Classic 2026', okText: 'Create' });
-    if (!name) return;
+  $('#btn-new-event').addEventListener('click', openNewEventModal);
+
+  // New-event modal with an optional "Copy from" dropdown. Picking a prior
+  // event clones contest toggles, scoring rules, polygons, branding,
+  // packages, and the public site content — useful for yearly tournaments
+  // at the same venue. Source event's *live data* (registrations, scoring,
+  // pairings) is NOT copied — only the configuration.
+  async function openNewEventModal() {
+    // Fetch the candidate list before opening so the dropdown renders fully.
+    // Falls back to an empty list if the request fails (modal still works
+    // as a from-scratch creator).
+    let priorEvents = [];
+    try { priorEvents = await JORD.api('/api/events'); }
+    catch (e) { console.warn('Could not fetch events for copy-from:', e); }
+    priorEvents = priorEvents
+      .filter(ev => ev.id) // sanity
+      .sort((a, b) => new Date(b.created_at || b.starts_at || 0) - new Date(a.created_at || a.starts_at || 0))
+      .slice(0, 50);
+
     const now = new Date().toISOString().slice(0, 16);
     const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 16);
-    const ev = await JORD.api('/api/events', { method: 'POST', body: {
-      name, starts_at: now, ends_at: tomorrow, has_longest_drive: 1
-    }});
-    JORD.success('Event created');
-    await loadEvents();
-    openEvent(ev.id);
-  });
+
+    const nameInput = el('input', { class: 'input', placeholder: 'e.g. Spring Classic 2026' });
+    const startInput = el('input', { class: 'input', type: 'datetime-local', value: now });
+    const endInput   = el('input', { class: 'input', type: 'datetime-local', value: tomorrow });
+    const copyPackages = el('input', { type: 'checkbox', checked: true });
+    const copySite     = el('input', { type: 'checkbox', checked: true });
+
+    const copyFromSel = el('select', { class: 'input' });
+    copyFromSel.appendChild(el('option', { value: '' }, '— Start from scratch —'));
+    for (const ev of priorEvents) {
+      const label = `${ev.name || 'Untitled'}${ev.venue ? ' · ' + ev.venue : ''}`;
+      copyFromSel.appendChild(el('option', { value: ev.id }, label));
+    }
+
+    // Toggle the copy-options block based on whether a source is picked.
+    // Hidden when "Start from scratch" since the checkboxes don't apply.
+    const copyOptions = el('div', { class: 'col gap-2', style: { display: 'none', marginTop: '6px', padding: '12px', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', fontSize: '13px' } },
+      el('label', { class: 'row gap-2', style: { alignItems: 'center', cursor: 'pointer' } }, copyPackages, el('span', null, 'Copy registration packages (price, name, includes_players, etc.)')),
+      el('label', { class: 'row gap-2', style: { alignItems: 'center', cursor: 'pointer' } }, copySite,     el('span', null, 'Copy public event site (about, schedule, FAQ, contact)')),
+      el('div', { class: 'mini', style: { color: 'var(--ink-3)', marginTop: '4px' } }, 'Live data (registrations, scoring, pairings, walk-ups) is never copied.')
+    );
+    copyFromSel.addEventListener('change', () => {
+      copyOptions.style.display = copyFromSel.value ? 'block' : 'none';
+    });
+
+    const body = el('div', { class: 'col gap-3' },
+      el('div', { class: 'field' },
+        el('label', null, 'Tournament name'),
+        nameInput
+      ),
+      el('div', { class: 'field' },
+        el('label', null, 'Copy from previous event'),
+        copyFromSel,
+        el('div', { class: 'hint' }, 'Optional. Prefills contest rules, polygons, branding, packages, and site content from a prior event you ran.'),
+        copyOptions
+      ),
+      el('div', { class: 'row gap-2' },
+        el('div', { class: 'field', style: { flex: 1 } }, el('label', null, 'Starts'), startInput),
+        el('div', { class: 'field', style: { flex: 1 } }, el('label', null, 'Ends'),   endInput)
+      )
+    );
+
+    const createBtn = el('button', { class: 'btn btn-primary' }, 'Create event');
+    let m;
+    createBtn.addEventListener('click', async () => {
+      const name = nameInput.value.trim();
+      if (!name) { JORD.error('Tournament name is required'); nameInput.focus(); return; }
+      if (!startInput.value || !endInput.value) { JORD.error('Start and end times are required'); return; }
+      const sourceId = copyFromSel.value;
+      createBtn.disabled = true; createBtn.textContent = 'Creating…';
+      try {
+        let ev;
+        if (sourceId) {
+          const res = await JORD.api(`/api/admin/events/${sourceId}/clone`, { method: 'POST', body: {
+            name, starts_at: startInput.value, ends_at: endInput.value,
+            copy_packages: copyPackages.checked, copy_site: copySite.checked,
+          }});
+          ev = res.event;
+          const bits = [];
+          if (res.packages_cloned) bits.push(`${res.packages_cloned} package(s)`);
+          if (res.tees_cloned)     bits.push(`${res.tees_cloned} tee box(es)`);
+          JORD.success(`Event cloned${bits.length ? ' · copied ' + bits.join(', ') : ''}`);
+        } else {
+          ev = await JORD.api('/api/events', { method: 'POST', body: {
+            name, starts_at: startInput.value, ends_at: endInput.value, has_longest_drive: 1,
+          }});
+          JORD.success('Event created');
+        }
+        m.close();
+        await loadEvents();
+        openEvent(ev.id);
+      } catch (e) {
+        JORD.error(e.message || 'Could not create event');
+      } finally {
+        createBtn.disabled = false; createBtn.textContent = 'Create event';
+      }
+    });
+
+    m = JORD.modal({ title: 'New event', body, footer: createBtn });
+    setTimeout(() => nameInput.focus(), 50);
+  }
 
   // ── Open event editor ──
   async function openEvent(id) {

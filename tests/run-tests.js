@@ -388,6 +388,7 @@ console.log('\n🔌 Tournament Scoring Routes\n');
  ['GET','/api/admin/events/:id/scoring'],
  ['POST','/api/admin/events/:id/start-scoring'],
  ['POST','/api/admin/events/:id/sync-scoring'],
+ ['POST','/api/admin/events/:sourceId/clone'],
  ['POST','/api/stripe/webhook'],
  ['GET','/api/admin/stripe/account'],
  ['POST','/api/admin/stripe/connect/onboard'],
@@ -423,6 +424,30 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(36.5687, -121.9505) === 'America/Los_Angeles', `got ${tzLookup(36.5687, -121.9505)}`));
   test('tz-lookup resolves a Chicago-area course to America/Chicago',
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
+}
+
+console.log('\n📋 Clone past tournament\n');
+{
+  test('Clone endpoint registered with sourceId param',
+    () => assert(src.includes("app.post('/api/admin/events/:sourceId/clone'"), 'Missing clone route'));
+  test('Clone copies events row settings (not status/admin_id)',
+    () => assert(src.includes("INSERT INTO events") && src.includes("'setup'"), 'Status not reset to setup'));
+  test('Clone re-resolves time_zone from copied lat/lon',
+    () => assert(src.includes('detectTimeZone(src.venue_lat, src.venue_lon)'), 'tz not re-resolved'));
+  test('Clone copies tee_boxes',
+    () => assert(src.includes("INSERT INTO tee_boxes") && src.includes('teeStmt.run'), 'Tee boxes not copied'));
+  test('Clone copies event_sites with published=0',
+    () => assert(src.includes('INSERT INTO event_sites') && /VALUES[\s\S]*?, 0\)/.test(src), 'Site not unpublished by default'));
+  test('Clone copies registration_packages',
+    () => assert(src.includes('INSERT INTO registration_packages'), 'Packages not copied'));
+  test('Clone runs in a single transaction',
+    () => assert(/db\.transaction\(\s*\(\s*\)/.test(src) && src.includes('packagesCloned'), 'Not wrapped in transaction'));
+  const fs = require('fs');
+  const editorHtml = fs.readFileSync('./public/admin/editor.html', 'utf8');
+  test('Editor exposes "Copy from" dropdown',
+    () => assert(editorHtml.includes('Copy from previous event'), 'Missing copy-from UI'));
+  test('Editor calls clone endpoint when source selected',
+    () => assert(editorHtml.includes('/clone'), 'Editor not hitting clone endpoint'));
 }
 
 console.log('\n🏆 Scoring Bridge (registrations → tournaments)\n');

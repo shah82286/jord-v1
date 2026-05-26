@@ -2277,6 +2277,117 @@ app.post('/api/events', requireAuth, requireAdminOrSuper, (req, res) => {
   res.json(db.prepare('SELECT * FROM events WHERE id=?').get(id));
 });
 
+// Clone an existing event into a new one — for organizers running the same
+// tournament year after year. Copies the *configuration* (contest toggles,
+// scoring rules, polygons, branding, optionally the public site + packages)
+// but NOT the live data (registrations, balls, scoring rounds, pairings).
+//
+// The new event always starts in 'setup' status; the slug is regenerated
+// with a suffix and the cloned site is unpublished by default so the org
+// can review before going live.
+app.post('/api/admin/events/:sourceId/clone', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const src = db.prepare('SELECT * FROM events WHERE id=?').get(req.params.sourceId);
+  if (!src) return res.status(404).json({ error: 'Source event not found' });
+
+  const { name, starts_at, ends_at, copy_packages = true, copy_site = true } = req.body || {};
+  if (!name || !starts_at || !ends_at) return res.status(400).json({ error: 'name, starts_at, ends_at required' });
+
+  const newId = uid('EVT');
+  // Re-resolve tz on the new event from the same venue coords as the source.
+  const newTz = detectTimeZone(src.venue_lat, src.venue_lon);
+
+  const tx = db.transaction(() => {
+    db.prepare(`INSERT INTO events
+      (id, name, venue, starts_at, ends_at, status,
+       has_longest_drive, has_closest_pin, combined_scoring,
+       allow_rough, rough_penalty_mode, rough_fixed_yards,
+       allow_oob, oob_penalty_mode, oob_fixed_yards, hole_distance_yards,
+       fairway_polygon, rough_polygon, oob_polygon, green_polygon,
+       pin_lat, pin_lon,
+       ctp_pin_lat, ctp_pin_lon, ctp_green_polygon, ctp_hole_distance_yards,
+       cp_off_green_penalty_ft, admin_phone, admin_id,
+       venue_lat, venue_lon, time_zone,
+       is_charity, brand_enabled, brand_logo, brand_accent, brand_url)
+      VALUES (?, ?, ?, ?, ?, 'setup',
+              ?, ?, ?,
+              ?, ?, ?,
+              ?, ?, ?, ?,
+              ?, ?, ?, ?,
+              ?, ?,
+              ?, ?, ?, ?,
+              ?, ?, ?,
+              ?, ?, ?,
+              ?, ?, ?, ?, ?)`).run(
+      newId, name, src.venue, starts_at, ends_at,
+      src.has_longest_drive, src.has_closest_pin, src.combined_scoring,
+      src.allow_rough, src.rough_penalty_mode, src.rough_fixed_yards,
+      src.allow_oob, src.oob_penalty_mode, src.oob_fixed_yards, src.hole_distance_yards,
+      src.fairway_polygon, src.rough_polygon, src.oob_polygon, src.green_polygon,
+      src.pin_lat, src.pin_lon,
+      src.ctp_pin_lat, src.ctp_pin_lon, src.ctp_green_polygon, src.ctp_hole_distance_yards,
+      src.cp_off_green_penalty_ft, src.admin_phone, req.admin.id,
+      src.venue_lat, src.venue_lon, newTz,
+      src.is_charity, src.brand_enabled, src.brand_logo, src.brand_accent, src.brand_url
+    );
+
+    // Copy tee_boxes (course map's tee positions for LD).
+    const teeRows = db.prepare('SELECT * FROM tee_boxes WHERE event_id=?').all(src.id);
+    const teeStmt = db.prepare(`INSERT INTO tee_boxes (id, event_id, name, color, lat, lon, hole_type)
+                                VALUES (?, ?, ?, ?, ?, ?, ?)`);
+    for (const t of teeRows) teeStmt.run(uid('TEE'), newId, t.name, t.color, t.lat, t.lon, t.hole_type);
+
+    if (copy_site) {
+      const site = db.prepare('SELECT * FROM event_sites WHERE event_id=?').get(src.id);
+      if (site) {
+        // Generate a unique slug by appending a 4-char suffix. If somehow
+        // that collides too, the UNIQUE constraint will throw and the
+        // whole transaction rolls back — caller can retry.
+        const baseSlug = (site.slug || 'event').slice(0, 60);
+        const newSlug = `${baseSlug}-${uid('').slice(0, 4).toLowerCase()}`;
+        db.prepare(`INSERT INTO event_sites
+          (event_id, slug, headline, subhead, hero_image, starts_at, location_name,
+           about_html, schedule_json, course_info, faq_json,
+           contact_name, contact_email, contact_phone, published)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`).run(
+          newId, newSlug, site.headline, site.subhead, site.hero_image,
+          starts_at, site.location_name,
+          site.about_html, site.schedule_json, site.course_info, site.faq_json,
+          site.contact_name, site.contact_email, site.contact_phone
+        );
+      }
+    }
+
+    let packagesCloned = 0;
+    if (copy_packages) {
+      const pkgs = db.prepare('SELECT * FROM registration_packages WHERE event_id=? ORDER BY sort_order').all(src.id);
+      const pkgStmt = db.prepare(`INSERT INTO registration_packages
+        (id, event_id, name, description, price_cents, includes_players, quantity_limit, sort_order, active)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+      for (const p of pkgs) {
+        pkgStmt.run(uid('PKG'), newId, p.name, p.description, p.price_cents,
+                    p.includes_players, p.quantity_limit, p.sort_order, p.active);
+        packagesCloned++;
+      }
+    }
+
+    return { packages_cloned: packagesCloned, tees_cloned: teeRows.length };
+  });
+
+  let counts;
+  try {
+    counts = tx();
+  } catch (e) {
+    console.error('[Clone event]', e);
+    return res.status(500).json({ error: 'Clone failed: ' + e.message });
+  }
+
+  res.json({
+    event_id: newId,
+    event: db.prepare('SELECT * FROM events WHERE id=?').get(newId),
+    ...counts,
+  });
+});
+
 app.patch('/api/events/:id', requireAuth, requireAdminOrSuper, (req, res) => {
   const allowed = ['name','venue','starts_at','ends_at','status','has_longest_drive','has_closest_pin',
     'combined_scoring','allow_rough','rough_penalty_mode','rough_fixed_yards','allow_oob',
