@@ -45,7 +45,8 @@ if (!JORD.getToken()) location.href = '/admin';
 const parts = location.pathname.split('/').filter(Boolean);
 const eventId = parts[2];  // /admin/events/:id/site/edit
 const state = { site: null, packages: [], schedule: [], faq: [], eventName: '', timeZone: null,
-                 brandLogo: null, brandAccent: null, brandEnabled: false, brandDirty: false };
+                 brandLogo: null, brandAccent: null, brandEnabled: false, brandDirty: false,
+                 fundraisingGoalCents: 0, fundraisingVisible: false, fundraisingDirty: false };
 
 function tzAbbrev(iana, when) {
   if (!iana) return '';
@@ -69,6 +70,9 @@ async function load() {
     state.brandAccent = ev?.brand_accent || null;
     state.brandEnabled = !!ev?.brand_enabled;
     state.brandDirty = false;
+    state.fundraisingGoalCents = ev?.fundraising_goal_cents || 0;
+    state.fundraisingVisible = !!ev?.fundraising_visible;
+    state.fundraisingDirty = false;
     state.site = d.site || {};
     state.packages = d.packages || [];
     try { state.stripe = await JORD.api('/api/admin/stripe/account'); }
@@ -213,6 +217,24 @@ function render() {
       <h2 class="card-title">${lbl('Registration packages', "Player tickets — Foursome, Single, etc. The number-of-players field controls how big the buyer's roster section is at checkout.")}</h2>
       <div id="pkgList"></div>
       <button class="btn btn-primary" id="addPkg">+ Add package</button>
+    </div>
+
+    <div class="card">
+      <h2 class="card-title">${lbl('Fundraising goal', "Optional goal-bar shown on the public event page. The bar fills with the total of paid registrations + sponsorships minus refunds. Set a goal first; flip the toggle when you're ready for visitors to see it.")}</h2>
+      <div class="field-grid" style="grid-template-columns:1fr 1fr">
+        <div class="field">
+          <label>Target amount (USD)</label>
+          <input class="input" id="f-fund-goal" type="number" min="0" step="100" value="${(state.fundraisingGoalCents || 0) / 100}" placeholder="50000" />
+          <div class="hint">Leave at 0 to disable the bar entirely.</div>
+        </div>
+        <div class="field">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="f-fund-visible" ${state.fundraisingVisible ? 'checked' : ''} />
+            <span>Show goal bar publicly</span>
+          </label>
+          <div class="hint">Off = the goal stays private (you can still see it on the registrations dashboard).</div>
+        </div>
+      </div>
     </div>
 
     <div class="card">
@@ -598,6 +620,16 @@ async function save() {
       }});
       state.brandDirty = false;
     }
+    // Fundraising goal is also on the events row — patch it alongside.
+    // Always send (cheap, idempotent) so the toggle takes effect even
+    // when the dollar amount didn't change.
+    const goalDollars = Number($('#f-fund-goal').value) || 0;
+    await JORD.api(`/api/events/${eventId}`, { method:'PATCH', body: {
+      fundraising_goal_cents: Math.max(0, Math.round(goalDollars * 100)),
+      fundraising_visible: $('#f-fund-visible').checked ? 1 : 0,
+    }});
+    state.fundraisingGoalCents = Math.max(0, Math.round(goalDollars * 100));
+    state.fundraisingVisible = $('#f-fund-visible').checked;
     state.site = { ...state.site, ...body, schedule_json: JSON.stringify(body.schedule), faq_json: JSON.stringify(body.faq) };
     $('#saveStatus').textContent = 'Saved ✓';
     JORD.success('Event site saved');

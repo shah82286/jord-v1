@@ -233,6 +233,69 @@ function fmtShortDate(s) {
   return d.toLocaleDateString(undefined, { month:'short', day:'numeric' });
 }
 
+// Render the fundraising goal progress (only when the organizer set a goal).
+// Shows the bar regardless of `visible` — admins always see their progress
+// even when it's hidden from the public page.
+function renderFundraising() {
+  const f = state.fundraising;
+  if (!f || !f.goal_cents) return '';
+  const pct = Math.min(100, Math.round((f.raised_cents / f.goal_cents) * 100));
+  return `
+    <div class="rg-stat" style="grid-column:1/-1;margin-bottom:var(--s-4);padding:var(--s-4) var(--s-5)">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--s-3);flex-wrap:wrap;margin-bottom:10px">
+        <div>
+          <div class="k">Fundraising progress</div>
+          <div class="v" style="font-size:1.4rem">${fmtMoney(f.raised_cents)} <span style="color:var(--ink-3);font-family:inherit;font-size:.75em">of ${fmtMoney(f.goal_cents)}</span></div>
+        </div>
+        <div style="text-align:right">
+          <div style="font-family:var(--font-display);font-size:1.6rem;color:var(--accent);line-height:1">${pct}%</div>
+          <div class="sub" style="margin-top:2px">${f.visible ? '✓ public goal bar shown' : '⊘ hidden from public page'}</div>
+        </div>
+      </div>
+      <div style="position:relative;height:12px;background:var(--surface-2);border-radius:6px;overflow:hidden;border:1px solid var(--border)">
+        <div style="position:absolute;inset:0 auto 0 0;width:${pct}%;background:linear-gradient(90deg,var(--accent) 0%,#d4a76a 100%);transition:width .8s ease-out;border-radius:6px"></div>
+      </div>
+    </div>`;
+}
+
+// Break down gross revenue by package kind so the organizer can see how
+// much came from ticket sales vs. sponsorships. Renders inline as two
+// horizontal bars filling proportionally.
+function renderRevenueBreakdown() {
+  const b = state.revenue_by_kind;
+  if (!b) return '';
+  const regNet = b.registration.net_cents || 0;
+  const spNet = b.sponsorship.net_cents || 0;
+  const total = regNet + spNet;
+  if (total === 0) return '';
+  const regPct = total ? Math.round((regNet / total) * 100) : 0;
+  const spPct  = 100 - regPct;
+  return `
+    <div class="rg-stat" style="grid-column:1/-1;margin-bottom:var(--s-4);padding:var(--s-4) var(--s-5)">
+      <div class="k" style="margin-bottom:12px">Revenue breakdown</div>
+      <div style="display:grid;gap:14px">
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+            <span style="font-weight:600;font-size:14px">🎟️ Player tickets <span style="color:var(--ink-3);font-weight:500">· ${b.registration.count}</span></span>
+            <span style="font-family:var(--font-display);font-size:18px">${fmtMoney(regNet)}</span>
+          </div>
+          <div style="position:relative;height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden;border:1px solid var(--border)">
+            <div style="position:absolute;inset:0 auto 0 0;width:${regPct}%;background:var(--ink);border-radius:4px"></div>
+          </div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+            <span style="font-weight:600;font-size:14px">💼 Sponsorships <span style="color:var(--ink-3);font-weight:500">· ${b.sponsorship.count}</span></span>
+            <span style="font-family:var(--font-display);font-size:18px">${fmtMoney(spNet)}</span>
+          </div>
+          <div style="position:relative;height:8px;background:var(--surface-2);border-radius:4px;overflow:hidden;border:1px solid var(--border)">
+            <div style="position:absolute;inset:0 auto 0 0;width:${spPct}%;background:var(--accent);border-radius:4px"></div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
 async function load() {
   try {
     const ev = await JORD.api('/api/events/' + eventId);
@@ -240,6 +303,8 @@ async function load() {
     const d = await JORD.api('/api/admin/events/' + eventId + '/registrations');
     state.registrations = d.registrations || [];
     state.totals = d.totals || { count: 0, paid_count: 0, revenue_cents: 0, fees_cents: 0, players_paid: 0, refunds_cents: 0 };
+    state.revenue_by_kind = d.revenue_by_kind || null;
+    state.fundraising = d.fundraising || null;
     render();
   } catch (e) {
     if (e.status === 401) location.href = '/admin';
@@ -296,6 +361,9 @@ function render() {
         <div class="sub">after fees + refunds</div>
       </div>
     </div>
+
+    ${renderFundraising()}
+    ${renderRevenueBreakdown()}
 
     <div class="rg-table-wrap">
       <div class="rg-toolbar">

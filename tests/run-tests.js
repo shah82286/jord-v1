@@ -426,6 +426,30 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
 }
 
+console.log('\n📊 Fundraising goal + revenue dashboard (E3 phase 2)\n');
+{
+  test('events.fundraising_goal_cents column migrated',
+    () => assert(src.includes('ALTER TABLE events ADD COLUMN fundraising_goal_cents'), 'Missing goal column'));
+  test('events.fundraising_visible column migrated',
+    () => assert(src.includes('ALTER TABLE events ADD COLUMN fundraising_visible'), 'Missing visible column'));
+  test('PATCH /api/events/:id accepts fundraising fields',
+    () => assert(src.includes("'fundraising_goal_cents','fundraising_visible'"), 'Allowed list missing fundraising'));
+  test('Public payload returns fundraising when visible',
+    () => assert(src.includes('event.fundraising_visible') && src.includes('fundraising,'), 'Public payload missing fundraising'));
+  test('Admin registrations endpoint returns revenue_by_kind',
+    () => assert(src.includes('revenue_by_kind') && src.includes("kind === 'sponsorship'"), 'Breakdown missing'));
+  const fs = require('fs');
+  const editorHtml = fs.readFileSync('./public/admin/event-site-editor.html', 'utf8');
+  test('Event-site editor has Fundraising goal card',
+    () => assert(editorHtml.includes('f-fund-goal') && editorHtml.includes('f-fund-visible'), 'Editor missing fundraising inputs'));
+  const siteHtml = fs.readFileSync('./public/event-site.html', 'utf8');
+  test('Public event-site renders goal bar markup',
+    () => assert(siteHtml.includes('es-fund-bar') && siteHtml.includes('fund.percent'), 'Goal bar not wired'));
+  const regsHtml = fs.readFileSync('./public/admin/event-registrations.html', 'utf8');
+  test('Registrations dashboard exposes renderFundraising + renderRevenueBreakdown',
+    () => assert(regsHtml.includes('function renderFundraising') && regsHtml.includes('function renderRevenueBreakdown'), 'Dashboard sections missing'));
+}
+
 console.log('\n💰 Sponsorships (E3 phase 1)\n');
 {
   test('registration_packages.package_kind column migrated',

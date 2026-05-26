@@ -156,6 +156,20 @@ function render(d) {
       </div>
     </section>` : '';
 
+  // Fundraising goal — only present when the organizer opted in.
+  // Animate the bar fill from 0 to its final percent on first paint so the
+  // page feels alive when the section scrolls into view.
+  const fund = d.fundraising;
+  const fundHtml = fund ? `
+    <section class="es-section">
+      <div class="es-eyebrow">${esc(e.is_charity ? 'Funds raised' : 'Tournament total')}</div>
+      <h2>${fmtPrice(fund.raised_cents)} <small style="font-family:var(--font-body);font-size:.5em;color:var(--ink-3);font-weight:500;letter-spacing:.02em;text-transform:none">of ${fmtPrice(fund.goal_cents)} goal</small></h2>
+      <div class="es-fund-bar" style="margin-top:var(--s-3);position:relative;height:18px;background:var(--surface-2);border-radius:9px;overflow:hidden;border:1px solid var(--border)">
+        <div class="es-fund-fill" data-target="${fund.percent}" style="position:absolute;inset:0 auto 0 0;width:0%;background:linear-gradient(90deg,var(--accent) 0%,#d4a76a 100%);transition:width 1.4s cubic-bezier(.22,.61,.36,1);border-radius:9px"></div>
+      </div>
+      <div style="margin-top:8px;font-size:13px;color:var(--ink-2)">${fund.percent}% of goal · thank you to every supporter.</div>
+    </section>` : '';
+
   const sponsors = Array.isArray(d.sponsorships) ? d.sponsorships : [];
   const sponsorEmoji = {
     title:'🏆', hole:'⛳', cart:'🏌', beverage:'🍻', food:'🍴', hole_in_one:'🎯',
@@ -232,6 +246,8 @@ function render(d) {
       <div class="lead"><p>${esc(s.about_html).replace(/\n\n+/g,'</p><p>').replace(/\n/g,'<br>')}</p></div>
     </section>` : ''}
 
+    ${fundHtml}
+
     ${schedHtml}
 
     ${s.course_info ? `
@@ -260,6 +276,10 @@ function render(d) {
     const pkgId = b.getAttribute('data-pkg') || b.getAttribute('data-sponsor-pkg');
     location.href = `/e/${encodeURIComponent(slug)}/register?pkg=${encodeURIComponent(pkgId)}`;
   });
+
+  // Drive the goal-bar fill in on the next frame so the CSS transition runs.
+  const fill = document.querySelector('.es-fund-fill');
+  if (fill) requestAnimationFrame(() => { fill.style.width = (fill.dataset.target || '0') + '%'; });
 
   if (accent) document.documentElement.style.setProperty('--accent', accent);
 }

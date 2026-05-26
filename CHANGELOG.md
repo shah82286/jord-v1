@@ -2,6 +2,53 @@
 
 ---
 
+## v3.42.0 — 2026-05-25
+### Session 58 — Fundraising goal bar + revenue dashboard (E3 phase 2)
+
+Second slice of the Raise-Money phase. Public-facing animated goal
+progress bar (organizer opts in) plus an admin-side revenue breakdown
+that splits player tickets vs. sponsorships.
+
+#### What changed
+- **Schema** — two new event columns:
+  - `events.fundraising_goal_cents INTEGER` — target amount in cents
+  - `events.fundraising_visible INTEGER DEFAULT 0` — public toggle
+  (separate so an organizer can set a goal privately first).
+- **PATCH `/api/events/:id`** allowed list extended to accept both
+  fundraising fields.
+- **GET `/api/event-sites/:slug`** returns `fundraising: { goal_cents,
+  raised_cents, percent }` only when the organizer has flipped the
+  visible toggle AND set a non-zero goal. Raised = sum of paid +
+  partial_refund amount_cents minus refund_amount_cents (matches what
+  net-to-organizer-before-platform-fee would look like).
+- **GET `/api/admin/events/:id/registrations`** returns two new payloads:
+  - `revenue_by_kind` — `{ registration: {…}, sponsorship: {…} }` with
+    `gross_cents`, `refunds_cents`, `count`, `net_cents` for each.
+  - `fundraising` — same shape as the public version but always
+    returned (admins see their progress even when hidden from the
+    public).
+- **Admin event-site editor** — new "Fundraising goal" card with:
+  - Target amount (USD, step 100). Leave at 0 to disable.
+  - "Show goal bar publicly" checkbox.
+  - Persists via the existing Save changes button.
+- **Public event-site** — animated goal bar fills on first paint via
+  `requestAnimationFrame` + CSS transition. Headline shows the raised
+  total + goal target; caption underneath shows percent + "thank you
+  to every supporter" copy.
+- **Registrations dashboard** — two new sections under the stat cards:
+  - **Fundraising progress** card with the same animated bar (always
+    visible to admins; chip notes whether the public can see it).
+  - **Revenue breakdown** with two horizontal bars: 🎟️ Player tickets
+    (in ink) vs. 💼 Sponsorships (in saffron). Each bar fills
+    proportionally to total net revenue.
+
+#### Tested
+- **197/197 unit tests pass** (+8 new) covering migrations, allowed-list
+  extension, public payload gating, admin breakdown, editor UI surface,
+  public bar markup, and dashboard helpers.
+
+---
+
 ## v3.41.0 — 2026-05-25
 ### Session 57 — Sponsorships (E3 phase 1)
 

@@ -304,6 +304,12 @@ try { db.exec("ALTER TABLE pairing_groups ADD COLUMN cart_numbers TEXT"); } catc
 try { db.exec("ALTER TABLE registration_packages ADD COLUMN package_kind TEXT DEFAULT 'registration'"); } catch {}
 try { db.exec("ALTER TABLE registration_packages ADD COLUMN sponsor_type TEXT"); } catch {}
 
+// Fundraising goal (E3 phase 2): optional target the public site shows
+// as an animated progress bar. `_visible` is a separate toggle so an
+// organizer can set a goal privately before deciding to show it.
+try { db.exec("ALTER TABLE events ADD COLUMN fundraising_goal_cents INTEGER"); } catch {}
+try { db.exec("ALTER TABLE events ADD COLUMN fundraising_visible INTEGER DEFAULT 0"); } catch {}
+
 // Team share code (6-char code from registration; lets players join via QR after team is finalized)
 try { db.exec("ALTER TABLE teams ADD COLUMN share_code TEXT"); } catch {}
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_teams_share_code ON teams(share_code)"); } catch {}
@@ -2403,7 +2409,8 @@ app.patch('/api/events/:id', requireAuth, requireAdminOrSuper, (req, res) => {
     'pin_lat','pin_lon',
     'ctp_green_polygon','ctp_pin_lat','ctp_pin_lon','ctp_hole_distance_yards',
     'cp_off_green_penalty_ft','admin_phone','venue_lat','venue_lon','zone_visibility',
-    'is_charity','brand_enabled','brand_logo','brand_accent','brand_url'];
+    'is_charity','brand_enabled','brand_logo','brand_accent','brand_url',
+    'fundraising_goal_cents','fundraising_visible'];
   // Guard the logo payload: only accept a base64 image data URL under the
   // SQLite-friendly ceiling. An empty/null value clears the logo. Anything
   // else (random strings, oversized blobs) is rejected so we never write
@@ -4852,7 +4859,8 @@ app.delete('/api/admin/events/:id/packages/:pkgId', requireAuth, requireAdminOrS
 app.get('/api/event-sites/:slug', (req, res) => {
   const site = db.prepare('SELECT * FROM event_sites WHERE slug=? AND published=1').get(req.params.slug);
   if (!site) return res.status(404).json({ error: 'Event not found' });
-  const event = db.prepare(`SELECT id, name, venue, time_zone, is_charity, brand_logo, brand_accent, brand_url, admin_id
+  const event = db.prepare(`SELECT id, name, venue, time_zone, is_charity, brand_logo, brand_accent, brand_url, admin_id,
+                                   fundraising_goal_cents, fundraising_visible
                             FROM events WHERE id=?`).get(site.event_id);
   const allPackages = db.prepare(`SELECT id, name, description, price_cents, includes_players, quantity_limit, package_kind, sponsor_type
                                   FROM registration_packages
@@ -4872,10 +4880,31 @@ app.get('/api/event-sites/:slug', (req, res) => {
   }
   delete event.admin_id; // don't leak organizer id to public site
   const parseJson = s => { try { return JSON.parse(s || '[]'); } catch { return []; } };
+  // Fundraising stats — only computed when the organizer has opted in to
+  // showing them. Counts gross revenue minus refunds (net to organizer
+  // before JORD's 3% fee) so the goal-bar number matches what the public
+  // would expect to see.
+  let fundraising = null;
+  if (event.fundraising_visible && event.fundraising_goal_cents > 0) {
+    const raised = db.prepare(`SELECT
+        COALESCE(SUM(amount_cents - COALESCE(refund_amount_cents,0)), 0) AS raised_cents
+      FROM registrations
+      WHERE event_id=? AND payment_status IN ('paid','partial_refund')`).get(site.event_id).raised_cents;
+    fundraising = {
+      goal_cents: event.fundraising_goal_cents,
+      raised_cents: raised,
+      percent: Math.min(100, Math.round((raised / event.fundraising_goal_cents) * 100)),
+    };
+  }
+  // Strip internal-only flags from the public event payload.
+  delete event.fundraising_visible;
+  if (!fundraising) delete event.fundraising_goal_cents;
+
   res.json({
     site, event, packages, sponsorships,
     schedule: parseJson(site.schedule_json),
     faq:      parseJson(site.faq_json),
+    fundraising,
     registration_open,
     payment_mode: stripeHelper.mode,
   });
@@ -5035,6 +5064,41 @@ app.get('/api/admin/events/:id/registrations', requireAuth, requireAdminOrSuper,
     FROM registrations r
     JOIN registration_packages p ON p.id = r.package_id
     WHERE r.event_id=?`).get(req.params.id);
+
+  // Break the revenue down by package kind so the organizer can see how
+  // much came from player tickets vs sponsorships. Refunds are subtracted
+  // from each bucket's gross.
+  const breakdown = db.prepare(`SELECT
+      COALESCE(p.package_kind, 'registration') AS kind,
+      COALESCE(SUM(CASE WHEN r.payment_status IN ('paid','partial_refund','refunded') THEN r.amount_cents END), 0) AS gross_cents,
+      COALESCE(SUM(r.refund_amount_cents), 0) AS refunds_cents,
+      COALESCE(SUM(CASE WHEN r.payment_status IN ('paid','partial_refund','refunded') THEN 1 END), 0) AS count
+    FROM registrations r
+    JOIN registration_packages p ON p.id = r.package_id
+    WHERE r.event_id=?
+    GROUP BY COALESCE(p.package_kind, 'registration')`).all(req.params.id);
+  // Reshape into a stable { registration, sponsorship } object even when
+  // one kind has no rows yet — the dashboard needs both keys to render.
+  const revenue_by_kind = {
+    registration: { gross_cents: 0, refunds_cents: 0, count: 0, net_cents: 0 },
+    sponsorship:  { gross_cents: 0, refunds_cents: 0, count: 0, net_cents: 0 },
+  };
+  for (const row of breakdown) {
+    const k = row.kind === 'sponsorship' ? 'sponsorship' : 'registration';
+    revenue_by_kind[k].gross_cents   = row.gross_cents;
+    revenue_by_kind[k].refunds_cents = row.refunds_cents;
+    revenue_by_kind[k].count         = row.count;
+    revenue_by_kind[k].net_cents     = row.gross_cents - row.refunds_cents;
+  }
+
+  // Fundraising goal context for the dashboard (always returned to admins
+  // regardless of whether they've made it public).
+  const eventRow = db.prepare('SELECT fundraising_goal_cents, fundraising_visible FROM events WHERE id=?').get(req.params.id) || {};
+  const fundraising = {
+    goal_cents: eventRow.fundraising_goal_cents || 0,
+    visible: !!eventRow.fundraising_visible,
+    raised_cents: Math.max(0, (totals.revenue_cents || 0) - (totals.refunds_cents || 0)),
+  };
   // Parse players_json into structured arrays so the client doesn't have to.
   const registrations = rows.map(r => {
     let players = [];
@@ -5042,7 +5106,7 @@ app.get('/api/admin/events/:id/registrations', requireAuth, requireAdminOrSuper,
     const { players_json, ...rest } = r;
     return { ...rest, players };
   });
-  res.json({ registrations, totals });
+  res.json({ registrations, totals, revenue_by_kind, fundraising });
 });
 
 // CSV export — opens in Excel/Sheets. Columns are flat (one player per row
