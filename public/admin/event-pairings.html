@@ -317,7 +317,7 @@ function renderScoringButton() {
   if (state.scoring && state.scoring.tournament_id) {
     return `
       <a class="btn btn-primary" href="/tournament/${esc(state.scoring.tournament_id)}" target="_blank" rel="noopener">📺 Leaderboard →</a>
-      <button class="btn btn-ghost" id="btn-sync-scoring" title="Pull any newly-paid registrations into the scoring round">↻ Sync</button>
+      <button class="btn btn-ghost" id="btn-sync-scoring" title="Pull any newly-paid registrations into the scoring round AND push pairing edits to the leaderboard groupings">↻ Sync to leaderboard</button>
     `;
   }
   return `<button class="btn btn-primary" id="btn-start-scoring">🏆 Start scoring</button>`;
@@ -362,13 +362,22 @@ async function syncScoring() {
   btn.disabled = true; btn.textContent = '⏳';
   try {
     const res = await JORD.api(`/api/admin/events/${eventId}/sync-scoring`, { method: 'POST' });
+    // Build a single status line covering both the player-add and the
+    // pairing-group-mirroring sides of the sync.
     const added = (res.entriesAdded || 0);
-    JORD.success(added > 0 ? `Added ${added} new player(s) to the leaderboard.` : 'Already up to date — no new players to sync.');
+    const groupBits = [];
+    if (res.score_groups_created) groupBits.push(`${res.score_groups_created} group(s) created`);
+    if (res.score_groups_updated) groupBits.push(`${res.score_groups_updated} renamed`);
+    if (res.score_groups_deleted) groupBits.push(`${res.score_groups_deleted} removed`);
+    const groupMsg = groupBits.length ? ` · Groups: ${groupBits.join(', ')}` : '';
+    JORD.success(
+      (added > 0 ? `Added ${added} new player(s).` : 'Player field already in sync.') + groupMsg
+    );
     await load();
   } catch (e) {
     alert(e.message || 'Sync failed');
   } finally {
-    btn.disabled = false; btn.textContent = '↻ Sync';
+    btn.disabled = false; btn.textContent = '↻ Sync to leaderboard';
   }
 }
 

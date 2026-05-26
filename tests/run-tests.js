@@ -389,6 +389,7 @@ console.log('\n🔌 Tournament Scoring Routes\n');
  ['GET','/api/admin/events/:id/scoring'],
  ['POST','/api/admin/events/:id/start-scoring'],
  ['POST','/api/admin/events/:id/sync-scoring'],
+ ['POST','/api/admin/events/:id/sync-pairings-to-scoring'],
  ['POST','/api/admin/events/:sourceId/clone'],
  ['POST','/api/stripe/webhook'],
  ['GET','/api/admin/stripe/account'],
@@ -425,6 +426,34 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(36.5687, -121.9505) === 'America/Los_Angeles', `got ${tzLookup(36.5687, -121.9505)}`));
   test('tz-lookup resolves a Chicago-area course to America/Chicago',
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
+}
+
+console.log('\n🔗 Pairings → scoring bridge (v3.44)\n');
+{
+  test('score_groups.pairing_group_id column migrated',
+    () => assert(src.includes('ALTER TABLE score_groups ADD COLUMN pairing_group_id'), 'Missing column'));
+  test('round_entries.source_registration_id column migrated',
+    () => assert(src.includes('ALTER TABLE round_entries ADD COLUMN source_registration_id'), 'Missing column'));
+  test('round_entries.source_player_index column migrated',
+    () => assert(src.includes('ALTER TABLE round_entries ADD COLUMN source_player_index'), 'Missing column'));
+  test('_syncPairingsToScoreGroups helper defined',
+    () => assert(src.includes('function _syncPairingsToScoreGroups('), 'Missing helper'));
+  test('start-scoring calls the sync helper',
+    () => assert(/start-scoring[\s\S]*?_syncPairingsToScoreGroups/.test(src), 'start-scoring missing sync call'));
+  test('sync-scoring calls the sync helper',
+    () => assert(/sync-scoring[\s\S]*?_syncPairingsToScoreGroups/.test(src), 'sync-scoring missing sync call'));
+  test('POST /sync-pairings-to-scoring endpoint registered',
+    () => assert(src.includes("app.post('/api/admin/events/:id/sync-pairings-to-scoring'"), 'Missing route'));
+  test('Materializer records source_registration_id + source_player_index',
+    () => assert(src.includes('source_registration_id,source_player_index') && src.includes('r.id, i'), 'Source columns not written'));
+  test('Sync deletes score_groups for removed pairings',
+    () => assert(src.includes('DELETE FROM score_groups WHERE id=?'), 'Orphan cleanup missing'));
+  test('Team-card sync uses captain group for all team members',
+    () => assert(src.includes('teamGroup') && src.includes('source_player_index === 0'), 'Team grouping logic missing'));
+  const fs = require('fs');
+  const pairingsHtml = fs.readFileSync('./public/admin/event-pairings.html', 'utf8');
+  test('Pairings page sync button calls sync-scoring',
+    () => assert(pairingsHtml.includes('/sync-scoring'), 'UI not wired to sync endpoint'));
 }
 
 console.log('\n💵 Standalone donations (E3 phase 3)\n');

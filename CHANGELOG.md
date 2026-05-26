@@ -2,6 +2,63 @@
 
 ---
 
+## v3.44.0 — 2026-05-26
+### Session 61 — Pairings → scoring score-groups bridge
+
+The pairings system and the scoring system have been parallel until now —
+pairings handled cart/hole logistics, scoring tracked the leaderboard.
+v3.44 wires them: every pairing group mirrors into a `score_groups` row
+on the active round so the live leaderboard groups players by foursome.
+
+#### What changed
+- **Schema** — three new columns (all idempotent migrations):
+  - `score_groups.pairing_group_id TEXT` — links a score_group to its
+    source pairing_group. Match-by-name was the alternative but it
+    breaks the moment an organizer renames a group.
+  - `round_entries.source_registration_id TEXT` + `source_player_index INTEGER`
+    — let us reverse-lookup which registration roster slot produced
+    each entry, so later pairing edits can re-assign group_id without
+    re-materializing players.
+- **`_syncPairingsToScoreGroups(eventId, roundId, format)`** — the new
+  workhorse:
+  - Upserts a score_group per pairing_group, refreshing name / starting_hole
+    / tee_time when the pairing was edited after start.
+  - Deletes score_groups whose source pairing_group was removed, nulling
+    `round_entries.group_id` first since we don't have FK CASCADE.
+  - Re-walks every round_entry and sets `group_id` from its source
+    registration's pairing assignment (or NULL if unassigned).
+  - **Team-card formats** (scramble / foursomes / greensome) force every
+    team member into the captain's group so a team isn't split across
+    leaderboard groups.
+- **Wired into both existing endpoints**:
+  - `POST /api/admin/events/:id/start-scoring` mirrors pairings on first
+    materialization.
+  - `POST /api/admin/events/:id/sync-scoring` re-runs the mirror on every
+    sync (picks up any pairing edits since the last sync).
+- **New endpoint `POST /api/admin/events/:id/sync-pairings-to-scoring`**
+  — re-mirrors without adding new players. Useful when the organizer
+  only wants to push pairing-edit changes through without touching the
+  player field.
+- **Materializer update** — every newly-created `round_entries` row now
+  stores `source_registration_id` + `source_player_index` so the sync
+  helper can identify it later.
+- **UI** — the existing "↻ Sync" button on the pairings page renamed to
+  "↻ Sync to leaderboard" and now reports both halves of the operation
+  in the success toast: "Added N players · Groups: X created, Y renamed".
+
+#### Why this matters
+- Live leaderboard at `/tournament/:id` now groups by pairing, so
+  spectators can find their foursome at a glance.
+- Pairings + scoring stay in sync without manual touchups — edit a
+  group on the pairings page, click Sync, the leaderboard updates.
+
+#### Tested
+- **253/253 unit tests pass** (+12 new) covering migrations, helper
+  presence, both endpoints calling the helper, orphan cleanup,
+  team-card captain logic, and source-column recording.
+
+---
+
 ## v3.43.1 — 2026-05-26
 ### Session 60 — Hotfix pass after v3.43 review
 

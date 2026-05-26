@@ -319,6 +319,14 @@ try { db.exec("ALTER TABLE event_sites ADD COLUMN donation_suggested_json TEXT")
 try { db.exec("ALTER TABLE event_sites ADD COLUMN donation_min_cents INTEGER DEFAULT 500"); } catch {}
 try { db.exec("ALTER TABLE event_sites ADD COLUMN donation_prompt TEXT"); } catch {}
 
+// Pairings ↔ scoring bridge (v3.44): mirror pairing_groups into score_groups
+// so the live leaderboard groups players by foursome. score_groups.pairing_group_id
+// is the link; round_entries.source_registration_id/source_player_index let
+// us re-sync group assignments after the pairings change.
+try { db.exec("ALTER TABLE score_groups ADD COLUMN pairing_group_id TEXT"); } catch {}
+try { db.exec("ALTER TABLE round_entries ADD COLUMN source_registration_id TEXT"); } catch {}
+try { db.exec("ALTER TABLE round_entries ADD COLUMN source_player_index INTEGER"); } catch {}
+
 // Team share code (6-char code from registration; lets players join via QR after team is finalized)
 try { db.exec("ALTER TABLE teams ADD COLUMN share_code TEXT"); } catch {}
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_teams_share_code ON teams(share_code)"); } catch {}
@@ -5906,9 +5914,13 @@ function _materializeRegistrationsToRound(eventId, roundId, fmt, isTeamCard, exi
 
   let entriesAdded = 0, teamsAdded = 0, regsProcessed = 0;
 
-  const insEntryIndividual = db.prepare(`INSERT INTO round_entries (id,round_id,player_id,course_handicap) VALUES (?,?,?,?)`);
+  // `source_registration_id` + `source_player_index` are written on each
+  // entry so we can later re-sync pairing-group assignments after the
+  // organizer edits pairings — without those, there's no way to map a
+  // round_entry back to its pairing_member row.
+  const insEntryIndividual = db.prepare(`INSERT INTO round_entries (id,round_id,player_id,course_handicap,source_registration_id,source_player_index) VALUES (?,?,?,?,?,?)`);
   const insTeam = db.prepare(`INSERT INTO round_teams (id,round_id,name,team_handicap) VALUES (?,?,?,?)`);
-  const insEntryTeam = db.prepare(`INSERT INTO round_entries (id,round_id,player_id,team_id,is_team_card,course_handicap) VALUES (?,?,?,?,?,?)`);
+  const insEntryTeam = db.prepare(`INSERT INTO round_entries (id,round_id,player_id,team_id,is_team_card,course_handicap,source_registration_id,source_player_index) VALUES (?,?,?,?,?,?,?,?)`);
 
   const tx = db.transaction(() => {
     for (const r of regs) {
@@ -5935,7 +5947,7 @@ function _materializeRegistrationsToRound(eventId, roundId, fmt, isTeamCard, exi
           const email = i === 0 ? r.buyer_email : null;
           const player = upsertPlayerFromReg(p.name || `Player ${i + 1}`, phone, email, null);
           // First player carries the shared team scorecard (`is_team_card=1`).
-          insEntryTeam.run(uid('ENT'), roundId, player.id, teamId, i === 0 ? 1 : 0, null);
+          insEntryTeam.run(uid('ENT'), roundId, player.id, teamId, i === 0 ? 1 : 0, null, r.id, i);
           entriesAdded++;
         }
       } else {
@@ -5945,7 +5957,7 @@ function _materializeRegistrationsToRound(eventId, roundId, fmt, isTeamCard, exi
           const phone = i === 0 ? r.buyer_phone : null;
           const email = i === 0 ? r.buyer_email : null;
           const player = upsertPlayerFromReg(p.name || `Player ${i + 1}`, phone, email, null);
-          insEntryIndividual.run(uid('ENT'), roundId, player.id, null);
+          insEntryIndividual.run(uid('ENT'), roundId, player.id, null, r.id, i);
           entriesAdded++;
         }
       }
@@ -5954,6 +5966,108 @@ function _materializeRegistrationsToRound(eventId, roundId, fmt, isTeamCard, exi
   });
   tx();
   return { entriesAdded, teamsAdded, regsProcessed };
+}
+
+// Mirror pairing_groups → score_groups for the round, then set
+// round_entries.group_id to match each entry's pairing assignment. Idempotent
+// — re-runnable after the organizer edits pairings. Returns counts so the
+// UI can show a "Updated 8 groups, 32 players" toast.
+function _syncPairingsToScoreGroups(eventId, roundId, format) {
+  const fmt = formats.getFormat(format);
+  const isTeamCard = fmt && typeof fmt.allowance === 'string';
+
+  const pgs = db.prepare(`SELECT id, name, starting_hole, tee_time
+                          FROM pairing_groups WHERE event_id=?
+                          ORDER BY sort_order, starting_hole, created_at`).all(eventId);
+
+  // Build pairing_member lookup keyed by "reg_id:player_index" → pairing_group_id.
+  const pms = db.prepare(`SELECT registration_id, player_index, group_id
+                          FROM pairing_members WHERE event_id=?`).all(eventId);
+  const memberToGroup = new Map();
+  for (const m of pms) memberToGroup.set(`${m.registration_id}:${m.player_index}`, m.group_id);
+
+  let scoreGroupsCreated = 0, scoreGroupsUpdated = 0, scoreGroupsDeleted = 0, entriesAssigned = 0;
+
+  // Upsert score_groups matched by pairing_group_id (the link column added
+  // in v3.44). Match-by-name is brittle when an organizer renames a group.
+  const pairingGroupIds = new Set(pgs.map(g => g.id));
+  const pgToSg = new Map();   // pairing_group_id → score_group.id
+  const existing = db.prepare('SELECT id, pairing_group_id, name, starting_hole, tee_time FROM score_groups WHERE round_id=?').all(roundId);
+  const existingByPg = new Map();
+  for (const sg of existing) if (sg.pairing_group_id) existingByPg.set(sg.pairing_group_id, sg);
+
+  const tx = db.transaction(() => {
+    for (const pg of pgs) {
+      const cur = existingByPg.get(pg.id);
+      if (cur) {
+        // Refresh name / hole / tee when the pairing was edited after start.
+        if (cur.name !== pg.name || cur.starting_hole !== pg.starting_hole || cur.tee_time !== pg.tee_time) {
+          db.prepare('UPDATE score_groups SET name=?, starting_hole=?, tee_time=? WHERE id=?')
+            .run(pg.name, pg.starting_hole, pg.tee_time, cur.id);
+          scoreGroupsUpdated++;
+        }
+        pgToSg.set(pg.id, cur.id);
+      } else {
+        const sgId = uid('SG');
+        db.prepare(`INSERT INTO score_groups (id, round_id, name, tee_time, starting_hole, pairing_group_id)
+                    VALUES (?, ?, ?, ?, ?, ?)`)
+          .run(sgId, roundId, pg.name, pg.tee_time, pg.starting_hole, pg.id);
+        scoreGroupsCreated++;
+        pgToSg.set(pg.id, sgId);
+      }
+    }
+
+    // Drop score_groups whose pairing_group has been deleted. NULL the
+    // round_entries.group_id pointer first since we don't have CASCADE.
+    for (const sg of existing) {
+      if (sg.pairing_group_id && !pairingGroupIds.has(sg.pairing_group_id)) {
+        db.prepare('UPDATE round_entries SET group_id=NULL WHERE round_id=? AND group_id=?').run(roundId, sg.id);
+        db.prepare('DELETE FROM score_groups WHERE id=?').run(sg.id);
+        scoreGroupsDeleted++;
+      }
+    }
+
+    // Re-assign each round_entry's group_id from its source registration's
+    // pairing. For team-card formats, force every entry in the same team
+    // to share the team-captain's group so the team isn't split across
+    // groups on the leaderboard.
+    const entries = db.prepare(`SELECT id, team_id, is_team_card, source_registration_id, source_player_index
+                                FROM round_entries WHERE round_id=?`).all(roundId);
+    const upd = db.prepare('UPDATE round_entries SET group_id=? WHERE id=?');
+
+    if (isTeamCard) {
+      // Pick the captain's (player_index=0) group per team.
+      const teamGroup = new Map();
+      for (const e of entries) {
+        if (!e.team_id) continue;
+        if (e.source_registration_id != null && e.source_player_index === 0) {
+          const key = `${e.source_registration_id}:0`;
+          const pg = memberToGroup.get(key);
+          if (pg) teamGroup.set(e.team_id, pgToSg.get(pg) || null);
+        }
+      }
+      for (const e of entries) {
+        const target = e.team_id ? (teamGroup.get(e.team_id) || null) : null;
+        upd.run(target, e.id);
+        if (target) entriesAssigned++;
+      }
+    } else {
+      for (const e of entries) {
+        const key = e.source_registration_id != null
+          ? `${e.source_registration_id}:${e.source_player_index ?? 0}`
+          : null;
+        const pgId = key ? memberToGroup.get(key) : null;
+        const sgId = pgId ? pgToSg.get(pgId) || null : null;
+        upd.run(sgId, e.id);
+        if (sgId) entriesAssigned++;
+      }
+    }
+  });
+  tx();
+
+  return { score_groups_created: scoreGroupsCreated, score_groups_updated: scoreGroupsUpdated,
+           score_groups_deleted: scoreGroupsDeleted, entries_assigned: entriesAssigned,
+           pairing_groups: pgs.length };
 }
 
 // Start scoring for an enterprise event. Creates a Clubhouse tournament
@@ -6003,6 +6117,9 @@ app.post('/api/admin/events/:id/start-scoring', requireAuth, requireAdminOrSuper
   // the user re-clicks "Start scoring" or has a partial materialization.
   const existingKeys = new Set();
   const counts = _materializeRegistrationsToRound(eventId, roundId, fmt, isTeamCard, existingKeys);
+  // Mirror any existing pairings into score_groups + assign each entry's
+  // group_id so the leaderboard groups players by foursome from the start.
+  const groupCounts = _syncPairingsToScoreGroups(eventId, roundId, requested);
 
   res.json({
     tournament_id: tournamentId,
@@ -6010,6 +6127,7 @@ app.post('/api/admin/events/:id/start-scoring', requireAuth, requireAdminOrSuper
     format: requested,
     is_team_card: isTeamCard,
     ...counts,
+    ...groupCounts,
   });
 });
 
@@ -6061,6 +6179,23 @@ app.post('/api/admin/events/:id/sync-scoring', requireAuth, requireAdminOrSuper,
   }
 
   const counts = _materializeRegistrationsToRound(eventId, round.id, fmt, isTeamCard, existingKeys);
+  // Always re-sync pairing groups on sync — picks up any pairing edits
+  // the organizer made after start-scoring (renamed groups, moved players,
+  // new walk-up assignments, etc.).
+  const groupCounts = _syncPairingsToScoreGroups(eventId, round.id, t.default_format);
+  res.json({ tournament_id: t.id, round_id: round.id, ...counts, ...groupCounts });
+});
+
+// Re-mirror pairings into score_groups + reassign round_entries.group_id
+// without adding any new players. Use this when the organizer just wants
+// to push pairing changes through to the leaderboard.
+app.post('/api/admin/events/:id/sync-pairings-to-scoring', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const eventId = req.params.id;
+  const t = db.prepare('SELECT * FROM tournaments WHERE event_id=?').get(eventId);
+  if (!t) return res.status(400).json({ error: 'Scoring not started yet — use Start scoring first.' });
+  const round = db.prepare('SELECT id FROM rounds WHERE tournament_id=? ORDER BY round_number LIMIT 1').get(t.id);
+  if (!round) return res.status(400).json({ error: 'No round on tournament' });
+  const counts = _syncPairingsToScoreGroups(eventId, round.id, t.default_format);
   res.json({ tournament_id: t.id, round_id: round.id, ...counts });
 });
 
