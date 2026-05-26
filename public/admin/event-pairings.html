@@ -141,7 +141,7 @@
     <div class="sub">Wire every paid registration into a live tournament leaderboard. You can keep editing pairings after this — scoring uses its own player list.</div>
 
     <div class="field">
-      <label>Tournament format</label>
+      <label class="label-with-help">Tournament format <span class="help-icon" tabindex="0">ⓘ<span class="tooltip">Determines how scores are tallied. Scramble = the team picks the best shot each time and all play from there (one team scorecard). Best ball = each player keeps their own ball; the team takes the lowest score on each hole. Stableford = points awarded per hole based on score vs par. Pick what your event runs; you can't change this later without resetting scoring.</span></span></label>
       <select id="sc-format">
         <option value="scramble_4p">4-person scramble (most charity events)</option>
         <option value="scramble_2p">2-person scramble</option>
@@ -167,7 +167,7 @@
     <div class="sub">Distribute unassigned players into groups. Existing groups are kept unless you tick "Replace all".</div>
 
     <div class="field">
-      <label>Strategy</label>
+      <label class="label-with-help">${'' /* keep server-side, jord.css supplies the styles */}Strategy <span class="help-icon" tabindex="0">ⓘ<span class="tooltip">Sequential keeps foursomes that registered together in the same group — most common for charity events. Random shuffles every player. Alphabetical sorts by player name (good for open-field shotguns).</span></span></label>
       <select id="aa-strategy">
         <option value="sequential">Sequential — keep registered foursomes together</option>
         <option value="random">Random — shuffle everyone</option>
@@ -177,16 +177,16 @@
 
     <div class="row">
       <div class="field">
-        <label>Group size</label>
+        <label class="label-with-help">Group size <span class="help-icon" tabindex="0">ⓘ<span class="tooltip">How many players in each group. Charity scrambles use 4; pair formats use 2.</span></span></label>
         <input type="number" id="aa-size" value="4" min="1" max="8" />
       </div>
       <div class="field" style="display:flex;flex-direction:column;justify-content:flex-end">
-        <label class="checkbox"><input type="checkbox" id="aa-shotgun" /> Shotgun: assign starting holes 1-18</label>
+        <label class="checkbox"><input type="checkbox" id="aa-shotgun" /> Shotgun: assign starting holes 1-18 <span class="help-icon" tabindex="0">ⓘ<span class="tooltip">Every group tees off at the same time from a different hole, so the whole field finishes together. Auto-assign hands out holes 1, 2, 3… cyclically so 18+ groups wrap.</span></span></label>
       </div>
     </div>
 
     <div class="field">
-      <label class="checkbox"><input type="checkbox" id="aa-replace" /> Replace all existing groups first (wipes current pairings)</label>
+      <label class="checkbox"><input type="checkbox" id="aa-replace" /> Replace all existing groups first (wipes current pairings) <span class="help-icon" tabindex="0">ⓘ<span class="tooltip">Deletes every existing group before auto-assigning. Use this for a fresh start; leave off to add to what's there.</span></span></label>
     </div>
 
     <div class="actions">
@@ -203,6 +203,12 @@ const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => r.querySelectorAll(s);
 const esc = JORD.escapeHtml;
 if (!JORD.getToken()) location.href = '/admin';
+
+// Compact help-bubble factory — pairs with `.help-icon` / `.tooltip` in jord.css.
+function lbl(text, help) {
+  if (!help) return text;
+  return `${text} <span class="help-icon" tabindex="0" aria-label="${esc(help).replace(/"/g, '&quot;')}">ⓘ<span class="tooltip">${esc(help)}</span></span>`;
+}
 
 const parts = location.pathname.split('/').filter(Boolean);
 const eventId = parts[2]; // /admin/events/:id/pairings
@@ -279,7 +285,7 @@ function render() {
 
     <div class="pr-layout">
       <div class="pr-pool">
-        <h3>Unassigned players</h3>
+        <h3>Unassigned players ${'<span class="help-icon" tabindex="0" style="margin-left:6px">ⓘ<span class="tooltip">Every paid player (including walk-ups) starts here. Once you assign someone to a group, they leave this list. Green dot = checked in this morning.</span></span>'}</h3>
         <div class="sub">Tap to select, then tap a group to assign. Or drag and drop.</div>
         <input type="search" id="q" placeholder="Filter…" value="${esc(state.q)}" />
         <div class="pr-pool-list" id="pool-list">${renderPool()}</div>
@@ -414,9 +420,12 @@ function renderGroup(g) {
       <button class="del" data-action="del-group" data-group="${esc(g.id)}" title="Delete group">×</button>
     </div>
     <div class="pr-group-meta">
-      <input class="hole" type="number" min="1" max="18" placeholder="Hole" value="${g.starting_hole != null ? g.starting_hole : ''}" data-edit="starting_hole" data-group="${esc(g.id)}" />
-      <input class="tee"  type="text"   placeholder="Tee time (e.g. 8:15 AM)" value="${esc(g.tee_time || '')}" data-edit="tee_time" data-group="${esc(g.id)}" />
-      <input class="cart" type="text"   placeholder="Carts (e.g. 12, 13)"    value="${esc(g.cart_numbers || '')}" data-edit="cart_numbers" data-group="${esc(g.id)}" />
+      <input class="hole" type="number" min="1" max="18" placeholder="Hole" value="${g.starting_hole != null ? g.starting_hole : ''}" data-edit="starting_hole" data-group="${esc(g.id)}"
+        title="Starting hole for shotgun starts (1-18). Leave blank for tee-time events." />
+      <input class="tee"  type="text"   placeholder="Tee time (e.g. 8:15 AM)" value="${esc(g.tee_time || '')}" data-edit="tee_time" data-group="${esc(g.id)}"
+        title="Free text — used for tee-time events. The auto-detected time zone is shown below if set." />
+      <input class="cart" type="text"   placeholder="Carts (e.g. 12, 13)"    value="${esc(g.cart_numbers || '')}" data-edit="cart_numbers" data-group="${esc(g.id)}"
+        title="Free text. Examples: '12, 13' for two carts, 'Walking' for walkers, '1A/1B' for paired numbering." />
     </div>
     ${teeHint}
     <div class="pr-group-members" data-group="${esc(g.id)}">${memberHtml}</div>

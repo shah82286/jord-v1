@@ -86,6 +86,13 @@ async function load() {
 }
 function parseJ(s, fb){ try { return s ? JSON.parse(s) : fb; } catch { return fb; } }
 
+// Compact help-bubble factory — renders `Label ⓘ` with a hover/focus tooltip.
+// Pulls the same `.help-icon` / `.tooltip` system that lives in jord.css.
+function lbl(text, help) {
+  if (!help) return text;
+  return `${text} <span class="help-icon" tabindex="0" aria-label="${esc(help).replace(/"/g, '&quot;')}">ⓘ<span class="tooltip">${esc(help)}</span></span>`;
+}
+
 function render() {
   const s = state.site || {};
   const previewLink = s.slug ? `<a class="btn btn-ghost" href="/e/${esc(s.slug)}" target="_blank">Preview site ↗</a>` : '';
@@ -123,30 +130,30 @@ function render() {
       <h2 class="card-title">Basics</h2>
       <div class="field-grid" style="grid-template-columns:1fr 1fr">
         <div class="field">
-          <label>URL slug</label>
+          <label class="label-with-help">${lbl('URL slug', "The URL on JORD where players visit your event page. Lowercase letters, numbers, and hyphens only. Example: 'fall-classic-2026' → tournament.jordgolf.com/e/fall-classic-2026.")}</label>
           <input class="input" id="f-slug" value="${esc(s.slug||'')}" placeholder="fall-classic-2026" />
           <div class="hint">Public URL: /e/<strong>your-slug</strong> — lowercase, hyphens.</div>
         </div>
         <div class="field">
           <label style="display:flex;align-items:center;gap:8px">
             <input type="checkbox" id="f-published" ${s.published?'checked':''} />
-            <span>Published</span>
+            <span class="label-with-help">${lbl('Published', "Off = the public URL returns 'not found' for anyone visiting. Turn this on only when you're ready for people to register.")}</span>
           </label>
           <div class="hint">Unchecked = the page returns "not found" for visitors.</div>
         </div>
-        <div class="field"><label>Headline</label>
+        <div class="field"><label class="label-with-help">${lbl('Headline', "The big title displayed in the hero. Often the same as your event name (e.g. 'Fall Charity Classic').")}</label>
           <input class="input" id="f-headline" value="${esc(s.headline||'')}" placeholder="Fall Charity Classic"/></div>
-        <div class="field"><label>Date &amp; time</label>
+        <div class="field"><label class="label-with-help">${lbl('Date & time', "Shown in the hero meta line and on the registration confirmation. The time zone next to it is auto-detected from the venue's coordinates (set on the admin Course Map).")}</label>
           <input class="input" id="f-starts" type="datetime-local" value="${esc(toLocalDt(s.starts_at))}" />
           <div class="hint">${state.timeZone
             ? `Detected time zone: <strong>${esc(state.timeZone)}</strong> (${esc(tzAbbrev(state.timeZone, s.starts_at ? new Date(s.starts_at) : null))}) — auto-detected from the course's coordinates.`
             : `Set the course coordinates on the admin map page to auto-detect the time zone.`}</div>
         </div>
-        <div class="field" style="grid-column:1/-1"><label>Subhead</label>
+        <div class="field" style="grid-column:1/-1"><label class="label-with-help">${lbl('Subhead', "One-line teaser shown below the headline. Example: 'A day on the links to support youth golf.'")}</label>
           <input class="input" id="f-subhead" value="${esc(s.subhead||'')}" placeholder="A day on the links to support …" /></div>
-        <div class="field" style="grid-column:1/-1"><label>Location</label>
+        <div class="field" style="grid-column:1/-1"><label class="label-with-help">${lbl('Location', "Course name and city. Shown next to the date in the hero. Example: 'Pebble Beach Golf Links · Pebble Beach, CA'.")}</label>
           <input class="input" id="f-location" value="${esc(s.location_name||'')}" placeholder="Pebble Beach Golf Links · Pebble Beach, CA" /></div>
-        <div class="field" style="grid-column:1/-1"><label>Hero image URL</label>
+        <div class="field" style="grid-column:1/-1"><label class="label-with-help">${lbl('Hero image URL', "Background photo for the hero section. Paste a /path or a full https URL. Landscape orientation, ~1600 px wide works best. Leave blank to use our default lifestyle photo.")}</label>
           <input class="input" id="f-hero" value="${esc(s.hero_image||'')}" placeholder="/img/lifestyle/lifestyle-1-1600.jpg or https://…" />
           <div class="hint">Paste a path or full URL. Leave blank for the default lifestyle photo.</div>
         </div>
@@ -172,23 +179,23 @@ function render() {
     </div>
 
     <div class="card">
-      <h2 class="card-title">About</h2>
+      <h2 class="card-title">${lbl('About', "The long-form description shown as the first big text block on the public event page. Use a couple of paragraphs about what the event is, who it benefits, and what's included.")}</h2>
       <textarea class="textarea" id="f-about" rows="5" placeholder="What is the event raising money for? Who runs it? What's the format?">${esc(s.about_html||'')}</textarea>
     </div>
 
     <div class="card">
-      <h2 class="card-title">Schedule</h2>
+      <h2 class="card-title">${lbl('Schedule', "Day-of agenda displayed as a vertical timeline on the public page. Time is free-text (e.g. '8:00 AM') — the auto-detected time zone is shown once at the top of the section.")}</h2>
       <div class="row-list" id="schedList"></div>
       <button class="btn btn-ghost" id="addSched">+ Add schedule item</button>
     </div>
 
     <div class="card">
-      <h2 class="card-title">Course info</h2>
+      <h2 class="card-title">${lbl('Course info', "A short paragraph about the course itself — layout, tees, anything golfers should know. Shown in 'The Course' section below About.")}</h2>
       <textarea class="textarea" id="f-course" rows="4" placeholder="A short description of the course — tees, layout, anything golfers should know.">${esc(s.course_info||'')}</textarea>
     </div>
 
     <div class="card">
-      <h2 class="card-title">FAQ</h2>
+      <h2 class="card-title">${lbl('FAQ', "Common questions for registrants. Each item renders as a click-to-expand row on the public page. Use it for dress code, rain policy, dinner inclusion, etc.")}</h2>
       <div class="row-list" id="faqList"></div>
       <button class="btn btn-ghost" id="addFaq">+ Add FAQ item</button>
     </div>
@@ -198,12 +205,12 @@ function render() {
       <div class="field-grid" style="grid-template-columns:1fr 1fr 1fr">
         <div class="field"><label>Name</label><input class="input" id="f-cname" value="${esc(s.contact_name||'')}" /></div>
         <div class="field"><label>Email</label><input class="input" id="f-cemail" value="${esc(s.contact_email||'')}" type="email" /></div>
-        <div class="field"><label>Phone</label><input class="input" id="f-cphone" value="${esc(s.contact_phone||'')}" /></div>
+        <div class="field"><label class="label-with-help">${lbl('Phone', "Players can tap-to-call from the contact section on mobile. Include country code if you expect international registrants.")}</label><input class="input" id="f-cphone" value="${esc(s.contact_phone||'')}" /></div>
       </div>
     </div>
 
     <div class="card">
-      <h2 class="card-title">Registration packages</h2>
+      <h2 class="card-title">${lbl('Registration packages', "What people buy on your registration page. Each package can be a Foursome ($1,000 / 4 players), Single ($250 / 1 player), Hole Sponsor ($500 / 0 players), etc. Add as many as you sell.")}</h2>
       <div id="pkgList"></div>
       <button class="btn btn-primary" id="addPkg">+ Add package</button>
     </div>
@@ -354,11 +361,11 @@ function renderPackages() {
       </div>
       <div id="pkgEdit-${i}" hidden>
         <div class="grid">
-          <div class="field"><label>Name</label><input class="input" data-pf="name" data-i="${i}" value="${esc(p.name)}" /></div>
-          <div class="field"><label>Price (USD)</label><input class="input" type="number" min="0" step="0.01" data-pf="price" data-i="${i}" value="${(Number(p.price_cents)||0)/100}" /></div>
-          <div class="field"><label>Includes players</label><input class="input" type="number" min="1" data-pf="players" data-i="${i}" value="${p.includes_players}" /></div>
-          <div class="field"><label>Quantity limit (optional)</label><input class="input" type="number" min="0" data-pf="qty" data-i="${i}" value="${p.quantity_limit??''}" /></div>
-          <div class="field" style="grid-column:1/-1"><label>Description</label>
+          <div class="field"><label class="label-with-help">${lbl('Name', "Shown on the registration page button. Common names: 'Foursome', 'Single', 'Hole Sponsor', 'Beverage Sponsor'.")}</label><input class="input" data-pf="name" data-i="${i}" value="${esc(p.name)}" /></div>
+          <div class="field"><label class="label-with-help">${lbl('Price (USD)', "What the buyer pays total for this package. JORD takes a 3% platform fee shown separately at checkout — the rest goes straight to your Stripe account.")}</label><input class="input" type="number" min="0" step="0.01" data-pf="price" data-i="${i}" value="${(Number(p.price_cents)||0)/100}" /></div>
+          <div class="field"><label class="label-with-help">${lbl('Includes players', "How many players the buyer can register with this package. 4 for a foursome, 1 for a single. Sponsor packages with no playing slot can use 0.")}</label><input class="input" type="number" min="0" data-pf="players" data-i="${i}" value="${p.includes_players}" /></div>
+          <div class="field"><label class="label-with-help">${lbl('Quantity limit', "Optional cap on how many of this package can be sold. Leave blank for unlimited. Useful for hole sponsorships (18 max) or capped tickets.")}</label><input class="input" type="number" min="0" data-pf="qty" data-i="${i}" value="${p.quantity_limit??''}" /></div>
+          <div class="field" style="grid-column:1/-1"><label class="label-with-help">${lbl('Description', "Short pitch shown under the package name on the registration page. Bullet what's included — green fee, cart, lunch, awards dinner, swag, etc.")}</label>
             <textarea class="textarea" data-pf="desc" data-i="${i}" rows="2">${esc(p.description||'')}</textarea></div>
         </div>
         <button class="btn btn-primary" data-save="${i}">Save package</button>

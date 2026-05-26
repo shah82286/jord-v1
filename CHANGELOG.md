@@ -2,6 +2,43 @@
 
 ---
 
+## v3.39.1 — 2026-05-25
+### Session 55 — Help bubbles across the setup screens (#HELP-BUBBLES)
+
+Polish pass: every confusing field across the admin screens for setting
+up a tournament now has an ⓘ help bubble that reveals a short explanation
+on hover (or focus on touch devices). Aimed at non-technical organizers
+who shouldn't have to guess what "Includes players" or "Strategy" means.
+
+#### What changed
+- **jord.css** — moved the help-icon / tooltip system out of editor.html
+  and into the global stylesheet so every page can use it without
+  duplicating CSS. Added keyboard focus support (`tabindex="0"` reveals
+  on focus) and a mobile-friendly right-anchored layout so tooltips
+  don't clip off the screen on phones.
+- **event-site-editor.html** — 17 new bubbles across:
+  - Basics (URL slug, Published toggle, Headline, Date & time,
+    Subhead, Location, Hero image URL).
+  - Section headers (About, Schedule, Course info, FAQ, Registration
+    packages) — explain *where* the content appears on the public page.
+  - Contact (Phone field — explains tap-to-call).
+  - Package edit fields (Name, Price, Includes players, Quantity limit,
+    Description) — biggest source of confusion historically.
+- **event-pairings.html** — 8 new bubbles plus native `title=""` tooltips:
+  - Scoring modal: Tournament format (explains scramble vs best ball
+    vs stableford in plain English).
+  - Auto-assign modal: Strategy, Group size, Shotgun toggle, Replace
+    toggle.
+  - Unassigned players header (explains the green-dot meaning).
+  - Per-group Hole / Tee time / Carts inputs (via `title=""` so the
+    inline editor stays visually clean).
+
+#### Tested
+- 168/168 unit tests still pass (UI-only change — no new tests).
+- No new HTTP routes; no schema changes.
+
+---
+
 ## v3.39.0 — 2026-05-25
 ### Session 54 — Scoring bridge (registrations → live leaderboard)
 

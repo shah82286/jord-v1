@@ -554,6 +554,29 @@ body { overflow-x: hidden; }
   .hide-desktop { display: none !important; }
 }
 
+/* Help-bubble system — small ⓘ chip next to a label that reveals a tooltip
+   on hover/focus. Originally lived inline in editor.html; moved here so the
+   site editor + pairings + check-in can use it without duplicating CSS. */
+.help-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
+  border-radius: 50%; background: var(--surface-2); color: var(--ink-2); font-size: 11px; font-weight: 700;
+  cursor: help; margin-left: 4px; position: relative; flex-shrink: 0; }
+.help-icon:hover, .help-icon:focus { background: var(--accent); color: var(--primary-ink); outline: none; }
+.help-icon .tooltip {
+  display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 9px 11px;
+  font-size: 12px; color: var(--ink); width: 240px; white-space: normal; line-height: 1.45;
+  text-align: left; font-weight: 400; text-transform: none; letter-spacing: 0;
+  z-index: 1000; margin-bottom: 6px; box-shadow: var(--shadow-md); pointer-events: none;
+}
+.help-icon:hover .tooltip, .help-icon:focus .tooltip { display: block; }
+.label-with-help { display: inline-flex; align-items: center; gap: 0; }
+/* On phones, hover tooltips don't fire — tap-and-hold reveals via :focus.
+   Also shift left-aligned tooltips so they don't clip off-screen near the
+   right edge. */
+@media (max-width: 640px) {
+  .help-icon .tooltip { width: 200px; left: auto; right: 0; transform: none; }
+}
+
 /* Print friendly (for export pages) */
 @media print {
   .topbar, .btn { display: none; }
