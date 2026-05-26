@@ -310,6 +310,15 @@ try { db.exec("ALTER TABLE registration_packages ADD COLUMN sponsor_type TEXT");
 try { db.exec("ALTER TABLE events ADD COLUMN fundraising_goal_cents INTEGER"); } catch {}
 try { db.exec("ALTER TABLE events ADD COLUMN fundraising_visible INTEGER DEFAULT 0"); } catch {}
 
+// Standalone donations (E3 phase 3): visitors can give any amount without
+// buying a package. Stored on event_sites since they're public-page
+// configuration. A lazy 'donation' package is auto-created per event the
+// first time someone donates (cleaner than upfront seeding).
+try { db.exec("ALTER TABLE event_sites ADD COLUMN donations_enabled INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE event_sites ADD COLUMN donation_suggested_json TEXT"); } catch {}
+try { db.exec("ALTER TABLE event_sites ADD COLUMN donation_min_cents INTEGER DEFAULT 500"); } catch {}
+try { db.exec("ALTER TABLE event_sites ADD COLUMN donation_prompt TEXT"); } catch {}
+
 // Team share code (6-char code from registration; lets players join via QR after team is finalized)
 try { db.exec("ALTER TABLE teams ADD COLUMN share_code TEXT"); } catch {}
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_teams_share_code ON teams(share_code)"); } catch {}
@@ -4762,7 +4771,19 @@ app.put('/api/admin/events/:id/site', requireAuth, requireAdminOrSuper, requireE
   if (taken) return res.status(409).json({ error: 'That slug is already used by another event.' });
   const cols = ['slug','headline','subhead','hero_image','starts_at','location_name',
                 'about_html','schedule_json','course_info','faq_json',
-                'contact_name','contact_email','contact_phone','published'];
+                'contact_name','contact_email','contact_phone','published',
+                'donations_enabled','donation_suggested_json','donation_min_cents','donation_prompt'];
+  // Normalize the suggested amounts to a sorted array of positive integer
+  // cents values so the public page never has to defend against garbage.
+  let suggested = null;
+  if (Array.isArray(b.donation_suggested)) {
+    const nums = b.donation_suggested
+      .map(v => Math.floor(Number(v) || 0))
+      .filter(v => v > 0)
+      .slice(0, 8);
+    nums.sort((a, b) => a - b);
+    suggested = nums.length ? JSON.stringify(nums) : null;
+  }
   const data = {
     slug: b.slug,
     headline: b.headline || null,
@@ -4777,6 +4798,10 @@ app.put('/api/admin/events/:id/site', requireAuth, requireAdminOrSuper, requireE
     contact_name: b.contact_name || null,
     contact_email: b.contact_email || null,
     contact_phone: b.contact_phone || null,
+    donations_enabled: b.donations_enabled ? 1 : 0,
+    donation_suggested_json: suggested,
+    donation_min_cents: b.donation_min_cents != null ? Math.max(100, Number(b.donation_min_cents) || 500) : 500,
+    donation_prompt: b.donation_prompt || null,
     published: b.published ? 1 : 0,
   };
   const params = cols.map(c => data[c]);
@@ -4803,10 +4828,13 @@ const SPONSOR_TYPES = new Set([
 app.post('/api/admin/events/:id/packages', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
   const b = req.body || {};
   if (!b.name) return res.status(400).json({ error: 'Package name required' });
-  const kind = b.package_kind === 'sponsorship' ? 'sponsorship' : 'registration';
+  // Three kinds: 'registration' (player tickets, default), 'sponsorship'
+  // (non-playing branded items), 'donation' (one row per event — auto-
+  // created by /api/donations, manual creation is allowed too).
+  const kind = ['sponsorship', 'donation'].includes(b.package_kind) ? b.package_kind : 'registration';
   const sType = (kind === 'sponsorship' && SPONSOR_TYPES.has(b.sponsor_type)) ? b.sponsor_type : null;
-  // Sponsorships often have 0 playing slots; registrations need at least 1.
-  const minPlayers = kind === 'sponsorship' ? 0 : 1;
+  // Sponsorships + donations have 0 playing slots; registrations need at least 1.
+  const minPlayers = kind === 'registration' ? 1 : 0;
   const id = uid('PKG');
   db.prepare(`INSERT INTO registration_packages
     (id, event_id, name, description, price_cents, includes_players, quantity_limit, sort_order, active, package_kind, sponsor_type)
@@ -4825,9 +4853,9 @@ app.patch('/api/admin/events/:id/packages/:pkgId', requireAuth, requireAdminOrSu
     .get(req.params.pkgId, req.params.id);
   if (!cur) return res.status(404).json({ error: 'Package not found' });
   const kind = b.package_kind != null
-    ? (b.package_kind === 'sponsorship' ? 'sponsorship' : 'registration')
+    ? (['sponsorship', 'donation'].includes(b.package_kind) ? b.package_kind : 'registration')
     : (cur.package_kind || 'registration');
-  const minPlayers = kind === 'sponsorship' ? 0 : 1;
+  const minPlayers = kind === 'registration' ? 1 : 0;
   const n = {
     name: b.name != null ? String(b.name).trim() : cur.name,
     description: b.description != null ? b.description : cur.description,
@@ -4900,11 +4928,20 @@ app.get('/api/event-sites/:slug', (req, res) => {
   delete event.fundraising_visible;
   if (!fundraising) delete event.fundraising_goal_cents;
 
+  // Donation config — only exposed when the organizer enabled it. The
+  // public page renders an amount picker + Donate button if `enabled`.
+  const donations = site.donations_enabled ? {
+    enabled: true,
+    suggested_cents: parseJson(site.donation_suggested_json),
+    min_cents: site.donation_min_cents || 500,
+    prompt: site.donation_prompt || null,
+  } : { enabled: false };
+
   res.json({
     site, event, packages, sponsorships,
     schedule: parseJson(site.schedule_json),
     faq:      parseJson(site.faq_json),
-    fundraising,
+    fundraising, donations,
     registration_open,
     payment_mode: stripeHelper.mode,
   });
@@ -5008,6 +5045,99 @@ app.post('/api/registrations', async (req, res) => {
     return res.json({ id, checkout_url: session.url, session_id: session.id, payment_mode: 'stripe', status: 'pending' });
   } catch (e) {
     console.error('[Stripe] Checkout Session create failed:', e);
+    db.prepare("UPDATE registrations SET payment_status='failed' WHERE id=?").run(id);
+    return res.status(502).json({ error: 'Could not start checkout — please try again.' });
+  }
+});
+
+// Public donation endpoint. Differs from /api/registrations in two ways:
+//   1) the amount is buyer-specified (clamped to the org's minimum).
+//   2) the donation package is auto-created lazily — donors don't need
+//      to know about packages and organizers don't have to seed one.
+app.post('/api/donations', async (req, res) => {
+  const { event_id, amount_cents, buyer_name, buyer_email, buyer_phone, message } = req.body || {};
+  if (!event_id) return res.status(400).json({ error: 'event_id required' });
+  if (!buyer_name || !buyer_email) return res.status(400).json({ error: 'buyer_name and buyer_email required' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(buyer_email)) return res.status(400).json({ error: 'Invalid email' });
+  const amount = Math.floor(Number(amount_cents) || 0);
+  if (amount <= 0) return res.status(400).json({ error: 'Donation amount required' });
+
+  const event = db.prepare('SELECT id, name, admin_id FROM events WHERE id=?').get(event_id);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+  const site = db.prepare('SELECT slug, donations_enabled, donation_min_cents FROM event_sites WHERE event_id=?').get(event_id);
+  if (!site || !site.donations_enabled) return res.status(400).json({ error: 'Donations are not enabled for this event' });
+  const minCents = site.donation_min_cents || 500;
+  if (amount < minCents) return res.status(400).json({ error: `Minimum donation is $${(minCents/100).toFixed(2)}` });
+
+  // Upsert the per-event donation package. Stored at price_cents=0 because
+  // the actual amount lives on the registrations row — the package row is
+  // just a placeholder to satisfy the FK.
+  let pkg = db.prepare("SELECT * FROM registration_packages WHERE event_id=? AND package_kind='donation' LIMIT 1").get(event_id);
+  if (!pkg) {
+    const pkgId = uid('PKG');
+    db.prepare(`INSERT INTO registration_packages
+      (id, event_id, name, description, price_cents, includes_players, sort_order, active, package_kind)
+      VALUES (?, ?, 'Donation', 'Cash donation to the event', 0, 0, 999, 1, 'donation')`).run(pkgId, event_id);
+    pkg = db.prepare('SELECT * FROM registration_packages WHERE id=?').get(pkgId);
+  }
+
+  const id = crypto.randomBytes(8).toString('hex');
+  const platform_fee_cents = stripeHelper.feeCents(amount);
+  const confirmationPath = (regId) => site && site.slug ? `/e/${site.slug}/confirmation/${regId}` : `/registrations/${regId}`;
+
+  // Stuff the donor message into players_json as a single-entry array so it
+  // surfaces on the registrations dashboard alongside other rows. (No
+  // schema change needed.)
+  const playersArr = message ? [{ name: '(donor message)', message: String(message).slice(0, 500) }] : [];
+
+  // Mock mode: instant paid.
+  if (stripeHelper.mode === 'mock') {
+    db.prepare(`INSERT INTO registrations
+      (id, event_id, package_id, buyer_name, buyer_email, buyer_phone, players_json,
+       amount_cents, platform_fee_cents, payment_status, payment_mode, paid_at, description)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'mock', CURRENT_TIMESTAMP, ?)`)
+      .run(id, event_id, pkg.id, buyer_name.trim(), buyer_email.trim().toLowerCase(),
+           (buyer_phone || '').trim() || null, JSON.stringify(playersArr),
+           amount, platform_fee_cents, 'Donation');
+    return res.json({ id, confirmation_url: confirmationPath(id), payment_mode: 'mock', status: 'paid' });
+  }
+
+  // Stripe mode — same Connect plumbing as /api/registrations.
+  if (!event.admin_id) return res.status(503).json({ error: 'This event has no organizer on file' });
+  const organizer = db.prepare(`SELECT stripe_account_id, stripe_charges_enabled
+                                FROM admins WHERE id=?`).get(event.admin_id);
+  if (!organizer || !organizer.stripe_account_id) {
+    return res.status(503).json({ error: "The organizer hasn't connected a Stripe account yet — donations are not open." });
+  }
+  if (!organizer.stripe_charges_enabled) {
+    return res.status(503).json({ error: "The organizer's Stripe account isn't fully verified yet — donations are paused." });
+  }
+
+  db.prepare(`INSERT INTO registrations
+    (id, event_id, package_id, buyer_name, buyer_email, buyer_phone, players_json,
+     amount_cents, platform_fee_cents, payment_status, payment_mode, description)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'stripe', ?)`)
+    .run(id, event_id, pkg.id, buyer_name.trim(), buyer_email.trim().toLowerCase(),
+         (buyer_phone || '').trim() || null, JSON.stringify(playersArr),
+         amount, platform_fee_cents, 'Donation');
+
+  try {
+    const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
+    const session = await stripeHelper.createCheckoutSession({
+      amountCents:        amount,
+      platformFeeCents:   platform_fee_cents,
+      connectedAccountId: organizer.stripe_account_id,
+      productName:        `${event.name} · Donation`,
+      productDescription: message ? String(message).slice(0, 100) : undefined,
+      buyerEmail:         buyer_email.trim().toLowerCase(),
+      metadata: { registration_id: id, event_id, package_id: pkg.id, kind: 'donation', jord: '1' },
+      successUrl: `${APP_URL}${confirmationPath(id)}?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl:  `${APP_URL}/e/${site.slug}?donate_canceled=1`,
+    });
+    db.prepare('UPDATE registrations SET stripe_session_id=? WHERE id=?').run(session.id, id);
+    return res.json({ id, checkout_url: session.url, session_id: session.id, payment_mode: 'stripe', status: 'pending' });
+  } catch (e) {
+    console.error('[Stripe] Donation Checkout failed:', e);
     db.prepare("UPDATE registrations SET payment_status='failed' WHERE id=?").run(id);
     return res.status(502).json({ error: 'Could not start checkout — please try again.' });
   }

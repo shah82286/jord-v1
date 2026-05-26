@@ -2,6 +2,66 @@
 
 ---
 
+## v3.43.0 — 2026-05-25
+### Session 59 — Standalone cash donations (E3 phase 3)
+
+Third and final slice of the Raise-Money phase (before the Klaviyo email
+blast, which is deferred). Visitors can now give any amount on the public
+event page without buying a registration package. Same Stripe Connect
+plumbing — donations land directly in the organizer's account.
+
+#### What changed
+- **Schema** — four new columns on `event_sites`:
+  - `donations_enabled INTEGER DEFAULT 0` — public toggle.
+  - `donation_suggested_json TEXT` — JSON array of preset cents amounts
+    (e.g. `[2500, 5000, 10000, 25000]`). Normalized server-side to
+    sorted positive integers, capped at 8 values.
+  - `donation_min_cents INTEGER DEFAULT 500` — server-enforced floor to
+    stop micro-donations that lose money to card fees.
+  - `donation_prompt TEXT` — optional custom copy above the picker.
+- **Third package_kind: `'donation'`** — `registration_packages` now
+  accepts donation rows. Manual creation works via the existing POST
+  /packages, but the visitor flow auto-creates one lazily.
+- **New endpoint `POST /api/donations`**:
+  - Body: `{ event_id, amount_cents, buyer_name, buyer_email, buyer_phone?, message? }`.
+  - Validates `donations_enabled` + amount >= `donation_min_cents`.
+  - Lazy-upserts a single `donation` package per event (no upfront
+    seeding needed).
+  - Creates a `registrations` row with the donor-specified amount;
+    same Stripe Checkout / Connect destination charge plumbing as
+    `/api/registrations`. Optional `message` is stored in the
+    `players_json` payload so it surfaces on the registrations dashboard.
+  - Cancel URL bounces back to `/e/:slug?donate_canceled=1`.
+- **Public payload (`/api/event-sites/:slug`)** now returns
+  `donations: { enabled, suggested_cents, min_cents, prompt }` when the
+  organizer flipped the toggle (else `{ enabled: false }`).
+- **Admin event-site editor** — new "Donations" card with:
+  - Accept-donations checkbox.
+  - Minimum donation (USD).
+  - Suggested amounts (comma-separated USD, e.g. `25, 50, 100, 250`).
+  - Optional custom prompt textarea.
+  - Persisted via the existing Save changes button.
+- **Public event-site** — new "Give" section between Sponsorships and
+  FAQ when donations are enabled:
+  - Preset-amount strip (auto-fills the custom input).
+  - Custom amount input with minimum + step constraints.
+  - Name + email + optional message fields.
+  - Submit → POST `/api/donations` → 302 to Stripe Checkout (or to
+    the confirmation page in mock mode).
+
+#### Tested
+- **219/219 unit tests pass** (+11 new, +1 corrected) covering
+  migrations, route registration, server-side validation
+  (enabled-check, minimum-check), lazy package creation, donation
+  kind acceptance, public payload gating, editor UI surface, and
+  public form wiring.
+
+#### What's next for E3
+Klaviyo email blast (deferred until Klaviyo Flows in #KLAVIYO-FLOWS
+are built). After that E3 is complete.
+
+---
+
 ## v3.42.0 — 2026-05-25
 ### Session 58 — Fundraising goal bar + revenue dashboard (E3 phase 2)
 

@@ -238,6 +238,34 @@ function render() {
     </div>
 
     <div class="card">
+      <h2 class="card-title">${lbl('Donations', "Let visitors give any amount on the public event page. Donors hit the same Stripe checkout as registrations; their gift counts toward the fundraising goal automatically.")}</h2>
+      <div class="field-grid" style="grid-template-columns:1fr 1fr">
+        <div class="field">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="f-don-enabled" ${(state.site && state.site.donations_enabled) ? 'checked' : ''} />
+            <span>Accept donations</span>
+          </label>
+          <div class="hint">Off = the Donate section is hidden from /e/your-slug.</div>
+        </div>
+        <div class="field">
+          <label>Minimum donation (USD)</label>
+          <input class="input" id="f-don-min" type="number" min="1" step="1" value="${((state.site && state.site.donation_min_cents) || 500) / 100}" />
+          <div class="hint">Stops processing micro-donations that lose money to card fees.</div>
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>Suggested amounts (USD, comma-separated)</label>
+          <input class="input" id="f-don-suggested" value="${esc((((state.site && state.site.donation_suggested_json) ? (function(){try{return JSON.parse(state.site.donation_suggested_json);}catch{return [];}})() : [2500, 5000, 10000, 25000]).map(c => c/100).join(', '))}" placeholder="25, 50, 100, 250" />
+          <div class="hint">Quick-pick buttons shown above the custom amount field. Up to 8 amounts.</div>
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>Prompt (optional)</label>
+          <textarea class="textarea" id="f-don-prompt" rows="2" placeholder="Every dollar supports …">${esc((state.site && state.site.donation_prompt) || '')}</textarea>
+          <div class="hint">Short copy shown above the amount picker. Leave blank for the default.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
       <h2 class="card-title">${lbl('Sponsorships', "Non-playing items your event can sell — hole signs, beverage carts, scorecard branding, etc. Sponsors check out through the same Stripe flow as players; the number-of-players field defaults to 0.")}</h2>
       <p class="hint" style="margin-bottom:var(--s-3)">Tap a tile below to quick-add a common sponsorship at a starter price you can edit. Or click "+ Add custom" for anything else.</p>
       <div id="sponsorCatalog" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:var(--s-2);margin-bottom:var(--s-3)"></div>
@@ -591,6 +619,11 @@ async function createPackage() {
 }
 
 async function save() {
+  const suggestedRaw = $('#f-don-suggested') ? $('#f-don-suggested').value : '';
+  const suggested = suggestedRaw
+    .split(',')
+    .map(s => Math.round(Number(s.trim()) * 100))
+    .filter(c => Number.isFinite(c) && c > 0);
   const body = {
     slug:          $('#f-slug').value.trim(),
     published:     $('#f-published').checked,
@@ -606,6 +639,10 @@ async function save() {
     contact_name:  $('#f-cname').value.trim(),
     contact_email: $('#f-cemail').value.trim(),
     contact_phone: $('#f-cphone').value.trim(),
+    donations_enabled: $('#f-don-enabled')?.checked ? 1 : 0,
+    donation_suggested: suggested,
+    donation_min_cents: Math.max(100, Math.round((Number($('#f-don-min')?.value) || 5) * 100)),
+    donation_prompt: ($('#f-don-prompt')?.value || '').trim() || null,
   };
   const btn = $('#saveBtn'); btn.disabled = true; btn.textContent = 'Saving…';
   try {

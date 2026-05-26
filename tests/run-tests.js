@@ -370,6 +370,7 @@ console.log('\n🔌 Tournament Scoring Routes\n');
  ['POST','/api/admin/events/:id/packages'],['PATCH','/api/admin/events/:id/packages/:pkgId'],
  ['DELETE','/api/admin/events/:id/packages/:pkgId'],
  ['POST','/api/registrations'],['GET','/api/registrations/:id'],
+ ['POST','/api/donations'],
  ['GET','/api/admin/events/:id/registrations'],
  ['GET','/api/admin/events/:id/registrations.csv'],
  ['POST','/api/admin/events/:id/registrations/:regId/refund'],
@@ -426,6 +427,35 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
 }
 
+console.log('\n💵 Standalone donations (E3 phase 3)\n');
+{
+  test('event_sites.donations_enabled column migrated',
+    () => assert(src.includes('ALTER TABLE event_sites ADD COLUMN donations_enabled'), 'Missing enabled column'));
+  test('event_sites.donation_suggested_json column migrated',
+    () => assert(src.includes('ALTER TABLE event_sites ADD COLUMN donation_suggested_json'), 'Missing suggested column'));
+  test('event_sites.donation_min_cents column migrated',
+    () => assert(src.includes('ALTER TABLE event_sites ADD COLUMN donation_min_cents'), 'Missing min column'));
+  test('POST /api/donations registered',
+    () => assert(src.includes("app.post('/api/donations'"), 'Missing donations route'));
+  test('Donations endpoint validates donations_enabled',
+    () => assert(src.includes("'Donations are not enabled for this event'"), 'Missing enabled check'));
+  test('Donations endpoint enforces minimum',
+    () => assert(src.includes('Minimum donation is $'), 'Missing min check'));
+  test('Donations lazy-creates a donation package',
+    () => assert(src.includes("package_kind='donation'") && src.includes("INSERT INTO registration_packages"), 'No lazy package creation'));
+  test('package_kind accepts donation as third kind',
+    () => assert(src.includes("['sponsorship', 'donation'].includes(b.package_kind)"), 'Donation kind not accepted'));
+  test('Public payload returns donations config when enabled',
+    () => assert(src.includes('site.donations_enabled ?') && src.includes('suggested_cents'), 'Public donations not exposed'));
+  const fs = require('fs');
+  const editorHtml = fs.readFileSync('./public/admin/event-site-editor.html', 'utf8');
+  test('Event-site editor exposes Donations card',
+    () => assert(editorHtml.includes('f-don-enabled') && editorHtml.includes('f-don-suggested'), 'Editor missing donation inputs'));
+  const siteHtml = fs.readFileSync('./public/event-site.html', 'utf8');
+  test('Public event-site renders Donate form',
+    () => assert(siteHtml.includes('donate-form') && siteHtml.includes('/api/donations'), 'Donate form not wired'));
+}
+
 console.log('\n📊 Fundraising goal + revenue dashboard (E3 phase 2)\n');
 {
   test('events.fundraising_goal_cents column migrated',
@@ -463,7 +493,7 @@ console.log('\n💰 Sponsorships (E3 phase 1)\n');
   test('PATCH packages accepts package_kind + sponsor_type',
     () => assert(/UPDATE registration_packages[^;]*package_kind=\?, sponsor_type=\?/.test(src), 'Update missing sponsor fields'));
   test('Sponsorships allow includes_players = 0',
-    () => assert(src.includes("kind === 'sponsorship' ? 0 : 1"), 'Min-player branch missing'));
+    () => assert(src.includes("kind === 'registration' ? 1 : 0"), 'Min-player branch missing'));
   test('GET /api/event-sites/:slug returns sponsorships separately',
     () => assert(src.includes('sponsorships') && src.includes("p.package_kind === 'sponsorship'"), 'Public payload not split'));
   const fs = require('fs');

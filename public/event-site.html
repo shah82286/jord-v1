@@ -170,6 +170,40 @@ function render(d) {
       <div style="margin-top:8px;font-size:13px;color:var(--ink-2)">${fund.percent}% of goal · thank you to every supporter.</div>
     </section>` : '';
 
+  // Donations — visitor can give any amount above the min. Rendered as a
+  // preset-amount strip + a custom-amount input. The submit calls
+  // /api/donations directly and redirects to Stripe Checkout.
+  const dn = d.donations && d.donations.enabled ? d.donations : null;
+  const dnSuggested = (dn && Array.isArray(dn.suggested_cents) && dn.suggested_cents.length)
+    ? dn.suggested_cents
+    : [2500, 5000, 10000, 25000];
+  const dnMin = dn ? (dn.min_cents || 500) : 500;
+  const donateHtml = dn ? `
+    <section class="es-section" id="donate">
+      <div class="es-eyebrow">Give</div>
+      <h2>Make a <em>donation</em></h2>
+      <div class="lead"><p>${esc(dn.prompt || (e.is_charity
+        ? 'Every dollar supports the cause. Give any amount through the same secure checkout the registrations use.'
+        : 'Want to support the event without buying a ticket? Give any amount through the same secure checkout.'))}</p></div>
+      <form id="donate-form" style="margin-top:var(--s-4);max-width:540px;display:flex;flex-direction:column;gap:var(--s-3)">
+        <div>
+          <label style="font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2);margin-bottom:8px;display:block">Amount</label>
+          <div class="es-donate-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:6px;margin-bottom:8px">
+            ${dnSuggested.map(c => `<button type="button" class="btn btn-ghost es-donate-amt" data-amount="${c}" style="padding:10px 8px;font-weight:600">$${(c/100).toLocaleString()}</button>`).join('')}
+          </div>
+          <input class="input" id="donate-amount" type="number" min="${(dnMin/100).toFixed(2)}" step="0.01" inputmode="decimal" placeholder="Custom amount ($${(dnMin/100).toFixed(0)} minimum)" required style="width:100%;padding:11px 14px;font-size:16px;border:1px solid var(--border);border-radius:var(--r-md)" />
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--s-2)">
+          <input class="input" id="donate-name" required placeholder="Your name *" autocomplete="name" style="padding:11px 14px;font-size:15px;border:1px solid var(--border);border-radius:var(--r-md)" />
+          <input class="input" id="donate-email" required type="email" placeholder="Email *" autocomplete="email" style="padding:11px 14px;font-size:15px;border:1px solid var(--border);border-radius:var(--r-md)" />
+        </div>
+        <textarea id="donate-msg" rows="2" placeholder="Message to the organizer (optional)" style="padding:11px 14px;font-size:14px;border:1px solid var(--border);border-radius:var(--r-md);font-family:inherit;resize:vertical"></textarea>
+        <button type="submit" class="btn btn-accent btn-lg" id="donate-submit" ${!regOpen ? 'disabled' : ''}>${regOpen ? 'Donate →' : 'Coming soon'}</button>
+        <div id="donate-err" style="color:#c0392b;font-size:14px;display:none"></div>
+        <p style="font-size:12px;color:var(--ink-3);margin:0">Payments processed securely by Stripe. Your card never touches JORD's servers.</p>
+      </form>
+    </section>` : '';
+
   const sponsors = Array.isArray(d.sponsorships) ? d.sponsorships : [];
   const sponsorEmoji = {
     title:'🏆', hole:'⛳', cart:'🏌', beverage:'🍻', food:'🍴', hole_in_one:'🎯',
@@ -261,6 +295,8 @@ function render(d) {
 
     ${sponsorHtml}
 
+    ${donateHtml}
+
     ${faqHtml}
     ${contactHtml}
 
@@ -280,6 +316,51 @@ function render(d) {
   // Drive the goal-bar fill in on the next frame so the CSS transition runs.
   const fill = document.querySelector('.es-fund-fill');
   if (fill) requestAnimationFrame(() => { fill.style.width = (fill.dataset.target || '0') + '%'; });
+
+  // Donate form: preset buttons fill the custom-amount field; submit goes
+  // through POST /api/donations and redirects to Stripe Checkout.
+  const donateForm = document.getElementById('donate-form');
+  if (donateForm) {
+    const amtInput = document.getElementById('donate-amount');
+    document.querySelectorAll('.es-donate-amt').forEach(btn => btn.onclick = () => {
+      amtInput.value = (Number(btn.dataset.amount) / 100).toFixed(2);
+      amtInput.focus();
+    });
+    donateForm.onsubmit = async (ev) => {
+      ev.preventDefault();
+      const errBox = document.getElementById('donate-err');
+      errBox.style.display = 'none';
+      const submit = document.getElementById('donate-submit');
+      submit.disabled = true;
+      const orig = submit.textContent;
+      submit.textContent = 'Processing…';
+      try {
+        const amount_cents = Math.round((Number(amtInput.value) || 0) * 100);
+        const r = await fetch('/api/donations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event_id: d.event.id,
+            amount_cents,
+            buyer_name: document.getElementById('donate-name').value.trim(),
+            buyer_email: document.getElementById('donate-email').value.trim(),
+            message: document.getElementById('donate-msg').value.trim() || null,
+          }),
+        });
+        const data = await r.json();
+        if (!r.ok) throw new Error(data.error || 'Donation failed');
+        // Stripe mode → redirect to Checkout. Mock mode → confirmation page.
+        if (data.checkout_url) location.href = data.checkout_url;
+        else if (data.confirmation_url) location.href = data.confirmation_url;
+        else throw new Error('No redirect URL returned');
+      } catch (err) {
+        errBox.textContent = err.message || 'Could not process donation';
+        errBox.style.display = 'block';
+        submit.disabled = false;
+        submit.textContent = orig;
+      }
+    };
+  }
 
   if (accent) document.documentElement.style.setProperty('--accent', accent);
 }
