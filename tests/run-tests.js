@@ -578,6 +578,43 @@ console.log('\n🖼  Poster + Pairings Page Routes\n');
     () => assert(pairingsHtml.includes('/pairings/poster'), 'Missing poster link'));
 }
 
+// ── HTML inline-script syntax check ──────────────────────────────────
+// Catches the class of bug where an HTML page renders blank/"Loading…"
+// because its <script> body has a JS SyntaxError. We had v3.43 ship with
+// a stuck-loading editor because of a broken nested IIFE inside a
+// template literal; cheap test, prevents recurrence.
+console.log('\n📝 HTML inline-script syntax\n');
+{
+  const fs = require('fs');
+  const path = require('path');
+  const htmlFiles = [];
+  function walk(dir) {
+    for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, f.name);
+      if (f.isDirectory()) walk(full);
+      else if (f.name.endsWith('.html')) htmlFiles.push(full);
+    }
+  }
+  walk('./public');
+  for (const f of htmlFiles) {
+    const html = fs.readFileSync(f, 'utf8');
+    // Match every inline <script> body (skip <script src=…> which has no body).
+    // Multiple per file are allowed.
+    const matches = [...html.matchAll(/<script(\s[^>]*)?>([\s\S]*?)<\/script>/g)];
+    matches.forEach((m, i) => {
+      const attrs = m[1] || '';
+      const body = m[2];
+      if (!body.trim()) return; // external script
+      if (/type=["']application\/(ld\+json|json)/i.test(attrs)) return;
+      const label = path.relative('./public', f) + (matches.length > 1 ? ` [script #${i+1}]` : '');
+      test(`parses: ${label}`, () => {
+        try { new Function(body); }
+        catch (e) { throw new Error(e.message); }
+      });
+    });
+  }
+}
+
 console.log('\n'+'─'.repeat(52));
 console.log(`\n📊  ${passed}/${total} passed  |  ${failed} failed\n`);
 if(!failed) console.log('🎉 All tests passing — system ready to deploy!\n');

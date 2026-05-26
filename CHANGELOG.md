@@ -2,6 +2,59 @@
 
 ---
 
+## v3.43.1 — 2026-05-26
+### Session 60 — Hotfix pass after v3.43 review
+
+Four bugs caught in a post-deploy review of the v3.38 → v3.43 arc. The
+first one (syntax error) was a hard breakage; the rest were silent
+data-shape bugs that would surface as you actually used the new features.
+
+#### Bugs fixed
+- **Editor page stuck on "Loading…"** — `event-site-editor.html` had a
+  nested IIFE inside a template-literal expression (`(function(){…})()`
+  inside `${esc(…)}`) that the JS parser couldn't handle in this
+  context. Replaced with a named helper `suggestedDollarsCsv()` that
+  reads the JSON column via the existing `parseJ()` helper. The whole
+  page now loads.
+- **Donation package leaked into the public "Register" grid** —
+  `/api/event-sites/:slug` filtered out `sponsorship` but not the
+  auto-created `donation` package, so visitors saw a $0/0-player tile
+  in the Register section. Filter is now `=== 'registration'` (positive
+  match) instead of `!== 'sponsorship'` (negative).
+- **Donor messages became phantom players** — the v3.43 donations
+  endpoint stuffed the donor's optional message into `players_json`
+  as a synthetic `{name: '(donor message)'}` entry. With sponsorship
+  + donation queries not filtering by `package_kind`, that name showed
+  up in the scoring leaderboard and in the pairings unassigned-player
+  pool. Fix: store the message in the existing `description` column
+  instead (where the registrations dashboard already renders it), and
+  defensively add `AND COALESCE(p.package_kind, 'registration') = 'registration'`
+  to the pairings player-pool query, the scoring materializer, and
+  both sync-scoring lookups.
+- **Clone endpoint dropped sponsor + fundraising + donation config** —
+  three INSERT statements were written before those columns existed
+  and never updated:
+  - `events` INSERT: now copies `fundraising_goal_cents` + `fundraising_visible`.
+  - `event_sites` INSERT: now copies `donations_enabled`,
+    `donation_suggested_json`, `donation_min_cents`, `donation_prompt`.
+  - `registration_packages` INSERT: now copies `package_kind` +
+    `sponsor_type`, and explicitly skips the auto-created `donation`
+    package (the new event will lazy-create its own on the first
+    donation).
+
+#### Prevention
+- **New test category: HTML inline-script syntax checks** — every
+  inline `<script>` body under `public/` is parsed with `new Function()`
+  on every test run. The v3.43 stuck-loading bug would have failed
+  this check immediately. 22 new tests, one per inline script.
+
+#### Tested
+- **241/241 unit tests pass** (+22 inline-script syntax checks).
+- Boot test: server.js loads and registers all routes cleanly (no
+  console error at import).
+
+---
+
 ## v3.43.0 — 2026-05-25
 ### Session 59 — Standalone cash donations (E3 phase 3)
 

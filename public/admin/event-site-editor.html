@@ -90,6 +90,15 @@ async function load() {
 }
 function parseJ(s, fb){ try { return s ? JSON.parse(s) : fb; } catch { return fb; } }
 
+// Renders the current donation suggested-amounts as a comma-separated USD
+// string for the editor input. Falls back to a sane default catalog when
+// the row hasn't been configured yet.
+function suggestedDollarsCsv() {
+  const stored = parseJ(state.site && state.site.donation_suggested_json, null);
+  const cents = Array.isArray(stored) && stored.length ? stored : [2500, 5000, 10000, 25000];
+  return cents.map(c => (Number(c) || 0) / 100).join(', ');
+}
+
 // Compact help-bubble factory — renders `Label ⓘ` with a hover/focus tooltip.
 // Pulls the same `.help-icon` / `.tooltip` system that lives in jord.css.
 function lbl(text, help) {
@@ -254,7 +263,7 @@ function render() {
         </div>
         <div class="field" style="grid-column:1/-1">
           <label>Suggested amounts (USD, comma-separated)</label>
-          <input class="input" id="f-don-suggested" value="${esc((((state.site && state.site.donation_suggested_json) ? (function(){try{return JSON.parse(state.site.donation_suggested_json);}catch{return [];}})() : [2500, 5000, 10000, 25000]).map(c => c/100).join(', '))}" placeholder="25, 50, 100, 250" />
+          <input class="input" id="f-don-suggested" value="${esc(suggestedDollarsCsv())}" placeholder="25, 50, 100, 250" />
           <div class="hint">Quick-pick buttons shown above the custom amount field. Up to 8 amounts.</div>
         </div>
         <div class="field" style="grid-column:1/-1">

@@ -2329,7 +2329,8 @@ app.post('/api/admin/events/:sourceId/clone', requireAuth, requireAdminOrSuper, 
        ctp_pin_lat, ctp_pin_lon, ctp_green_polygon, ctp_hole_distance_yards,
        cp_off_green_penalty_ft, admin_phone, admin_id,
        venue_lat, venue_lon, time_zone,
-       is_charity, brand_enabled, brand_logo, brand_accent, brand_url)
+       is_charity, brand_enabled, brand_logo, brand_accent, brand_url,
+       fundraising_goal_cents, fundraising_visible)
       VALUES (?, ?, ?, ?, ?, 'setup',
               ?, ?, ?,
               ?, ?, ?,
@@ -2339,7 +2340,8 @@ app.post('/api/admin/events/:sourceId/clone', requireAuth, requireAdminOrSuper, 
               ?, ?, ?, ?,
               ?, ?, ?,
               ?, ?, ?,
-              ?, ?, ?, ?, ?)`).run(
+              ?, ?, ?, ?, ?,
+              ?, ?)`).run(
       newId, name, src.venue, starts_at, ends_at,
       src.has_longest_drive, src.has_closest_pin, src.combined_scoring,
       src.allow_rough, src.rough_penalty_mode, src.rough_fixed_yards,
@@ -2349,7 +2351,8 @@ app.post('/api/admin/events/:sourceId/clone', requireAuth, requireAdminOrSuper, 
       src.ctp_pin_lat, src.ctp_pin_lon, src.ctp_green_polygon, src.ctp_hole_distance_yards,
       src.cp_off_green_penalty_ft, src.admin_phone, req.admin.id,
       src.venue_lat, src.venue_lon, newTz,
-      src.is_charity, src.brand_enabled, src.brand_logo, src.brand_accent, src.brand_url
+      src.is_charity, src.brand_enabled, src.brand_logo, src.brand_accent, src.brand_url,
+      src.fundraising_goal_cents, src.fundraising_visible
     );
 
     // Copy tee_boxes (course map's tee positions for LD).
@@ -2369,25 +2372,35 @@ app.post('/api/admin/events/:sourceId/clone', requireAuth, requireAdminOrSuper, 
         db.prepare(`INSERT INTO event_sites
           (event_id, slug, headline, subhead, hero_image, starts_at, location_name,
            about_html, schedule_json, course_info, faq_json,
-           contact_name, contact_email, contact_phone, published)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`).run(
+           contact_name, contact_email, contact_phone, published,
+           donations_enabled, donation_suggested_json, donation_min_cents, donation_prompt)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0,
+                  ?, ?, ?, ?)`).run(
           newId, newSlug, site.headline, site.subhead, site.hero_image,
           starts_at, site.location_name,
           site.about_html, site.schedule_json, site.course_info, site.faq_json,
-          site.contact_name, site.contact_email, site.contact_phone
+          site.contact_name, site.contact_email, site.contact_phone,
+          site.donations_enabled || 0, site.donation_suggested_json,
+          site.donation_min_cents || 500, site.donation_prompt
         );
       }
     }
 
     let packagesCloned = 0;
     if (copy_packages) {
-      const pkgs = db.prepare('SELECT * FROM registration_packages WHERE event_id=? ORDER BY sort_order').all(src.id);
+      // Skip the auto-created 'donation' package — donations get a fresh
+      // one lazily on the new event when the first donor checks out.
+      const pkgs = db.prepare(`SELECT * FROM registration_packages
+                               WHERE event_id=?
+                                 AND COALESCE(package_kind, 'registration') != 'donation'
+                               ORDER BY sort_order`).all(src.id);
       const pkgStmt = db.prepare(`INSERT INTO registration_packages
-        (id, event_id, name, description, price_cents, includes_players, quantity_limit, sort_order, active)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+        (id, event_id, name, description, price_cents, includes_players, quantity_limit, sort_order, active, package_kind, sponsor_type)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
       for (const p of pkgs) {
         pkgStmt.run(uid('PKG'), newId, p.name, p.description, p.price_cents,
-                    p.includes_players, p.quantity_limit, p.sort_order, p.active);
+                    p.includes_players, p.quantity_limit, p.sort_order, p.active,
+                    p.package_kind || 'registration', p.sponsor_type || null);
         packagesCloned++;
       }
     }
@@ -4896,7 +4909,10 @@ app.get('/api/event-sites/:slug', (req, res) => {
                                   ORDER BY sort_order, price_cents`).all(site.event_id);
   // Split player tickets vs sponsorships so the public site can render each
   // in its own section with the right framing ("Register" vs "Become a sponsor").
-  const packages     = allPackages.filter(p => (p.package_kind || 'registration') !== 'sponsorship');
+  // The auto-created `donation` package is intentionally excluded from both —
+  // donations are taken via the dedicated /api/donations endpoint, not by
+  // clicking a tile in the Register grid.
+  const packages     = allPackages.filter(p => (p.package_kind || 'registration') === 'registration');
   const sponsorships = allPackages.filter(p => p.package_kind === 'sponsorship');
   // Registration is "open" only when Stripe is configured AND the organizer
   // has a Connect account with charges enabled. In mock mode it's open by
@@ -5085,10 +5101,16 @@ app.post('/api/donations', async (req, res) => {
   const platform_fee_cents = stripeHelper.feeCents(amount);
   const confirmationPath = (regId) => site && site.slug ? `/e/${site.slug}/confirmation/${regId}` : `/registrations/${regId}`;
 
-  // Stuff the donor message into players_json as a single-entry array so it
-  // surfaces on the registrations dashboard alongside other rows. (No
-  // schema change needed.)
-  const playersArr = message ? [{ name: '(donor message)', message: String(message).slice(0, 500) }] : [];
+  // Donations have no playing slot — store an empty roster. Stuffing the
+  // donor message into players_json (an earlier approach) caused phantom
+  // "(donor message)" players to appear in the scoring leaderboard and
+  // the pairings unassigned-player pool.
+  const playersArr = [];
+  // Surface the donor message on the registrations dashboard via the
+  // existing `description` column (truncated to keep the row sane).
+  const description = message
+    ? 'Donation — ' + String(message).slice(0, 200)
+    : 'Donation';
 
   // Mock mode: instant paid.
   if (stripeHelper.mode === 'mock') {
@@ -5098,7 +5120,7 @@ app.post('/api/donations', async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'paid', 'mock', CURRENT_TIMESTAMP, ?)`)
       .run(id, event_id, pkg.id, buyer_name.trim(), buyer_email.trim().toLowerCase(),
            (buyer_phone || '').trim() || null, JSON.stringify(playersArr),
-           amount, platform_fee_cents, 'Donation');
+           amount, platform_fee_cents, description);
     return res.json({ id, confirmation_url: confirmationPath(id), payment_mode: 'mock', status: 'paid' });
   }
 
@@ -5119,7 +5141,7 @@ app.post('/api/donations', async (req, res) => {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'stripe', ?)`)
     .run(id, event_id, pkg.id, buyer_name.trim(), buyer_email.trim().toLowerCase(),
          (buyer_phone || '').trim() || null, JSON.stringify(playersArr),
-         amount, platform_fee_cents, 'Donation');
+         amount, platform_fee_cents, description);
 
   try {
     const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
@@ -5643,11 +5665,15 @@ app.get('/api/admin/events/:id/pairings', requireAuth, requireAdminOrSuper, requ
 
   // Build the full player pool (paid registrations + parent-only, walk-ups
   // included). Then mark which are assigned so the UI can show the
-  // unassigned pool.
+  // unassigned pool. Explicitly excludes non-registration packages
+  // (sponsorships, donations) so their empty rosters don't create
+  // phantom entries.
   const regs = db.prepare(`SELECT r.id, r.buyer_name, r.players_json, r.payment_status, r.payment_mode
                            FROM registrations r
+                           JOIN registration_packages p ON p.id = r.package_id
                            WHERE r.event_id=? AND r.payment_status IN ('paid','partial_refund')
-                             AND r.parent_registration_id IS NULL`).all(req.params.id);
+                             AND r.parent_registration_id IS NULL
+                             AND COALESCE(p.package_kind, 'registration') = 'registration'`).all(req.params.id);
   const assignedKey = new Set(members.map(m => `${m.registration_id}:${m.player_index}`));
   const checkins = db.prepare(`SELECT registration_id, player_index FROM checkins
                                WHERE registration_id IN (${regs.map(()=>'?').join(',') || "''"})`
@@ -5760,11 +5786,14 @@ app.post('/api/admin/events/:id/pairings/auto-assign', requireAuth, requireAdmin
     db.prepare('DELETE FROM pairing_groups WHERE event_id=?').run(req.params.id);
   }
 
-  // Build pool of unassigned players
+  // Build pool of unassigned players. Excludes non-registration packages
+  // so sponsors/donors don't show up in pairings.
   const regs = db.prepare(`SELECT r.id, r.buyer_name, r.players_json
                            FROM registrations r
+                           JOIN registration_packages p ON p.id = r.package_id
                            WHERE r.event_id=? AND r.payment_status IN ('paid','partial_refund')
-                             AND r.parent_registration_id IS NULL`).all(req.params.id);
+                             AND r.parent_registration_id IS NULL
+                             AND COALESCE(p.package_kind, 'registration') = 'registration'`).all(req.params.id);
   const assigned = new Set(
     db.prepare('SELECT registration_id || ":" || player_index AS k FROM pairing_members WHERE event_id=?')
       .all(req.params.id).map(r => r.k)
@@ -5865,10 +5894,15 @@ function upsertPlayerFromReg(name, phone, email, handicapIndex) {
 // `existingEntries` set lets us skip players who are already in the round
 // (used by sync-scoring; start-scoring passes an empty set).
 function _materializeRegistrationsToRound(eventId, roundId, fmt, isTeamCard, existingKeys) {
-  const regs = db.prepare(`SELECT id, buyer_name, buyer_email, buyer_phone, players_json
-                           FROM registrations
-                           WHERE event_id=? AND payment_status IN ('paid','partial_refund')
-                             AND parent_registration_id IS NULL`).all(eventId);
+  // Only player-ticket registrations contribute to the scoring round.
+  // Sponsorships + donations have empty rosters; even so, we filter
+  // here defensively so the leaderboard never inherits stray names.
+  const regs = db.prepare(`SELECT r.id, r.buyer_name, r.buyer_email, r.buyer_phone, r.players_json
+                           FROM registrations r
+                           JOIN registration_packages p ON p.id = r.package_id
+                           WHERE r.event_id=? AND r.payment_status IN ('paid','partial_refund')
+                             AND r.parent_registration_id IS NULL
+                             AND COALESCE(p.package_kind, 'registration') = 'registration'`).all(eventId);
 
   let entriesAdded = 0, teamsAdded = 0, regsProcessed = 0;
 
@@ -5999,10 +6033,14 @@ app.post('/api/admin/events/:id/sync-scoring', requireAuth, requireAdminOrSuper,
     // Teams are named after the buyer; key by team name → registration buyer name.
     const teams = db.prepare('SELECT name FROM round_teams WHERE round_id=?').all(round.id);
     for (const tm of teams) existingKeys.add(`team:${tm.name}`);
-    // Also lock anything already keyed by reg id (newer flows).
-    const regs = db.prepare(`SELECT id, buyer_name FROM registrations
-                             WHERE event_id=? AND payment_status IN ('paid','partial_refund')
-                               AND parent_registration_id IS NULL`).all(eventId);
+    // Also lock anything already keyed by reg id (newer flows). Only
+    // player-ticket registrations matter here — sync uses the same
+    // package_kind filter as the materializer.
+    const regs = db.prepare(`SELECT r.id, r.buyer_name FROM registrations r
+                             JOIN registration_packages p ON p.id = r.package_id
+                             WHERE r.event_id=? AND r.payment_status IN ('paid','partial_refund')
+                               AND r.parent_registration_id IS NULL
+                               AND COALESCE(p.package_kind, 'registration') = 'registration'`).all(eventId);
     for (const r of regs) {
       if (existingKeys.has(`team:${(r.buyer_name || 'Team').slice(0, 80)}`)) {
         existingKeys.add(`reg:${r.id}`);
@@ -6014,9 +6052,11 @@ app.post('/api/admin/events/:id/sync-scoring', requireAuth, requireAdminOrSuper,
                                JOIN players p ON p.id = re.player_id
                                WHERE re.round_id=? AND p.phone IS NOT NULL`).all(round.id).map(r => r.phone);
     const phoneSet = new Set(phones);
-    const regs = db.prepare(`SELECT id, buyer_phone FROM registrations
-                             WHERE event_id=? AND payment_status IN ('paid','partial_refund')
-                               AND parent_registration_id IS NULL`).all(eventId);
+    const regs = db.prepare(`SELECT r.id, r.buyer_phone FROM registrations r
+                             JOIN registration_packages p ON p.id = r.package_id
+                             WHERE r.event_id=? AND r.payment_status IN ('paid','partial_refund')
+                               AND r.parent_registration_id IS NULL
+                               AND COALESCE(p.package_kind, 'registration') = 'registration'`).all(eventId);
     for (const r of regs) if (r.buyer_phone && phoneSet.has(r.buyer_phone)) existingKeys.add(`reg:${r.id}`);
   }
 
