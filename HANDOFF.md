@@ -32,9 +32,55 @@ Super admin login: `shah82286@gmail.com` / `jord2026` (password = `ADMIN_PASSWOR
 
 ---
 
-## Current state — v3.37.0 (2026-05-24)
+## Current state — v3.43.0 (2026-05-25)
 
-### What's shipped since v3.8.0 (the prior handoff snapshot)
+> **Snapshot context**: The previous handoff was at v3.37 with Session 53
+> work (timezones / carts / poster) in-flight. That shipped — plus six more
+> arcs landed in quick succession through v3.43. The system is now
+> feature-complete on **E1 (sell tickets)**, **E2 (run the day)** including
+> scoring, and **E3 (raise money)** except for the Klaviyo email blast
+> (deferred behind #KLAVIYO-FLOWS). 219/219 tests passing.
+
+### What's shipped since v3.37 (this session arc)
+
+- **v3.38.0** — Time zones across the system (`tz-lookup`,
+  `events.time_zone` auto-resolved from venue lat/lon, displayed as
+  CDT/EDT/PDT abbreviations); free-text cart numbers on pairing groups;
+  24×36 in print poster at `/admin/events/:id/pairings/poster`.
+- **v3.38.1** — Editor header layout fix (was squeezing the title into
+  one word past 8 action buttons); event logo upload in the site editor;
+  logo rendered on the poster.
+- **v3.39.0** — **Scoring bridge** — biggest piece. Closes the
+  registrations → tournament leaderboard gap. New endpoints
+  `GET/POST /api/admin/events/:id/{scoring, start-scoring, sync-scoring}`.
+  Each paid registration's player roster auto-materializes into
+  `round_entries` (or a `round_teams` row for scramble formats).
+  "🏆 Start scoring" button on the pairings page; flips to
+  "📺 Leaderboard →" + "↻ Sync" after kickoff.
+- **v3.39.1** — `#HELP-BUBBLES` shipped. 25+ info tooltips across
+  event-site editor + pairings page; `.help-icon` CSS now lives in
+  `jord.css` for site-wide use.
+- **v3.40.0** — Clone past tournament. New endpoint
+  `POST /api/admin/events/:sourceId/clone` copies settings, polygons,
+  packages, event-site content, and tee boxes in one transaction. New-
+  event modal with a "Copy from" dropdown.
+- **v3.41.0** — Sponsorships (E3 phase 1). New columns `package_kind` +
+  `sponsor_type` on `registration_packages`. 11-tile quick-add catalog
+  (title, hole, cart, beverage, food, hole-in-one, LD, CTP, scorecard,
+  leaderboard, foursome). Public site renders a Sponsorships section
+  with type emoji chips + "Become a sponsor →" CTAs.
+- **v3.42.0** — Fundraising goal bar + revenue dashboard (E3 phase 2).
+  `events.fundraising_goal_cents` + `_visible`. Public page renders an
+  animated progress bar. Admin registrations dashboard shows
+  revenue-by-kind (tickets vs sponsorships) bars and the goal-progress
+  card (always visible to admins).
+- **v3.43.0** — Standalone cash donations (E3 phase 3). Four new
+  `event_sites` columns (`donations_enabled`, `donation_suggested_json`,
+  `donation_min_cents`, `donation_prompt`). New `POST /api/donations`
+  endpoint with lazy donation-package creation. Public Give section
+  with preset amounts + custom input + Stripe Checkout redirect.
+
+### What's shipped since v3.8.0 (kept from the prior handoff)
 
 #### Clubhouse (`/clubhouse`) — game-scoring platform
 - **20 game formats** in [lib/formats.js](lib/formats.js): stroke gross/net, stableford, skins, erado, duplicate, match play, scramble (2/4-person), best ball, better ball, foursomes, greensome, low gross/net, Irish rumble, duplicate scramble.
@@ -96,34 +142,37 @@ Mobile visual: `node tests/mobile-visual.js` (Puppeteer iPhone 14 + Pixel 7 view
 
 ## What was in-flight when we stopped
 
-**Session 53 (not started yet)** — three additions requested:
-1. **Timezones across the system** — auto-detect IANA timezone from venue lat/lon using `tz-lookup` npm package. Store as `events.time_zone`. Display abbreviations (CDT, EST) next to tee times and schedule items everywhere. **Install was rejected at the npm step — needs to be re-run in the new chat.**
-2. **Cart numbers on pairings** — free-text field per group (handles "12, 13" for two carts, "Walking" for none, etc.). Add to `pairing_groups.cart_numbers`, expose in PATCH endpoint, show as input on each group card.
-3. **Large-format poster PDF** — designed, on-brand printable sheet at `/admin/events/:id/pairings/poster` showing groups, starting holes, cart numbers, and member names. Default page size 24×36 in. via `@page { size: 24in 36in; }`. Browser print-to-PDF (no PDF library). Should look like a real event poster — cream + saffron + Playfair Display, big hole numbers, decorative.
-
-User confirmed all three are wanted. User-confirmed plan:
-- Timezone: `tz-lookup` package, auto from venue lat/lon
-- Poster: 24×36 default
-- Cart numbers: per group, free text — they noted "look up how typically carts are assigned" (standard: 2 carts per foursome in shotgun scrambles, often numbered to match starting hole; some events use 1 cart per 2 players; walkers get "Walking" written).
-
-**Start the next session by**: `npm install tz-lookup` first, then proceed with schema + endpoints + UI per plan above. The conversation context for this work is in CHANGELOG.md entries v3.30 through v3.37 and the latest TODO.md.
+Nothing — the v3.43 session ended on a clean push of the full E3 arc.
+There is no pending work to resume.
 
 ---
 
-## Next priorities after the in-flight work
+## Next priorities
 
-### E2 remaining (Run the day)
-- **Wire scoring engine to event** — connect [lib/scoring.js](lib/scoring.js) to the registered field so each player automatically becomes a scoring entry on game day. Biggest piece — touches both subsystems. Estimated 3-4 hours.
-- **Clone past tournament** — "Copy from" dropdown in the new-event flow that prefills settings, packages, schedule, FAQ from a previous event. ~1 hour.
+### E3 remaining
+- **Klaviyo donation/sponsor email blast** — deferred behind
+  #KLAVIYO-FLOWS until the dashboard flows ship. Will plug into the
+  existing send pipeline once those land.
 
-### E3 (Raise money) — not started
-Sponsorships (standard catalog + custom — title, hole, cart, beverage, food, hole-in-one, LD, CTP, scorecard, leaderboard, foursome + "+ Add custom"), cash donations, fundraising goal bar, email blast via Klaviyo, revenue/expense dashboard.
-
-### E4 (Donations + silent auction) — not started
-Donation-item intake form, organizer approval, auto-list into silent auction with timed bidding, winner checkout via Stripe.
+### E4 (Silent auction) — not started
+Donation-item intake form, organizer approval, auto-list into silent
+auction with timed bidding, winner checkout via Stripe.
 
 ### E5 (Marketplaces) — not started
-Event store (charity sells raffle tickets, mulligans, merch to attendees), supplies marketplace (organizers buy JORD Shopify + partner gear).
+Event store (charity sells raffle tickets, mulligans, merch to attendees),
+supplies marketplace (organizers buy JORD Shopify + partner gear).
+
+### Bigger gaps still open
+- **Wire pairings → scoring** — pairings groups + scoring round entries
+  are two parallel systems by design (one for cart/hole logistics, the
+  other for the leaderboard). If we want a single source of truth for
+  groupings, the bridge would write each pairing group as a
+  `score_groups` row on the round. Optional — current setup works.
+- **Sponsorship logo display** — the catalog is in place but we don't
+  yet render sponsor logos on the public page or on the poster. Easy
+  follow-up if organizers ask.
+- **Reps invite flow** — `/admin/events/:id/reps` UI exists; could use
+  a one-click "Invite by email" with a magic-link onboarding.
 
 ### Operational TODOs (in TODO.md)
 - **#STRIPE-LIVE** — flip from sandbox to live keys. Need to re-enable Connect in live mode (separate from sandbox), get a fresh `whsec_` webhook secret, re-onboard the JORD platform account, end-to-end test with a real card + refund.
@@ -131,7 +180,7 @@ Event store (charity sells raffle tickets, mulligans, merch to attendees), suppl
 - **#KLAVIYO-FLOWS** — 6 Flows to build in Klaviyo dashboard: `jord_password_reset` (highest priority), `jord_account_welcome`, `jord_admin_welcome`, `jord_admin_assigned`, `jord_tournament_signup`, `jord_addon_charge`. All email-only, server builds the HTML, flow just passes through `{{ event.EmailBodyHtml|safe }}`.
 - **#KLAVIYO-TRANSACTIONAL** — Klaviyo rejected transactional status on a JORD email. Shaheen working with their support. Blocker for password-reset / welcome emails reaching opted-out users.
 - **#OAUTH-1** — Google + Microsoft sign-in. Awaiting OAuth client app creation in Google Cloud Console + Azure AD. Backend `POST /api/users/oauth` and login buttons slot in once Client IDs are set.
-- **#HELP-BUBBLES** — info tooltips across tournament setup screens for non-technical organizers.
+- **#HELP-BUBBLES** — ✅ Shipped in v3.39.1.
 
 ---
 
@@ -159,7 +208,8 @@ Event store (charity sells raffle tickets, mulligans, merch to attendees), suppl
 | `public/admin/stripe-connect.html` | Stripe Connect onboarding UI |
 | `public/admin/event-registrations.html` | Registrations dashboard + refunds + add-ons |
 | `public/admin/event-checkin.html` | Mobile-first check-in + walk-ups (incl. Stripe QR) |
-| `public/admin/event-pairings.html` | Pairings + hole assignments + auto-assign + print |
+| `public/admin/event-pairings.html` | Pairings + hole assignments + auto-assign + print + scoring bridge |
+| `public/admin/event-pairings-poster.html` | 24×36 in print poster for the pairings sheet |
 | `public/event-site.html` | Public brandable event site at `/e/:slug` |
 | `public/event-register.html` | Public registration form at `/e/:slug/register` |
 | `public/event-confirmation.html` | Post-checkout thank-you at `/e/:slug/confirmation/:regId` |
@@ -174,9 +224,9 @@ Event store (charity sells raffle tickets, mulligans, merch to attendees), suppl
 | `public/css/jord.css` | Shared cream editorial design system |
 | `public/js/jord.js` | Frontend library — API client (dual-token), toasts, helpers |
 | `scripts/seed-event-site.js` | Idempotent demo event-site seed (Fairway Fund) |
-| `tests/run-tests.js` | 139 unit tests — route presence + scoring logic |
+| `tests/run-tests.js` | 219 unit tests — route presence + scoring logic + bridge + sponsorships + donations + fundraising |
 | `tests/mobile-visual.js` | Puppeteer iPhone 14 + Pixel 7 mobile visual regression |
-| `CHANGELOG.md` | Full version history; v3.30 through v3.37 cover this session arc |
+| `CHANGELOG.md` | Full version history; v3.38 through v3.43 cover the latest session arc |
 | `TODO.md` | Numbered backlog — reference by # (e.g. "let's do #STRIPE-LIVE") |
 | `ENTERPRISE-PLATFORM-SPEC.md` | E1-E5 phased plan + competitive map vs EventCaddy |
 | `LEADERBOARD-SPEC.md` | Clubhouse scoring spec |
