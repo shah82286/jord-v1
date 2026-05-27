@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Order · JORD Shop</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+  <style>
+    .od-wrap { max-width:760px; margin:0 auto; padding:var(--s-5) var(--s-4) var(--s-7); }
+    .od-head { display:flex; justify-content:space-between; align-items:flex-end; gap:var(--s-3); flex-wrap:wrap; margin-bottom:var(--s-4); }
+    .od-head h1 { font-family:var(--font-display); font-size:clamp(1.6rem,4vw,2.1rem); letter-spacing:-0.02em; line-height:1.1; }
+    .status-chip { font-size:11px; font-weight:700; padding:4px 10px; border-radius:999px;
+      text-transform:uppercase; letter-spacing:.06em; }
+    .status-pending  { background:rgba(231,180,42,.15); color:#8a6b18; }
+    .status-paid     { background:rgba(31,126,42,.15); color:#1f7e2a; }
+    .status-shipped  { background:rgba(60,60,60,.15); color:#444; }
+    .status-canceled { background:rgba(192,57,43,.15); color:#a33; }
+
+    .od-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+      padding:var(--s-4); margin-bottom:var(--s-3); }
+    .product-row { display:flex; gap:var(--s-3); align-items:center; }
+    .product-row img { width:96px; height:96px; object-fit:cover; border-radius:var(--r-md);
+      border:1px solid var(--border); flex-shrink:0; }
+    .product-row .name { font-family:var(--font-display); font-size:1.2rem; }
+    .product-row .meta { color:var(--ink-3); font-size:13px; margin-top:2px; }
+    .totals { display:grid; gap:6px; margin-top:var(--s-3); padding-top:var(--s-3); border-top:1px solid var(--border); }
+    .totals .line { display:flex; justify-content:space-between; font-size:14px; color:var(--ink-2); }
+    .totals .grand { font-family:var(--font-display); font-size:1.4rem; color:var(--ink); }
+    .addr-row { display:grid; grid-template-columns:1fr 1fr; gap:var(--s-3); font-size:14px; }
+    @media (max-width: 560px) { .addr-row { grid-template-columns:1fr; } }
+    .addr-row .label { font-size:11px; letter-spacing:.18em; text-transform:uppercase; color:var(--ink-3); font-weight:700; margin-bottom:4px; }
+    .empty { color:var(--ink-3); font-style:italic; }
+
+    .ship-form { display:grid; gap:8px; margin-top:var(--s-3); }
+    .ship-form input { width:100%; padding:10px 12px; border:1px solid var(--border); border-radius:var(--r-md);
+      background:var(--bg); color:var(--ink); font-size:14px; }
+    .ship-form .row { display:flex; gap:8px; align-items:center; }
+    .ship-form .row input { flex:1; }
+  </style>
+</head>
+<body>
+<main class="od-wrap" id="view"><p class="mini">Loading…</p></main>
+
+<script src="/js/jord.js"></script>
+<script src="/admin/_shared/auth.js"></script>
+<script>
+const esc = JORD.escapeHtml;
+if (!JORD.getToken()) location.href = '/admin';
+
+const orderId = location.pathname.split('/').filter(Boolean).pop();
+const state = { me: null, order: null };
+
+const fmtPrice = c => '$' + ((Number(c) || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function fmtDate(s) {
+  if (!s) return '—';
+  try { return new Date(s).toLocaleString(); } catch { return s; }
+}
+
+async function load() {
+  try {
+    state.me = await JORD.api('/api/auth/me').catch(() => null);
+    const r = await JORD.api('/api/admin/shop/orders/' + orderId);
+    state.order = r.order;
+    render();
+  } catch (e) {
+    if (e.status === 401) location.href = '/admin';
+    else document.getElementById('view').innerHTML = `<p style="color:#a33;padding:20px">${esc(e.message)}</p>`;
+  }
+}
+
+function render() {
+  const o = state.order;
+  const isSuper = state.me && state.me.role === 'super';
+  const isPaid = ['paid', 'shipped'].includes(o.status);
+  document.getElementById('view').innerHTML = `
+    <div class="od-head">
+      <div>
+        <a href="/admin/shop" class="pill-link" style="font-size:13px;color:var(--ink-2)">← Back to shop</a>
+        <h1 style="margin-top:6px">${o.status === 'paid' ? '✓ Order confirmed' : o.status === 'shipped' ? '📦 Shipped' : o.status === 'pending' ? 'Order pending' : 'Order ' + o.status}</h1>
+        <p style="color:var(--ink-3);font-size:13px;margin-top:6px">Order <code>${esc(o.id)}</code> · placed ${fmtDate(o.created_at)}</p>
+      </div>
+      <span class="status-chip status-${esc(o.status)}">${esc(o.status)}</span>
+    </div>
+
+    <div class="od-card">
+      <div class="product-row">
+        ${o.product_image ? `<img src="${esc(o.product_image)}" alt="" />` : `<div style="width:96px;height:96px;background:var(--surface-2);border-radius:var(--r-md);display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-size:11px;flex-shrink:0">No photo</div>`}
+        <div style="flex:1">
+          <div class="name">${esc(o.product_name)}</div>
+          <div class="meta">Qty ${o.qty} × ${fmtPrice(o.unit_price_cents)}</div>
+          ${o.product_description ? `<div class="meta" style="margin-top:6px">${esc(o.product_description)}</div>` : ''}
+        </div>
+      </div>
+      <div class="totals">
+        <div class="line"><span>Subtotal</span><span>${fmtPrice(o.unit_price_cents * o.qty)}</span></div>
+        <div class="line grand"><span>Total</span><span>${fmtPrice(o.total_cents)}</span></div>
+      </div>
+    </div>
+
+    <div class="od-card">
+      <h3 style="font-family:var(--font-display);font-size:1.1rem;margin-bottom:var(--s-2)">Shipping</h3>
+      ${o.shipping_addr_line1 ? `
+        <div>${esc(o.shipping_name || '')}</div>
+        <div>${esc(o.shipping_addr_line1)}</div>
+        ${o.shipping_addr_line2 ? `<div>${esc(o.shipping_addr_line2)}</div>` : ''}
+        <div>${esc(o.shipping_city || '')}, ${esc(o.shipping_state || '')} ${esc(o.shipping_postal || '')}</div>
+        <div>${esc(o.shipping_country || '')}</div>
+        ${o.shipping_phone ? `<div style="color:var(--ink-3);margin-top:6px">📞 ${esc(o.shipping_phone)}</div>` : ''}
+      ` : `<div class="empty">Shipping address will be collected at checkout.</div>`}
+
+      ${o.tracking_url ? `<div style="margin-top:var(--s-3);padding-top:var(--s-3);border-top:1px solid var(--border)">
+        <div class="addr-row" style="grid-template-columns:auto 1fr;align-items:center;gap:8px">
+          <span style="font-size:18px">📦</span>
+          <a href="${esc(o.tracking_url)}" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">Track shipment →</a>
+        </div>
+      </div>` : ''}
+    </div>
+
+    ${isSuper && o.status === 'paid' ? `
+      <div class="od-card">
+        <h3 style="font-family:var(--font-display);font-size:1.1rem;margin-bottom:var(--s-2)">Mark as shipped (super admin)</h3>
+        <p class="mini" style="color:var(--ink-3);margin-bottom:var(--s-2)">Paste a tracking URL and click Ship — the buyer sees it on this page.</p>
+        <div class="ship-form">
+          <input id="tracking" type="url" placeholder="https://www.ups.com/track?…" />
+          <div class="row">
+            <button class="btn btn-primary" id="btn-ship">📦 Mark shipped</button>
+          </div>
+        </div>
+      </div>
+    ` : ''}
+  `;
+
+  if (isSuper && o.status === 'paid') {
+    document.getElementById('btn-ship').onclick = async () => {
+      const url = document.getElementById('tracking').value.trim();
+      try {
+        await JORD.api(`/api/admin/shop/orders/${o.id}/ship`, { method: 'POST', body: { tracking_url: url || null } });
+        await load();
+        JORD.success('Order marked shipped');
+      } catch (e) { alert(e.message || 'Could not mark shipped'); }
+    };
+  }
+}
+
+ADMIN.requireAuth({ adminOrSuper: true }).then(load);
+</script>
+</body>
+</html>

@@ -310,6 +310,52 @@ try { db.exec("ALTER TABLE registration_packages ADD COLUMN sponsor_type TEXT");
 // optional product photo (~2.5 MB cap, same rule as auction items).
 try { db.exec("ALTER TABLE registration_packages ADD COLUMN image_data TEXT"); } catch {}
 
+// Supplies marketplace (E5 phase 2): JORD sells operational supplies
+// (signs, scoreboards, JORD-branded merch, partner gear) to organizers.
+// Direct charges to JORD's Stripe account — not the Connect flow used
+// by registrations.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS supply_products (
+    id              TEXT PRIMARY KEY,
+    sku             TEXT,
+    name            TEXT NOT NULL,
+    description     TEXT,
+    image_data      TEXT,           -- base64 data URL, ≤ 2.5 MB
+    price_cents     INTEGER NOT NULL DEFAULT 0,
+    category        TEXT,           -- e.g. 'signs', 'merch', 'equipment'
+    sort_order      INTEGER DEFAULT 0,
+    active          INTEGER DEFAULT 1,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_supply_products_active ON supply_products(active, sort_order);
+
+  CREATE TABLE IF NOT EXISTS supply_orders (
+    id                  TEXT PRIMARY KEY,
+    admin_id            TEXT NOT NULL,    -- the buyer (an admin/super)
+    product_id          TEXT NOT NULL,    -- single product per order in phase 1
+    qty                 INTEGER NOT NULL DEFAULT 1,
+    unit_price_cents    INTEGER NOT NULL,
+    total_cents         INTEGER NOT NULL,
+    status              TEXT NOT NULL DEFAULT 'pending', -- pending | paid | shipped | canceled
+    stripe_session_id   TEXT,
+    shipping_name       TEXT,
+    shipping_addr_line1 TEXT,
+    shipping_addr_line2 TEXT,
+    shipping_city       TEXT,
+    shipping_state      TEXT,
+    shipping_postal     TEXT,
+    shipping_country    TEXT,
+    shipping_phone      TEXT,
+    tracking_url        TEXT,
+    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
+    paid_at             DATETIME,
+    shipped_at          DATETIME,
+    FOREIGN KEY (admin_id)   REFERENCES admins(id),
+    FOREIGN KEY (product_id) REFERENCES supply_products(id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_supply_orders_admin ON supply_orders(admin_id, created_at DESC);
+`);
+
 // Fundraising goal (E3 phase 2): optional target the public site shows
 // as an animated progress bar. `_visible` is a separate toggle so an
 // organizer can set a goal privately before deciding to show it.
@@ -868,6 +914,31 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req,
                       WHERE id=? AND payment_status!='paid'`)
             .run(session.id, regId);
           console.log(`[Stripe] Registration ${regId} marked paid (session ${session.id})`);
+
+          // Supplies marketplace — direct charge to JORD. Flip the
+          // order, capture the shipping address Stripe Checkout collected.
+          if (session.metadata.supply_order_id) {
+            const ship = session.shipping_details || session.collected_information?.shipping_details || {};
+            const addr = ship.address || {};
+            db.prepare(`UPDATE supply_orders
+              SET status='paid', paid_at=CURRENT_TIMESTAMP, stripe_session_id=?,
+                  shipping_name=?, shipping_addr_line1=?, shipping_addr_line2=?,
+                  shipping_city=?, shipping_state=?, shipping_postal=?,
+                  shipping_country=?, shipping_phone=?
+              WHERE id=?`).run(
+              session.id,
+              ship.name || null,
+              addr.line1 || null, addr.line2 || null,
+              addr.city || null, addr.state || null, addr.postal_code || null,
+              addr.country || null,
+              session.customer_details?.phone || null,
+              session.metadata.supply_order_id);
+            console.log(`[Stripe] Supply order ${session.metadata.supply_order_id} marked paid`);
+            // Supply orders are independent of registrations — return early
+            // so the registration-row logic below doesn't fire.
+            res.json({ received: true });
+            return;
+          }
 
           // Auction winner paid — flip the linked auction_item to 'paid'
           // so it disappears from the public listing and shows as settled
@@ -5955,6 +6026,160 @@ app.post('/api/admin/events/:id/pairings/auto-assign', requireAuth, requireAdmin
   res.json({ ok: true, groups_created: createdGroups, players_assigned: pool.length });
 });
 
+// ─── SUPPLIES MARKETPLACE (E5 phase 2) ─────────────────────────────────────
+// JORD sells operational supplies to organizers. Payment is a direct
+// charge to JORD's own Stripe account (NOT a Connect destination charge —
+// that flow is reserved for event-side payments where the organizer is
+// the seller).
+
+// ── Public-to-admins: browse the catalog ──
+app.get('/api/admin/shop/products', requireAuth, (req, res) => {
+  const all = req.admin.role === 'super' && req.query.all === '1';
+  const products = all
+    ? db.prepare('SELECT * FROM supply_products ORDER BY sort_order, created_at').all()
+    : db.prepare('SELECT * FROM supply_products WHERE active=1 ORDER BY sort_order, price_cents').all();
+  res.json({ products });
+});
+
+// ── Super-admin: create / update / delete products ──
+app.post('/api/admin/shop/products', requireAuth, requireSuper, (req, res) => {
+  const b = req.body || {};
+  if (!b.name || !String(b.name).trim()) return res.status(400).json({ error: 'Product name required' });
+  const img = normalizeImageData(b.image_data);
+  if (!img.ok) return res.status(400).json({ error: 'image_data must be an image data URL under 2.5 MB' });
+  const id = uid('SUP');
+  const nextSort = (db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS n FROM supply_products').get().n || 0) + 1;
+  db.prepare(`INSERT INTO supply_products
+    (id, sku, name, description, image_data, price_cents, category, sort_order, active)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)`).run(
+    id,
+    (b.sku || '').trim().slice(0, 40) || null,
+    String(b.name).trim().slice(0, 200),
+    (b.description || '').trim().slice(0, 2000) || null,
+    img.value,
+    Math.max(0, Number(b.price_cents) || 0),
+    (b.category || '').trim().slice(0, 40) || null,
+    Number(b.sort_order) || nextSort,
+  );
+  res.json({ id });
+});
+
+app.patch('/api/admin/shop/products/:id', requireAuth, requireSuper, (req, res) => {
+  const cur = db.prepare('SELECT * FROM supply_products WHERE id=?').get(req.params.id);
+  if (!cur) return res.status(404).json({ error: 'Product not found' });
+  const b = req.body || {};
+  if (b.image_data !== undefined) {
+    const img = normalizeImageData(b.image_data);
+    if (!img.ok) return res.status(400).json({ error: 'image_data must be an image data URL under 2.5 MB' });
+    b.image_data = img.value;
+  }
+  const n = {
+    sku:         b.sku         !== undefined ? (String(b.sku||'').trim().slice(0, 40) || null) : cur.sku,
+    name:        b.name        !== undefined ? String(b.name).trim().slice(0, 200) : cur.name,
+    description: b.description !== undefined ? (String(b.description||'').trim().slice(0, 2000) || null) : cur.description,
+    image_data:  b.image_data  !== undefined ? b.image_data : cur.image_data,
+    price_cents: b.price_cents !== undefined ? Math.max(0, Number(b.price_cents) || 0) : cur.price_cents,
+    category:    b.category    !== undefined ? (String(b.category||'').trim().slice(0, 40) || null) : cur.category,
+    sort_order:  b.sort_order  !== undefined ? Number(b.sort_order) || cur.sort_order : cur.sort_order,
+    active:      b.active      !== undefined ? (b.active ? 1 : 0) : cur.active,
+  };
+  db.prepare(`UPDATE supply_products
+    SET sku=?, name=?, description=?, image_data=?, price_cents=?, category=?, sort_order=?, active=?
+    WHERE id=?`).run(n.sku, n.name, n.description, n.image_data, n.price_cents, n.category, n.sort_order, n.active, req.params.id);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/shop/products/:id', requireAuth, requireSuper, (req, res) => {
+  db.prepare('DELETE FROM supply_products WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ── Buyer side: list own orders ──
+app.get('/api/admin/shop/orders', requireAuth, (req, res) => {
+  const orders = db.prepare(`SELECT o.*, p.name AS product_name, p.image_data AS product_image
+                             FROM supply_orders o
+                             JOIN supply_products p ON p.id = o.product_id
+                             WHERE o.admin_id=?
+                             ORDER BY o.created_at DESC`).all(req.admin.id);
+  res.json({ orders });
+});
+
+// ── Buyer side: place an order → Stripe Checkout ──
+app.post('/api/admin/shop/orders', requireAuth, async (req, res) => {
+  const { product_id, qty } = req.body || {};
+  if (!product_id) return res.status(400).json({ error: 'product_id required' });
+  const q = Math.max(1, Math.min(100, Math.floor(Number(qty) || 1)));
+  const product = db.prepare('SELECT * FROM supply_products WHERE id=? AND active=1').get(product_id);
+  if (!product) return res.status(404).json({ error: 'Product not found' });
+
+  const id = uid('SO');
+  const unit = product.price_cents;
+  const total = unit * q;
+  db.prepare(`INSERT INTO supply_orders
+    (id, admin_id, product_id, qty, unit_price_cents, total_cents, status)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending')`)
+    .run(id, req.admin.id, product_id, q, unit, total);
+
+  // Mock mode — instant paid, no Stripe trip. Useful for local dev.
+  if (stripeHelper.mode === 'mock') {
+    db.prepare("UPDATE supply_orders SET status='paid', paid_at=CURRENT_TIMESTAMP WHERE id=?").run(id);
+    return res.json({ id, confirmation_url: `/admin/shop/orders/${id}`, payment_mode: 'mock', status: 'paid' });
+  }
+
+  try {
+    const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
+    const session = await stripeHelper.createDirectCheckoutSession({
+      amountCents: unit,
+      quantity: q,
+      productName: product.name,
+      productDescription: product.description || undefined,
+      buyerEmail: req.admin.email,
+      collectShipping: true,
+      metadata: { supply_order_id: id, admin_id: req.admin.id, jord: '1', kind: 'supply_order' },
+      successUrl: `${APP_URL}/admin/shop/orders/${id}?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl:  `${APP_URL}/admin/shop?canceled=1`,
+    });
+    db.prepare('UPDATE supply_orders SET stripe_session_id=? WHERE id=?').run(session.id, id);
+    res.json({ id, checkout_url: session.url, session_id: session.id, payment_mode: 'stripe', status: 'pending' });
+  } catch (e) {
+    console.error('[Stripe supply checkout]', e);
+    db.prepare("UPDATE supply_orders SET status='canceled' WHERE id=?").run(id);
+    res.status(502).json({ error: 'Could not start checkout — please try again.' });
+  }
+});
+
+// ── Order detail (buyer can view their own; super sees any) ──
+app.get('/api/admin/shop/orders/:id', requireAuth, (req, res) => {
+  const o = db.prepare(`SELECT o.*, p.name AS product_name, p.image_data AS product_image, p.description AS product_description
+                        FROM supply_orders o
+                        JOIN supply_products p ON p.id = o.product_id
+                        WHERE o.id=?`).get(req.params.id);
+  if (!o) return res.status(404).json({ error: 'Order not found' });
+  if (req.admin.role !== 'super' && o.admin_id !== req.admin.id) {
+    return res.status(403).json({ error: 'Not your order' });
+  }
+  res.json({ order: o });
+});
+
+// ── Super-admin: list ALL orders, mark shipped ──
+app.get('/api/admin/shop/orders/all', requireAuth, requireSuper, (req, res) => {
+  const orders = db.prepare(`SELECT o.*, p.name AS product_name, a.name AS admin_name, a.email AS admin_email
+                             FROM supply_orders o
+                             JOIN supply_products p ON p.id = o.product_id
+                             JOIN admins a ON a.id = o.admin_id
+                             ORDER BY o.created_at DESC`).all();
+  res.json({ orders });
+});
+
+app.post('/api/admin/shop/orders/:id/ship', requireAuth, requireSuper, (req, res) => {
+  const { tracking_url } = req.body || {};
+  const o = db.prepare("SELECT id FROM supply_orders WHERE id=? AND status='paid'").get(req.params.id);
+  if (!o) return res.status(400).json({ error: 'Order not found or not yet paid' });
+  db.prepare("UPDATE supply_orders SET status='shipped', shipped_at=CURRENT_TIMESTAMP, tracking_url=? WHERE id=?")
+    .run((tracking_url || '').trim() || null, req.params.id);
+  res.json({ ok: true });
+});
+
 // ─── SILENT AUCTION (E4) ─────────────────────────────────────────────────
 // Items can be created manually by the organizer OR submitted via a public
 // intake form (donors offering prizes). Visitors at /e/:slug bid through
@@ -6657,6 +6882,10 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   '/admin/backups':  'admin/backups.html',
   '/admin/global':   'admin/global.html',
   '/admin/requests': 'admin/requests.html',
+  '/admin/shop':              'admin/shop.html',
+  '/admin/shop/orders':       'admin/shop-orders.html',
+  '/admin/shop/orders/:id':   'admin/shop-order.html',
+  '/admin/shop/products':     'admin/shop-products.html',  // super-only product mgmt
   // More-specific event routes MUST be declared before the catch-all
   // `:tab` pattern below, or Express's first-match wins serves the editor
   // for everything (saw this with /registrations being shadowed in v3.33.0).

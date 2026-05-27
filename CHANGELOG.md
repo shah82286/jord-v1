@@ -2,6 +2,82 @@
 
 ---
 
+## v3.47.0 — 2026-05-26
+### Session 64 — E5 phase 2: Supplies marketplace
+
+Final phase of the platform spec ships: a JORD-owned product catalog
+where organizers buy supplies (signs, scoreboards, JORD merch, partner
+gear). Different payment flow from everything else on the platform —
+direct Stripe charges to JORD's own account, no Connect destination.
+
+#### What changed
+- **lib/stripe.js** — new `createDirectCheckoutSession()` helper. Mirrors
+  `createCheckoutSession` but drops `application_fee_amount` +
+  `transfer_data.destination` (JORD is the seller, not the platform).
+  Adds `collectShipping: true` and `phone_number_collection: enabled`
+  so Stripe Checkout collects a US shipping address inline.
+- **Schema** — two new tables:
+  - `supply_products` — JORD's catalog. `id`, `sku`, `name`,
+    `description`, `image_data` (base64, ≤2.5 MB), `price_cents`,
+    `category`, `sort_order`, `active`.
+  - `supply_orders` — buyer orders. `id`, `admin_id` (buyer),
+    `product_id`, `qty`, `unit_price_cents`, `total_cents`, `status`
+    (pending/paid/shipped/canceled), `stripe_session_id`, full
+    shipping address fields, `tracking_url`, timestamps.
+- **Server endpoints**:
+  - `GET  /api/admin/shop/products` — any admin browses (super sees
+    inactive via `?all=1`).
+  - `POST /api/admin/shop/products` — super-only create.
+  - `PATCH /api/admin/shop/products/:id` — super-only update.
+  - `DELETE /api/admin/shop/products/:id` — super-only delete.
+  - `GET  /api/admin/shop/orders` — buyer's own orders.
+  - `POST /api/admin/shop/orders` — initiate checkout. Inserts a
+    `pending` order, returns the Stripe Checkout URL (or, in mock
+    mode, marks paid immediately).
+  - `GET  /api/admin/shop/orders/:id` — order detail (buyer sees own;
+    super sees any).
+  - `GET  /api/admin/shop/orders/all` — super-only full list.
+  - `POST /api/admin/shop/orders/:id/ship` — super marks shipped,
+    optionally with a tracking URL.
+- **Stripe webhook handler** extended: when `metadata.supply_order_id`
+  is present, the webhook updates `supply_orders` to `paid` AND
+  captures the shipping name + address + phone Stripe collected at
+  Checkout. Returns early so the registration-row logic below
+  doesn't fire on supply orders.
+- **Four new admin pages**:
+  - `/admin/shop` — catalog with category filter pills, product cards
+    (photo, name, description, price, qty selector + Buy button).
+  - `/admin/shop/orders` — buyer's order list, status chips, links to
+    detail.
+  - `/admin/shop/orders/:id` — order detail with product summary,
+    totals, shipping address, tracking URL when present, and a
+    super-admin "Mark shipped" form.
+  - `/admin/shop/products` — super-admin product CRUD with modal
+    form (name, SKU, price, category, description, photo upload,
+    active toggle).
+- **Nav** — main admin events page (`/admin`) gets a 🛒 JORD Shop button
+  visible to every admin.
+
+#### Out of scope (phase 3 / future)
+- Multi-product cart (single product per checkout for now).
+- Discount codes / coupons.
+- Multi-currency.
+- International shipping addresses (US-only allowed list right now —
+  trivial to expand to a longer ISO list when the inventory ships
+  outside the US).
+- Tax calculation (none applied; JORD absorbs or includes in price).
+- Supplier-side fulfillment dashboard (super marks shipped manually;
+  no integration with third-party logistics).
+
+#### Tested
+- **319/319 unit tests pass** (+25 new) covering: helper export +
+  shape, schema, route registration, super-only enforcement on
+  product mutations, order admin_id from session, webhook wiring,
+  shipping collection, all four new UI files exist + parse, nav
+  link.
+
+---
+
 ## v3.46.0 — 2026-05-26
 ### Session 63 — E5 phase 1: Event store
 

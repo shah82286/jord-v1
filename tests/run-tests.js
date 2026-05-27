@@ -401,6 +401,14 @@ console.log('\n🔌 Tournament Scoring Routes\n');
  ['GET','/api/event-sites/:slug/auction'],
  ['POST','/api/auctions/:itemId/bid'],
  ['POST','/api/event-sites/:slug/auction-intake'],
+ ['GET','/api/admin/shop/products'],
+ ['POST','/api/admin/shop/products'],
+ ['PATCH','/api/admin/shop/products/:id'],
+ ['DELETE','/api/admin/shop/products/:id'],
+ ['GET','/api/admin/shop/orders'],
+ ['POST','/api/admin/shop/orders'],
+ ['GET','/api/admin/shop/orders/:id'],
+ ['POST','/api/admin/shop/orders/:id/ship'],
  ['POST','/api/stripe/webhook'],
  ['GET','/api/admin/stripe/account'],
  ['POST','/api/admin/stripe/connect/onboard'],
@@ -436,6 +444,41 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(36.5687, -121.9505) === 'America/Los_Angeles', `got ${tzLookup(36.5687, -121.9505)}`));
   test('tz-lookup resolves a Chicago-area course to America/Chicago',
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
+}
+
+console.log('\n🛒 Supplies marketplace (E5 phase 2)\n');
+{
+  test('supply_products table created',
+    () => assert(src.includes('CREATE TABLE IF NOT EXISTS supply_products'), 'Missing products table'));
+  test('supply_orders table created',
+    () => assert(src.includes('CREATE TABLE IF NOT EXISTS supply_orders'), 'Missing orders table'));
+  test('lib/stripe.js exports createDirectCheckoutSession',
+    () => assert(require('fs').readFileSync('./lib/stripe.js', 'utf8').includes('createDirectCheckoutSession'), 'Direct helper missing'));
+  test('Direct helper avoids the Connect transfer_data branch',
+    () => {
+      const s = require('fs').readFileSync('./lib/stripe.js', 'utf8');
+      const fn = s.slice(s.indexOf('createDirectCheckoutSession'));
+      assert(!fn.split('createCheckoutSession')[0].includes('transfer_data'), 'Direct helper should not set transfer_data');
+    });
+  test('Shop endpoint enforces requireSuper for product mutations',
+    () => assert(/app\.post\('\/api\/admin\/shop\/products', requireAuth, requireSuper/.test(src), 'POST products not super-gated'));
+  test('Shop orders endpoint stores admin_id from session',
+    () => assert(src.includes('admin_id, product_id, qty, unit_price_cents, total_cents, status') && src.includes('req.admin.id'), 'Order missing admin_id'));
+  test('Stripe webhook handles supply_order_id metadata',
+    () => assert(src.includes('session.metadata.supply_order_id') && src.includes("status='paid'"), 'Supply webhook not wired'));
+  test('Shop checkout collects shipping address via collectShipping',
+    () => assert(src.includes('collectShipping: true'), 'Shipping collection not enabled'));
+  const fs = require('fs');
+  for (const f of [
+    './public/admin/shop.html',
+    './public/admin/shop-order.html',
+    './public/admin/shop-orders.html',
+    './public/admin/shop-products.html',
+  ]) {
+    test(`exists: ${f.replace('./public/admin/', '')}`, () => assert(fs.existsSync(f), 'Missing file'));
+  }
+  test('Main admin page links to the shop',
+    () => assert(fs.readFileSync('./public/admin/editor.html', 'utf8').includes('/admin/shop'), 'No shop nav link'));
 }
 
 console.log('\n🛍 Event store (E5 phase 1)\n');

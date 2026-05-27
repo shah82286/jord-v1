@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Manage Products · JORD Shop</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+  <style>
+    .sp-wrap { max-width:1280px; margin:0 auto; padding:var(--s-5) var(--s-4) var(--s-7); }
+    .sp-head { display:flex; justify-content:space-between; align-items:flex-end;
+      gap:var(--s-3); flex-wrap:wrap; margin-bottom:var(--s-4); }
+    .sp-head h1 { font-family:var(--font-display); font-size:clamp(1.6rem,4vw,2.1rem); letter-spacing:-0.02em; }
+    .sp-grid { display:grid; gap:var(--s-3); grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+    .sp-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+      overflow:hidden; display:flex; flex-direction:column; }
+    .sp-card.is-inactive { opacity:.55; }
+    .sp-card .thumb { width:100%; height:160px; background:var(--surface-2); display:flex;
+      align-items:center; justify-content:center; overflow:hidden; }
+    .sp-card .thumb img { width:100%; height:100%; object-fit:cover; }
+    .sp-card .body { padding:var(--s-3); display:flex; flex-direction:column; gap:6px; }
+    .sp-card .name { font-family:var(--font-display); font-size:1.15rem; }
+    .sp-card .meta { font-size:12px; color:var(--ink-3); }
+    .sp-card .actions { display:flex; gap:6px; padding:0 var(--s-3) var(--s-3); }
+    .sp-card .actions .btn { flex:1; font-size:12px; padding:7px 10px; }
+
+    .modal-overlay { position:fixed; inset:0; background:rgba(20,19,18,.55); backdrop-filter:blur(2px);
+      display:none; align-items:flex-start; justify-content:center; z-index:50; padding:var(--s-3); overflow-y:auto; }
+    .modal-overlay.open { display:flex; }
+    .modal { background:var(--bg); border-radius:var(--r-lg); width:100%; max-width:640px;
+      padding:var(--s-4); border:1px solid var(--border); box-shadow:0 10px 40px rgba(0,0,0,.20); margin:var(--s-3) 0; }
+    .modal h2 { font-family:var(--font-display); font-size:1.4rem; margin-bottom:var(--s-3); }
+    .modal label { display:block; font-size:12px; font-weight:600; color:var(--ink-2);
+      letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
+    .modal input, .modal textarea {
+      width:100%; padding:11px 13px; border:1px solid var(--border); border-radius:var(--r-md);
+      background:var(--surface); color:var(--ink); font-size:15px; font-family:inherit; }
+    .modal .field { margin-bottom:var(--s-3); }
+    .modal .row { display:grid; grid-template-columns:1fr 1fr; gap:var(--s-2); }
+    @media (max-width: 560px) { .modal .row { grid-template-columns:1fr; } }
+    .modal .actions { display:flex; gap:var(--s-2); justify-content:flex-end;
+      padding-top:var(--s-3); border-top:1px solid var(--border); margin-top:var(--s-3); flex-wrap:wrap; }
+    .img-preview { width:120px; height:90px; background:#fff; border:1px solid var(--border);
+      border-radius:var(--r-md); padding:8px; display:flex; align-items:center; justify-content:center; }
+    .img-preview img { max-width:100%; max-height:100%; object-fit:contain; }
+  </style>
+</head>
+<body>
+<main class="sp-wrap" id="view"><p class="mini">Loading…</p></main>
+
+<div class="modal-overlay" id="prod-modal">
+  <div class="modal">
+    <h2 id="pm-title">New product</h2>
+    <div class="row">
+      <div class="field">
+        <label>Name *</label>
+        <input type="text" id="pm-name" required maxlength="200" />
+      </div>
+      <div class="field">
+        <label>SKU (optional)</label>
+        <input type="text" id="pm-sku" maxlength="40" />
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Price (USD) *</label>
+        <input type="number" id="pm-price" min="0" step="0.01" required />
+      </div>
+      <div class="field">
+        <label>Category</label>
+        <input type="text" id="pm-category" placeholder="signs / merch / equipment …" maxlength="40" />
+      </div>
+    </div>
+    <div class="field">
+      <label>Description</label>
+      <textarea id="pm-desc" rows="3" maxlength="2000"></textarea>
+    </div>
+    <div class="field">
+      <label>Photo (PNG / JPG, ≤2.5 MB)</label>
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <div class="img-preview" id="pm-thumb"><span style="color:var(--ink-3);font-size:11px">No photo</span></div>
+        <div>
+          <input type="file" id="pm-file" accept="image/png,image/jpeg,image/webp" style="display:none" />
+          <button class="btn btn-ghost" type="button" id="pm-upload">⬆ Upload photo</button>
+          <button class="btn btn-ghost" type="button" id="pm-remove-photo" style="margin-left:6px;color:#a33;display:none">Remove</button>
+        </div>
+      </div>
+    </div>
+    <div class="field">
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+        <input type="checkbox" id="pm-active" checked /> <span>Active (visible in shop)</span>
+      </label>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" data-close-modal>Cancel</button>
+      <button class="btn btn-danger" id="pm-delete" style="display:none">Delete</button>
+      <button class="btn btn-primary" id="pm-save">Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/jord.js"></script>
+<script src="/admin/_shared/auth.js"></script>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => r.querySelectorAll(s);
+const esc = JORD.escapeHtml;
+if (!JORD.getToken()) location.href = '/admin';
+
+const state = { products: [], editing: null, image: null };
+
+const fmtPrice = c => '$' + ((Number(c) || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+async function load() {
+  try {
+    const me = await JORD.api('/api/auth/me').catch(() => null);
+    if (!me || me.role !== 'super') {
+      $('#view').innerHTML = `<div class="card"><p>Super admin only. <a href="/admin/shop">← Back to shop</a></p></div>`;
+      return;
+    }
+    // ?all=1 returns inactive products too
+    const r = await JORD.api('/api/admin/shop/products?all=1');
+    state.products = r.products || [];
+    render();
+  } catch (e) {
+    if (e.status === 401) location.href = '/admin';
+    else $('#view').innerHTML = `<p style="color:#a33;padding:20px">${esc(e.message)}</p>`;
+  }
+}
+
+function render() {
+  $('#view').innerHTML = `
+    <div class="sp-head">
+      <div>
+        <a href="/admin/shop" class="pill-link" style="font-size:13px;color:var(--ink-2)">← Back to shop</a>
+        <h1 style="margin-top:6px">Manage products</h1>
+        <p class="mini" style="color:var(--ink-3);margin-top:4px">The JORD-owned catalog. Visible to every admin in the shop.</p>
+      </div>
+      <button class="btn btn-primary" id="btn-new">+ New product</button>
+    </div>
+
+    <div class="sp-grid">
+      ${state.products.map(p => `<div class="sp-card ${p.active ? '' : 'is-inactive'}">
+        <div class="thumb">${p.image_data
+          ? `<img src="${esc(p.image_data)}" alt="${esc(p.name)}" />`
+          : `<span style="color:var(--ink-3)">No photo</span>`}</div>
+        <div class="body">
+          <div class="name">${esc(p.name)}</div>
+          <div class="meta">${fmtPrice(p.price_cents)}${p.category ? ' · ' + esc(p.category) : ''}${p.sku ? ' · SKU ' + esc(p.sku) : ''}</div>
+          ${!p.active ? '<div class="meta" style="color:#a33;font-weight:600">Hidden</div>' : ''}
+        </div>
+        <div class="actions">
+          <button class="btn btn-ghost" data-edit="${esc(p.id)}">Edit</button>
+        </div>
+      </div>`).join('') || '<div class="sp-card" style="grid-column:1/-1;padding:var(--s-4);text-align:center;color:var(--ink-3)">No products yet. Click + New product to add one.</div>'}
+    </div>
+  `;
+  $('#btn-new').onclick = () => openModal(null);
+  $$('[data-edit]').forEach(b => b.onclick = () => openModal(b.dataset.edit));
+}
+
+function openModal(id) {
+  state.editing = id;
+  state.image = null;
+  const p = id ? state.products.find(x => x.id === id) : null;
+  $('#pm-title').textContent = p ? 'Edit product' : 'New product';
+  $('#pm-name').value = p?.name || '';
+  $('#pm-sku').value = p?.sku || '';
+  $('#pm-price').value = p ? (p.price_cents / 100).toFixed(2) : '';
+  $('#pm-category').value = p?.category || '';
+  $('#pm-desc').value = p?.description || '';
+  $('#pm-active').checked = p ? !!p.active : true;
+  setThumb(p?.image_data || null);
+  $('#pm-delete').style.display = id ? 'inline-flex' : 'none';
+  $('#prod-modal').classList.add('open');
+  setTimeout(() => $('#pm-name').focus(), 50);
+}
+
+function setThumb(data) {
+  const tile = $('#pm-thumb');
+  if (data) {
+    tile.innerHTML = `<img src="${esc(data)}" alt="" />`;
+    $('#pm-remove-photo').style.display = 'inline-flex';
+  } else {
+    tile.innerHTML = '<span style="color:var(--ink-3);font-size:11px">No photo</span>';
+    $('#pm-remove-photo').style.display = 'none';
+  }
+}
+
+$('#pm-upload').onclick = () => $('#pm-file').click();
+$('#pm-file').onchange = () => {
+  const f = $('#pm-file').files[0];
+  if (!f) return;
+  if (f.size > 2_500_000) { alert(`Image too large (${(f.size/1024/1024).toFixed(1)} MB). Try one under 2.5 MB.`); return; }
+  const r = new FileReader();
+  r.onload = () => { state.image = r.result; setThumb(r.result); };
+  r.readAsDataURL(f);
+};
+$('#pm-remove-photo').onclick = () => { state.image = ''; setThumb(null); };
+
+$('#pm-save').onclick = async () => {
+  const btn = $('#pm-save');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const body = {
+    name: $('#pm-name').value.trim(),
+    sku: $('#pm-sku').value.trim() || null,
+    price_cents: Math.round((Number($('#pm-price').value) || 0) * 100),
+    category: $('#pm-category').value.trim() || null,
+    description: $('#pm-desc').value.trim() || null,
+    active: $('#pm-active').checked ? 1 : 0,
+  };
+  if (state.image === '') body.image_data = null;
+  else if (state.image) body.image_data = state.image;
+  try {
+    if (state.editing) {
+      await JORD.api(`/api/admin/shop/products/${state.editing}`, { method: 'PATCH', body });
+    } else {
+      await JORD.api('/api/admin/shop/products', { method: 'POST', body });
+    }
+    closeModal();
+    await load();
+    JORD.success(state.editing ? 'Product saved' : 'Product added');
+  } catch (e) {
+    alert(e.message || 'Save failed');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save';
+  }
+};
+
+$('#pm-delete').onclick = async () => {
+  if (!state.editing) return;
+  if (!confirm('Delete this product? Existing orders are unaffected; the product just disappears from the catalog.')) return;
+  try {
+    await JORD.api(`/api/admin/shop/products/${state.editing}`, { method: 'DELETE' });
+    closeModal();
+    await load();
+    JORD.success('Product deleted');
+  } catch (e) { alert(e.message || 'Delete failed'); }
+};
+
+function closeModal() { document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open')); }
+document.querySelectorAll('[data-close-modal]').forEach(b => b.onclick = closeModal);
+document.querySelectorAll('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) closeModal(); }));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+ADMIN.requireAuth({ adminOrSuper: true }).then(load);
+</script>
+</body>
+</html>

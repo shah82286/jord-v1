@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>My Orders · JORD Shop</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+  <style>
+    .ol-wrap { max-width:960px; margin:0 auto; padding:var(--s-5) var(--s-4) var(--s-7); }
+    .ol-head { display:flex; justify-content:space-between; align-items:flex-end; gap:var(--s-3); flex-wrap:wrap; margin-bottom:var(--s-4); }
+    .ol-head h1 { font-family:var(--font-display); font-size:clamp(1.6rem,4vw,2.1rem); letter-spacing:-0.02em; }
+    .ol-row { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+      padding:var(--s-3) var(--s-4); margin-bottom:var(--s-2); display:grid;
+      grid-template-columns: 64px 1fr auto auto; gap:var(--s-3); align-items:center;
+      text-decoration:none; color:var(--ink); cursor:pointer; transition:box-shadow var(--t-fast); }
+    .ol-row:hover { box-shadow:var(--shadow-md); }
+    .ol-row img { width:64px; height:64px; object-fit:cover; border-radius:var(--r-sm);
+      border:1px solid var(--border); }
+    .ol-row .placeholder { width:64px; height:64px; background:var(--surface-2);
+      border-radius:var(--r-sm); display:flex; align-items:center; justify-content:center;
+      color:var(--ink-3); font-size:11px; }
+    .ol-row .name { font-weight:600; line-height:1.3; }
+    .ol-row .meta { font-size:12px; color:var(--ink-3); margin-top:2px; }
+    .ol-row .total { font-family:var(--font-display); font-size:1.1rem; }
+    .ol-row .status { font-size:10px; font-weight:700; padding:3px 10px; border-radius:999px;
+      text-transform:uppercase; letter-spacing:.06em; white-space:nowrap; }
+    .status-pending  { background:rgba(231,180,42,.15); color:#8a6b18; }
+    .status-paid     { background:rgba(31,126,42,.15); color:#1f7e2a; }
+    .status-shipped  { background:rgba(60,60,60,.15); color:#444; }
+    .status-canceled { background:rgba(192,57,43,.15); color:#a33; }
+    @media (max-width: 640px) {
+      .ol-row { grid-template-columns: 48px 1fr; }
+      .ol-row img, .ol-row .placeholder { width:48px; height:48px; }
+      .ol-row .total, .ol-row .status { grid-column:2; padding-top:6px; }
+    }
+    .empty { padding:80px 20px; text-align:center; color:var(--ink-3); }
+  </style>
+</head>
+<body>
+<main class="ol-wrap" id="view"><p class="mini">Loading…</p></main>
+
+<script src="/js/jord.js"></script>
+<script src="/admin/_shared/auth.js"></script>
+<script>
+const esc = JORD.escapeHtml;
+if (!JORD.getToken()) location.href = '/admin';
+
+const fmtPrice = c => '$' + ((Number(c) || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function fmtDate(s) {
+  if (!s) return '—';
+  try { return new Date(s).toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' }); } catch { return s; }
+}
+
+async function load() {
+  try {
+    const r = await JORD.api('/api/admin/shop/orders');
+    render(r.orders || []);
+  } catch (e) {
+    if (e.status === 401) location.href = '/admin';
+    else document.getElementById('view').innerHTML = `<p style="color:#a33;padding:20px">${esc(e.message)}</p>`;
+  }
+}
+
+function render(orders) {
+  document.getElementById('view').innerHTML = `
+    <div class="ol-head">
+      <div>
+        <a href="/admin/shop" class="pill-link" style="font-size:13px;color:var(--ink-2)">← Back to shop</a>
+        <h1 style="margin-top:6px">My orders</h1>
+      </div>
+    </div>
+    ${orders.length === 0 ? `<div class="empty">
+      <p>You haven't placed any orders yet.</p>
+      <a class="btn btn-primary" href="/admin/shop" style="margin-top:var(--s-3)">Browse the shop →</a>
+    </div>` : orders.map(o => `<a class="ol-row" href="/admin/shop/orders/${esc(o.id)}">
+      ${o.product_image
+        ? `<img src="${esc(o.product_image)}" alt="" />`
+        : `<div class="placeholder">No img</div>`}
+      <div>
+        <div class="name">${esc(o.product_name)}</div>
+        <div class="meta">Qty ${o.qty} · ${fmtDate(o.created_at)}</div>
+      </div>
+      <div class="total">${fmtPrice(o.total_cents)}</div>
+      <span class="status status-${esc(o.status)}">${esc(o.status)}</span>
+    </a>`).join('')}
+  `;
+}
+
+ADMIN.requireAuth({ adminOrSuper: true }).then(load);
+</script>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>JORD Shop · Admin</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+  <style>
+    .sh-wrap { max-width: 1280px; margin: 0 auto; padding: var(--s-5) var(--s-4) var(--s-7); }
+    .sh-head { display:flex; justify-content:space-between; align-items:flex-end;
+      gap:var(--s-3); flex-wrap:wrap; margin-bottom:var(--s-4); }
+    .sh-head .eyebrow { font-size:11px; letter-spacing:.22em; text-transform:uppercase;
+      color:var(--ink-3); font-weight:700; }
+    .sh-head h1 { font-family:var(--font-display); font-size:clamp(1.8rem,4vw,2.4rem);
+      letter-spacing:-0.02em; line-height:1.1; margin:6px 0 4px; }
+    .sh-head .actions { display:flex; gap:var(--s-2); flex-wrap:wrap; }
+
+    /* Category filter */
+    .sh-filters { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:var(--s-3); }
+    .sh-pill { font-size:12px; font-weight:600; padding:6px 12px; border-radius:999px;
+      border:1px solid var(--border); background:var(--bg); color:var(--ink-2); cursor:pointer; }
+    .sh-pill.is-active { background:var(--ink); color:var(--bg); border-color:var(--ink); }
+
+    /* Product grid */
+    .sh-grid { display:grid; gap:var(--s-4); grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
+    .sh-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+      overflow:hidden; display:flex; flex-direction:column; transition:box-shadow var(--t-fast); }
+    .sh-card:hover { box-shadow:var(--shadow-md); }
+    .sh-card .thumb { width:100%; height:200px; background:var(--surface-2);
+      display:flex; align-items:center; justify-content:center; overflow:hidden; }
+    .sh-card .thumb img { width:100%; height:100%; object-fit:cover; }
+    .sh-card .thumb .empty { color:var(--ink-3); font-size:14px; }
+    .sh-card .body { padding:var(--s-4); flex:1; display:flex; flex-direction:column; gap:8px; }
+    .sh-card .cat-chip { font-size:10px; font-weight:700; padding:2px 8px; border-radius:999px;
+      background:rgba(184,136,77,0.10); color:var(--accent); text-transform:uppercase;
+      letter-spacing:.06em; align-self:flex-start; }
+    .sh-card .name { font-family:var(--font-display); font-size:1.3rem; line-height:1.2; }
+    .sh-card .desc { font-size:14px; color:var(--ink-2); line-height:1.5; }
+    .sh-card .price { font-family:var(--font-display); font-size:1.5rem; color:var(--ink);
+      margin-top:auto; padding-top:var(--s-3); border-top:1px solid var(--border); }
+    .sh-card .price small { font-family:var(--font-body); font-size:11px; color:var(--ink-3);
+      font-weight:500; letter-spacing:.04em; margin-left:6px; }
+    .sh-card .row { display:flex; gap:8px; align-items:center; }
+    .sh-card .row input[type=number] { width:80px; padding:8px 10px; font-size:14px;
+      border:1px solid var(--border); border-radius:var(--r-sm); background:var(--bg); color:var(--ink); }
+    .sh-card .row button { flex:1; }
+
+    .sh-empty { padding:80px 20px; text-align:center; color:var(--ink-3); grid-column:1/-1; }
+
+    /* Cancel banner */
+    .canceled { background:rgba(184,136,77,0.10); border:1px solid rgba(184,136,77,0.30);
+      color:var(--accent); padding:14px 18px; border-radius:var(--r-md); margin-bottom:var(--s-3);
+      font-size:14px; }
+  </style>
+</head>
+<body>
+<main class="sh-wrap" id="view"><p class="mini">Loading…</p></main>
+<script src="/js/jord.js"></script>
+<script src="/admin/_shared/auth.js"></script>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => r.querySelectorAll(s);
+const esc = JORD.escapeHtml;
+if (!JORD.getToken()) location.href = '/admin';
+
+const state = { me: null, products: [], filter: 'all' };
+
+const fmtPrice = c => '$' + ((Number(c) || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtShort = c => '$' + Math.round((Number(c) || 0) / 100).toLocaleString();
+
+async function load() {
+  try {
+    const meRes = await JORD.api('/api/auth/me').catch(() => null);
+    state.me = meRes;
+    const d = await JORD.api('/api/admin/shop/products');
+    state.products = d.products || [];
+    render();
+  } catch (e) {
+    if (e.status === 401) location.href = '/admin';
+    else $('#view').innerHTML = `<div class="card"><p style="color:var(--red)">${esc(e.message)}</p></div>`;
+  }
+}
+
+function categories() {
+  // Build the filter list from whatever's in the catalog. Single-source so
+  // adding a new category to the products page doesn't need a code edit.
+  const all = new Set();
+  for (const p of state.products) if (p.category) all.add(p.category);
+  return ['all', ...Array.from(all).sort()];
+}
+
+function filteredProducts() {
+  if (state.filter === 'all') return state.products;
+  return state.products.filter(p => p.category === state.filter);
+}
+
+function render() {
+  const canceled = new URLSearchParams(location.search).get('canceled') === '1';
+  const isSuper = state.me && state.me.role === 'super';
+  $('#view').innerHTML = `
+    <div class="sh-head">
+      <div>
+        <a href="/admin" class="pill-link" style="font-size:13px;color:var(--ink-2)">← Back to admin</a>
+        <div class="eyebrow" style="margin-top:6px">JORD Marketplace</div>
+        <h1>Shop supplies</h1>
+        <p style="color:var(--ink-2);font-size:14px;margin-top:6px;max-width:600px">
+          Branded event signage, scoreboards, JORD merch, and partner gear. Direct purchase from JORD —
+          ships to the address you enter at checkout.
+        </p>
+      </div>
+      <div class="actions">
+        <a class="btn btn-ghost" href="/admin/shop/orders">📦 My orders</a>
+        ${isSuper ? `<a class="btn btn-ghost" href="/admin/shop/products">⚙ Manage products</a>` : ''}
+      </div>
+    </div>
+
+    ${canceled ? `<div class="canceled">Checkout was canceled — your order is on hold; come back here to try again.</div>` : ''}
+
+    ${categories().length > 1 ? `<div class="sh-filters">
+      ${categories().map(c => `<button class="sh-pill ${state.filter===c?'is-active':''}" data-cat="${esc(c)}">${c === 'all' ? 'All' : esc(c[0].toUpperCase() + c.slice(1))}</button>`).join('')}
+    </div>` : ''}
+
+    <div class="sh-grid" id="grid">
+      ${filteredProducts().map(renderCard).join('') || `<div class="sh-empty">
+        ${state.products.length === 0 ? 'No products in the catalog yet.' : 'Nothing in this category.'}
+      </div>`}
+    </div>
+  `;
+  $$('[data-cat]').forEach(b => b.onclick = () => { state.filter = b.dataset.cat; render(); });
+  $$('[data-buy]').forEach(b => b.onclick = () => buy(b.dataset.buy));
+}
+
+function renderCard(p) {
+  return `<div class="sh-card" data-pid="${esc(p.id)}">
+    <div class="thumb">${p.image_data
+      ? `<img src="${esc(p.image_data)}" alt="${esc(p.name)}" />`
+      : `<span class="empty">${esc(p.name)}</span>`}</div>
+    <div class="body">
+      ${p.category ? `<span class="cat-chip">${esc(p.category)}</span>` : ''}
+      <div class="name">${esc(p.name)}</div>
+      ${p.description ? `<div class="desc">${esc(p.description)}</div>` : ''}
+      <div class="price">${fmtPrice(p.price_cents)}<small>+ shipping at checkout</small></div>
+      <div class="row" style="margin-top:8px">
+        <label class="mini" for="qty-${esc(p.id)}" style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em">Qty</label>
+        <input id="qty-${esc(p.id)}" type="number" min="1" max="100" value="1" />
+        <button class="btn btn-primary" data-buy="${esc(p.id)}">Buy →</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+async function buy(pid) {
+  const qty = Math.max(1, Math.min(100, Number(document.getElementById(`qty-${pid}`).value) || 1));
+  const btn = document.querySelector(`[data-buy="${pid}"]`);
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Starting checkout…';
+  try {
+    const r = await JORD.api('/api/admin/shop/orders', { method: 'POST', body: { product_id: pid, qty } });
+    if (r.checkout_url) location.href = r.checkout_url;
+    else if (r.confirmation_url) location.href = r.confirmation_url;
+    else throw new Error('No redirect URL');
+  } catch (e) {
+    alert(e.message || 'Checkout failed');
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
+ADMIN.requireAuth({ adminOrSuper: true }).then(load);
+</script>
+</body>
+</html>
