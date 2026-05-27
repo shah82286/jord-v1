@@ -446,6 +446,37 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
 }
 
+console.log('\n💬 Banter chat (v3.51)\n');
+{
+  test('banter_messages table created',
+    () => assert(src.includes('CREATE TABLE IF NOT EXISTS banter_messages'), 'Missing banter table'));
+  test('GET banter endpoint registered',
+    () => assert(src.includes("app.get('/api/round-public/:shareCode/banter'"), 'Missing GET endpoint'));
+  test('POST banter endpoint registered',
+    () => assert(src.includes("app.post('/api/round-public/:shareCode/banter'"), 'Missing POST endpoint'));
+  test('Banter SSE stream registered',
+    () => assert(src.includes("app.get('/api/round-public/:shareCode/banter/stream'"), 'Missing SSE endpoint'));
+  test('Banter validates body length',
+    () => assert(src.includes('1000 char max'), 'Length validation missing'));
+  test('Banter broadcaster fans out to SSE clients',
+    () => assert(src.includes('function broadcastBanter('), 'Broadcaster missing'));
+  test('Sender stamps user_id when signed in',
+    () => assert(src.includes('user?.id || null') && /banter_messages[\s\S]*?user.*?id/.test(src), 'user_id not stamped'));
+  const fs = require('fs');
+  const joinHtml = fs.readFileSync('./public/round-join.html', 'utf8');
+  test('Join page exposes chat drawer + FAB',
+    () => assert(joinHtml.includes('chat-fab') && joinHtml.includes('chat-panel') && joinHtml.includes('initBanter'), 'Chat UI not wired'));
+  test('Join page connects to banter SSE',
+    () => assert(joinHtml.includes('/banter/stream'), 'SSE not wired'));
+  const tourHtml = fs.readFileSync('./public/tournaments.html', 'utf8');
+  test('Clubhouse detail links to chat via share code',
+    () => assert(tourHtml.includes('💬 Banter'), 'Banter link missing from clubhouse detail'));
+  test('Clubhouse home uses /api/tournaments/mine for users',
+    () => assert(tourHtml.includes('/api/tournaments/mine'), 'My-games endpoint not wired'));
+  test('Join page no longer says scorecard waits for game start',
+    () => assert(!joinHtml.includes('will be active when the game starts'), 'Misleading copy still present'));
+}
+
 console.log('\n👥 Team side-bet groupings (v3.50)\n');
 {
   test('Field endpoint uses requireUserOrAdmin + canEditTournament gate',

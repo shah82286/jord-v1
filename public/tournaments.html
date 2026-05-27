@@ -152,8 +152,15 @@ function findFmt(id){ return S.formats ?
 function isTeamFormat(){ const f=findFmt(S.wiz&&S.wiz.format); return !!(f && f.teamSize[1]>1); }
 
 async function loadAll() {
+  // Signed-in personal users see games they created OR joined (via
+  // /api/tournaments/mine). Admins still see admin-scoped tournaments
+  // from /api/tournaments. The two endpoints return the same shape, so
+  // the home view doesn't care which one supplied the rows.
+  const tournamentsPromise = HAS_USER_TOKEN && !HAS_ADMIN_TOKEN
+    ? JORD.api('/api/tournaments/mine').then(r => r.tournaments || [])
+    : JORD.api('/api/tournaments');
   [S.courses, S.tournaments, S.formats] = await Promise.all([
-    JORD.api('/api/courses'), JORD.api('/api/tournaments'), JORD.api('/api/formats'),
+    JORD.api('/api/courses'), tournamentsPromise, JORD.api('/api/formats'),
   ]);
 }
 
@@ -722,6 +729,7 @@ async function openTournament(id) {
         <div class="mini">${fmt?esc(fmt.name+' · '+fmt.sub):esc(t.rounds[0].format)}${t.flights_enabled?' · '+t.num_flights+' flights':''}${t.rounds[0].round_date ? ' · ' + esc(t.rounds[0].round_date) : ''}</div>
         <div style="display:flex;gap:var(--s-2);flex-wrap:wrap">
           ${shareUrl ? `<button class="btn btn-primary" id="btn-share">🔗 Share link</button>` : ''}
+          ${shareUrl ? `<a class="btn btn-ghost" href="/round/${esc(t.share_code)}" target="_blank">💬 Banter</a>` : ''}
           <button class="btn btn-ghost" id="btn-edit">✎ Edit game</button>
           ${multi?`<a class="btn btn-accent" href="/tournament/${t.id}" target="_blank">🏆 Tournament leaderboard ↗</a>`:''}
         </div>

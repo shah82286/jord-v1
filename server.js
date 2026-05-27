@@ -318,6 +318,23 @@ try { db.exec("ALTER TABLE registration_packages ADD COLUMN image_data TEXT"); }
 try { db.exec("ALTER TABLE tournaments ADD COLUMN user_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE round_entries ADD COLUMN user_id TEXT"); } catch {}
 
+// Banter chat (v3.51): a lightweight group-chat tied to a tournament.
+// Anyone with the share code can read + post. user_id is stamped when
+// the poster is signed in; sender_name is required either way so guest
+// messages still attribute.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS banter_messages (
+    id              TEXT PRIMARY KEY,
+    tournament_id   TEXT NOT NULL,
+    sender_user_id  TEXT,
+    sender_name     TEXT NOT NULL,
+    body            TEXT NOT NULL,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (tournament_id) REFERENCES tournaments(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_banter_tournament ON banter_messages(tournament_id, created_at);
+`);
+
 // Supplies marketplace (E5 phase 2): JORD sells operational supplies
 // (signs, scoreboards, JORD-branded merch, partner gear) to organizers.
 // Direct charges to JORD's Stripe account — not the Connect flow used
@@ -4742,6 +4759,81 @@ app.post('/api/round-public/:shareCode/join', (req, res) => {
               VALUES (?, ?, ?, ?, ?, ?)`).run(entryId, round.id, player.id, tee_id || null, courseHcp, user?.id || null);
   broadcastRound(round.id);
   res.json({ ok: true, entry_id: entryId, round_id: round.id, course_handicap: courseHcp });
+});
+
+// ── Banter chat (v3.51) ───────────────────────────────────────────────
+// Lightweight group-chat keyed on the tournament's share code. Anyone
+// with the link can read + post — same trust model as the join page.
+// All three endpoints share the same lookup so a typo'd code returns a
+// clean 404 instead of a vague server error.
+function _findTournamentByShareCode(code) {
+  const trimmed = String(code || '').trim();
+  if (!trimmed) return null;
+  return db.prepare('SELECT * FROM tournaments WHERE share_code = ? COLLATE NOCASE').get(trimmed);
+}
+
+// GET last N messages, oldest → newest. Capped at 200 per call so the
+// initial render never paginates over thousands of rows (uncommon, but
+// belt-and-suspenders).
+app.get('/api/round-public/:shareCode/banter', (req, res) => {
+  const t = _findTournamentByShareCode(req.params.shareCode);
+  if (!t) return res.status(404).json({ error: 'Game not found' });
+  const limit = Math.max(1, Math.min(200, Number(req.query.limit) || 100));
+  const rows = db.prepare(`SELECT id, sender_user_id, sender_name, body, created_at
+                           FROM banter_messages
+                           WHERE tournament_id = ?
+                           ORDER BY created_at DESC
+                           LIMIT ?`).all(t.id, limit);
+  // Reverse so the client gets ascending order — natural to render top-down.
+  res.json({ messages: rows.reverse() });
+});
+
+// SSE for live message broadcast — separate channel from the leaderboard
+// stream so chat doesn't piggyback on (and slow down) score updates.
+const banterSseClients = new Map();   // tournamentId → Set<res>
+function broadcastBanter(tournamentId, message) {
+  const clients = banterSseClients.get(tournamentId);
+  if (!clients?.size) return;
+  const data = `data: ${JSON.stringify(message)}\n\n`;
+  for (const r of clients) { try { r.write(data); } catch {} }
+}
+
+app.get('/api/round-public/:shareCode/banter/stream', (req, res) => {
+  const t = _findTournamentByShareCode(req.params.shareCode);
+  if (!t) return res.status(404).end();
+  res.set({
+    'Content-Type':  'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    'Connection':    'keep-alive',
+  });
+  res.flushHeaders();
+  if (!banterSseClients.has(t.id)) banterSseClients.set(t.id, new Set());
+  banterSseClients.get(t.id).add(res);
+  // Heartbeat so proxies don't kill the connection at idle.
+  const hb = setInterval(() => res.write(': ping\n\n'), 15000);
+  req.on('close', () => { clearInterval(hb); banterSseClients.get(t.id)?.delete(res); });
+});
+
+// POST a new message. Signed-in users get their user_id + display name
+// auto-filled when missing; guests post with whatever name they provide.
+app.post('/api/round-public/:shareCode/banter', (req, res) => {
+  const t = _findTournamentByShareCode(req.params.shareCode);
+  if (!t) return res.status(404).json({ error: 'Game not found' });
+  const userTok = req.headers['x-user-token'];
+  const user = userTok ? getSessionUser(userTok) : null;
+  const b = req.body || {};
+  const body = String(b.body || '').trim();
+  if (!body) return res.status(400).json({ error: 'Message body required' });
+  if (body.length > 1000) return res.status(400).json({ error: 'Message too long (1000 char max)' });
+  const senderName = String(b.sender_name || user?.name || '').trim().slice(0, 80);
+  if (!senderName) return res.status(400).json({ error: 'Sender name required' });
+
+  const id = uid('MSG');
+  db.prepare(`INSERT INTO banter_messages (id, tournament_id, sender_user_id, sender_name, body)
+              VALUES (?, ?, ?, ?, ?)`).run(id, t.id, user?.id || null, senderName, body);
+  const msg = { id, sender_user_id: user?.id || null, sender_name: senderName, body, created_at: new Date().toISOString() };
+  broadcastBanter(t.id, msg);
+  res.json(msg);
 });
 
 app.post('/api/rounds/:roundId/entries', requireAuth, requireAdminOrSuper, (req, res) => {

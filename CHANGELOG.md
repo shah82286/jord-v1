@@ -2,6 +2,68 @@
 
 ---
 
+## v3.51.0 — 2026-05-26
+### Session 68 — Banter chat + Clubhouse home for joiners
+
+Three issues from user feedback after v3.50:
+
+1. **No way for friends to chat in the round.** Banter has been a
+   placeholder column on `tournaments` since forever — actually built it.
+2. **`/clubhouse` only showed games they created.** Friends who joined
+   someone else's game saw an empty Clubhouse. Fixed to use
+   `/api/tournaments/mine` (created OR joined).
+3. **Confusing copy on the join page.** "Your scorecard link will be
+   active when the game starts" implied a wait. Rounds are auto-active
+   on creation; the scorecard is live the moment they join. Updated copy.
+
+#### What changed
+- **Schema** — `banter_messages` table: `id`, `tournament_id`,
+  `sender_user_id` (nullable, stamped when signed in), `sender_name`
+  (always required), `body`, `created_at`. Indexed by
+  `(tournament_id, created_at)` for fast tail-N reads.
+- **Endpoints** — three new, all keyed on the share code (same trust
+  model as the join page):
+  - `GET /api/round-public/:shareCode/banter?limit=N` — returns last
+    N messages (default 100, cap 200) in chronological order.
+  - `POST /api/round-public/:shareCode/banter` — `{ body, sender_name }`.
+    `x-user-token` is honored when present so signed-in posters get
+    `sender_user_id` stamped and their name auto-falls-back from
+    their profile.
+  - `GET /api/round-public/:shareCode/banter/stream` — SSE on a
+    dedicated channel (separate from the round leaderboard stream
+    so heavy chat doesn't slow score updates).
+- **`broadcastBanter()`** — fans new messages out to every SSE
+  subscriber keyed by tournament id.
+- **`_findTournamentByShareCode()`** — shared helper used by all
+  three banter endpoints and the existing public round lookup, so
+  case-insensitive matching + trim is in one place.
+- **Public join page** (`/round/:shareCode`) — new chat drawer:
+  - Floating 💬 Banter pill bottom-right (mobile-friendly tap target).
+  - Expandable panel with message list (mine highlighted), input,
+    and "Posting as" name field (pre-filled from user profile or
+    claimed entry).
+  - SSE auto-connects on page load; new messages while drawer is
+    closed bump the unread badge on the pill.
+  - Optimistic insert on send; SSE echo dedupes by id.
+- **Clubhouse detail view** — new "💬 Banter" button next to "🔗 Share
+  link". Opens the join page in a new tab so the host posts in the
+  same group chat as their friends.
+- **Clubhouse home** — when a signed-in personal user has no admin
+  token, the "Your games" list now pulls from `/api/tournaments/mine`
+  (created OR joined) instead of `/api/tournaments` (created only).
+- **Join page copy** — replaced "Your scorecard link will be active
+  when the game starts" with "Your scorecard is ready below —
+  bookmark this page to find it again on game day." Plus a more
+  concrete next-step paragraph.
+
+#### Tested
+- **361/361 unit tests pass** (+12 new) covering: schema, three
+  endpoint registrations, length validation, broadcaster presence,
+  user_id stamping, chat UI on join page, SSE wiring, Banter button
+  on Clubhouse detail, my-games endpoint use, copy fix.
+
+---
+
 ## v3.50.0 — 2026-05-26
 ### Session 67 — Team side-bet groupings + share-link 500 fix
 
