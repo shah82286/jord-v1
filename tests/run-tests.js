@@ -391,6 +391,16 @@ console.log('\n🔌 Tournament Scoring Routes\n');
  ['POST','/api/admin/events/:id/sync-scoring'],
  ['POST','/api/admin/events/:id/sync-pairings-to-scoring'],
  ['POST','/api/admin/events/:sourceId/clone'],
+ ['GET','/api/admin/events/:id/auction'],
+ ['GET','/api/admin/events/:id/auction/items/:itemId/bids'],
+ ['POST','/api/admin/events/:id/auction/items'],
+ ['PATCH','/api/admin/events/:id/auction/items/:itemId'],
+ ['DELETE','/api/admin/events/:id/auction/items/:itemId'],
+ ['POST','/api/admin/events/:id/auction/items/:itemId/close'],
+ ['POST','/api/admin/events/:id/auction/items/:itemId/checkout-winner'],
+ ['GET','/api/event-sites/:slug/auction'],
+ ['POST','/api/auctions/:itemId/bid'],
+ ['POST','/api/event-sites/:slug/auction-intake'],
  ['POST','/api/stripe/webhook'],
  ['GET','/api/admin/stripe/account'],
  ['POST','/api/admin/stripe/connect/onboard'],
@@ -426,6 +436,54 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(36.5687, -121.9505) === 'America/Los_Angeles', `got ${tzLookup(36.5687, -121.9505)}`));
   test('tz-lookup resolves a Chicago-area course to America/Chicago',
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
+}
+
+console.log('\n🔨 Silent Auction (E4)\n');
+{
+  test('auction_items table created',
+    () => assert(src.includes('CREATE TABLE IF NOT EXISTS auction_items'), 'Missing items table'));
+  test('auction_bids table created',
+    () => assert(src.includes('CREATE TABLE IF NOT EXISTS auction_bids'), 'Missing bids table'));
+  test('event_sites.auction_enabled column migrated',
+    () => assert(src.includes('ALTER TABLE event_sites ADD COLUMN auction_enabled'), 'Missing toggle column'));
+  test('event_sites.auction_intake_enabled column migrated',
+    () => assert(src.includes('ALTER TABLE event_sites ADD COLUMN auction_intake_enabled'), 'Missing intake column'));
+  test('AUCTION_ITEM_STATUSES whitelist defined',
+    () => assert(src.includes('AUCTION_ITEM_STATUSES'), 'Missing whitelist'));
+  test('Item POST validates image_data via normalizeImageData',
+    () => assert(src.includes('function normalizeImageData('), 'Missing image guard'));
+  test('Bid endpoint rejects bids on non-live items',
+    () => assert(src.includes("status !== 'live'") && src.includes('Bidding is closed'), 'Missing live-status check'));
+  test('Bid endpoint enforces minimum bid increment',
+    () => assert(src.includes('min_increment_cents') && src.includes('minNext'), 'Missing increment validation'));
+  test('Close endpoint picks highest bid as winner',
+    () => assert(src.includes('ORDER BY amount_cents DESC, created_at LIMIT 1') && src.includes("status='ended'"), 'Winner-pick logic missing'));
+  test('Checkout-winner endpoint lazy-creates an auction_item package',
+    () => assert(src.includes("package_kind='auction_item'") && src.includes('lazy'), 'Lazy package not wired'));
+  test('Stripe webhook marks auction_items paid via metadata.auction_item_id',
+    () => assert(src.includes("metadata.auction_item_id") && src.includes("status='paid'"), 'Webhook not wired'));
+  test('Intake endpoint requires auction_intake_enabled',
+    () => assert(src.includes('Item submissions are not open'), 'Intake-enabled check missing'));
+  test('Public payload returns auction config when enabled',
+    () => assert(src.includes('site.auction_enabled ?') && src.includes('item_count'), 'Public auction config missing'));
+  const fs = require('fs');
+  const files = [
+    './public/admin/event-auction.html',
+    './public/event-auction.html',
+    './public/event-donate-item.html',
+  ];
+  for (const f of files) {
+    test(`exists: ${f}`, () => assert(fs.existsSync(f), 'Missing file'));
+  }
+  const editorHtml = fs.readFileSync('./public/admin/event-site-editor.html', 'utf8');
+  test('Event-site editor exposes Auction card',
+    () => assert(editorHtml.includes('f-auction-enabled') && editorHtml.includes('f-auction-intake'), 'Editor missing auction inputs'));
+  const eventEditor = fs.readFileSync('./public/admin/editor.html', 'utf8');
+  test('Event editor header has Auction nav button',
+    () => assert(eventEditor.includes('btn-view-auction'), 'Missing nav button'));
+  const siteHtml = fs.readFileSync('./public/event-site.html', 'utf8');
+  test('Public event-site renders auction teaser section',
+    () => assert(siteHtml.includes('auction-teaser') && siteHtml.includes('/auction'), 'Teaser missing'));
 }
 
 console.log('\n🔗 Pairings → scoring bridge (v3.44)\n');

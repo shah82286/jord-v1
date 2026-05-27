@@ -170,6 +170,23 @@ function render(d) {
       <div style="margin-top:8px;font-size:13px;color:var(--ink-2)">${fund.percent}% of goal · thank you to every supporter.</div>
     </section>` : '';
 
+  // Silent auction — when the organizer enabled it, surface a teaser
+  // section that links to the dedicated /e/:slug/auction page where
+  // the actual item grid + bid forms live.
+  const au = d.auction && d.auction.enabled ? d.auction : null;
+  const auctionTeaserHtml = au ? `
+    <section class="es-section" id="auction-teaser">
+      <div class="es-eyebrow">Silent auction</div>
+      <h2>Bid on the <em>good stuff</em></h2>
+      <div class="lead"><p>${esc(au.intro || (au.item_count
+        ? `${au.item_count} item${au.item_count === 1 ? '' : 's'} up for bidding — place a bid through the same secure checkout the registrations use.`
+        : 'Items are being added — check back soon to bid on prizes that support the event.'))}</p></div>
+      <div style="margin-top:var(--s-3);display:flex;gap:var(--s-2);flex-wrap:wrap">
+        <a class="btn btn-accent btn-lg" href="/e/${esc(slug)}/auction">View &amp; bid on items →</a>
+        ${au.intake_enabled ? `<a class="btn btn-ghost" href="/e/${esc(slug)}/donate-item">+ Donate an item</a>` : ''}
+      </div>
+    </section>` : '';
+
   // Donations — visitor can give any amount above the min. Rendered as a
   // preset-amount strip + a custom-amount input. The submit calls
   // /api/donations directly and redirects to Stripe Checkout.
@@ -294,6 +311,8 @@ function render(d) {
     ${pkgHtml}
 
     ${sponsorHtml}
+
+    ${auctionTeaserHtml}
 
     ${donateHtml}
 

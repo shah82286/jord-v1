@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Donate an item · JORD Golf</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/jord.css" />
+  <style>
+    .di-wrap { max-width:640px; margin:0 auto; padding:var(--s-5) var(--s-4) var(--s-7); }
+    .di-eyebrow { font-size:12px; letter-spacing:.26em; text-transform:uppercase;
+      color:var(--accent); font-weight:700; }
+    .di-title { font-family:var(--font-display); font-size:clamp(1.8rem,4vw,2.4rem);
+      letter-spacing:-.02em; margin:8px 0; }
+    .di-sub { color:var(--ink-2); font-size:15px; margin-bottom:var(--s-4); }
+    .di-form .field { margin-bottom:var(--s-3); }
+    .di-form label { display:block; font-size:12px; font-weight:600; color:var(--ink-2);
+      letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
+    .di-form .hint { font-size:12px; color:var(--ink-3); margin-top:4px; }
+    .di-form input, .di-form textarea {
+      width:100%; padding:11px 14px; border:1px solid var(--border); border-radius:var(--r-md);
+      background:var(--surface); color:var(--ink); font-size:15px; font-family:inherit; }
+    .di-form textarea { resize:vertical; }
+    .di-form .row { display:grid; grid-template-columns:1fr 1fr; gap:var(--s-2); }
+    @media (max-width: 560px) { .di-form .row { grid-template-columns:1fr; } }
+    .img-tile { width:130px; height:100px; background:#fff; border:1px solid var(--border);
+      border-radius:var(--r-md); padding:8px; display:flex; align-items:center; justify-content:center; }
+    .img-tile img { max-width:100%; max-height:100%; object-fit:contain; }
+    .err { color:#c0392b; font-size:14px; margin-top:var(--s-3); display:none; }
+    .err.is-shown { display:block; }
+  </style>
+</head>
+<body>
+<main class="di-wrap" id="view"><p class="mini">Loading…</p></main>
+
+<script src="/js/jord.js"></script>
+<script>
+const esc = JORD.escapeHtml;
+const slug = location.pathname.split('/').filter(Boolean)[1]; // /e/:slug/donate-item
+
+let imageData = null;
+
+async function load() {
+  try {
+    const site = await fetch('/api/event-sites/' + encodeURIComponent(slug)).then(r => r.json());
+    if (site.error) throw new Error(site.error);
+    if (!site.auction || !site.auction.enabled || !site.auction.intake_enabled) {
+      document.getElementById('view').innerHTML = `<div style="text-align:center;padding:40px 0">
+        <h1 style="font-family:Playfair Display,serif">Donations aren't open right now</h1>
+        <p style="color:var(--ink-2)">This event isn't accepting auction-item donations yet.</p>
+        <a class="btn btn-primary" style="margin-top:16px" href="/e/${encodeURIComponent(slug)}">← Back to event</a>
+      </div>`;
+      return;
+    }
+    if (site.event?.brand_accent) document.documentElement.style.setProperty('--accent', site.event.brand_accent);
+    render(site);
+  } catch (e) {
+    document.getElementById('view').innerHTML = `<p style="color:#a33;padding:20px">${esc(e.message)}</p>`;
+  }
+}
+
+function render(site) {
+  const eventName = site.event?.name || 'Event';
+  document.title = `Donate an item · ${eventName}`;
+  document.getElementById('view').innerHTML = `
+    <a class="pill-link" href="/e/${encodeURIComponent(slug)}/auction" style="font-size:13px;color:var(--ink-2)">← Back to auction</a>
+    <div class="di-eyebrow" style="margin-top:var(--s-4)">${site.event?.is_charity ? 'Support the cause' : 'Help fund the event'}</div>
+    <h1 class="di-title">Donate an item to the <em>silent auction</em></h1>
+    <p class="di-sub">Submit an item below — the organizer will review and approve it before it goes live. You'll be credited as the donor on the public listing.</p>
+
+    <form class="di-form" id="form">
+      <div class="field">
+        <label>Item title *</label>
+        <input type="text" id="f-title" maxlength="200" required placeholder="e.g. Round of golf for four at Cypress Point" />
+      </div>
+
+      <div class="field">
+        <label>Description</label>
+        <textarea id="f-desc" rows="4" maxlength="2000" placeholder="What's included, restrictions, who's it for…"></textarea>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Starting bid (USD, optional)</label>
+          <input type="number" id="f-start" min="0" step="1" placeholder="0" />
+          <div class="hint">The organizer can adjust this.</div>
+        </div>
+        <div class="field">
+          <label>Fair-market value (USD, optional)</label>
+          <input type="number" id="f-fmv" min="0" step="1" placeholder="500" />
+          <div class="hint">Used for tax receipts.</div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Photo (PNG / JPG, max ~2.5 MB)</label>
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <div class="img-tile" id="img-tile"><span style="color:var(--ink-3);font-size:11px">No photo</span></div>
+          <div>
+            <input type="file" id="f-file" accept="image/png,image/jpeg,image/webp" style="display:none" />
+            <button class="btn btn-ghost" type="button" id="btn-upload">⬆ Upload photo</button>
+            <button class="btn btn-ghost" type="button" id="btn-remove" style="margin-left:6px;color:#a33;display:none">Remove</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="field">
+          <label>Your name *</label>
+          <input type="text" id="f-donor" required maxlength="120" autocomplete="name" />
+        </div>
+        <div class="field">
+          <label>Your email *</label>
+          <input type="email" id="f-email" required autocomplete="email" />
+          <div class="hint">So the organizer can reach you if they have questions.</div>
+        </div>
+      </div>
+
+      <div class="err" id="err"></div>
+
+      <button class="btn btn-accent btn-lg btn-block" type="submit" id="submit">Submit for review →</button>
+      <p style="font-size:11px;color:var(--ink-3);margin-top:var(--s-3);line-height:1.5;text-align:center">
+        We'll notify the organizer. Items go live once they approve.
+      </p>
+    </form>
+  `;
+  wireForm();
+}
+
+function wireForm() {
+  document.getElementById('btn-upload').onclick = () => document.getElementById('f-file').click();
+  document.getElementById('btn-remove').onclick = () => { imageData = null; setThumb(null); };
+  document.getElementById('f-file').onchange = () => {
+    const f = document.getElementById('f-file').files[0];
+    if (!f) return;
+    if (f.size > 2_500_000) { alert(`Image is too large (${(f.size/1024/1024).toFixed(1)} MB). Try one under 2.5 MB.`); return; }
+    const r = new FileReader();
+    r.onload = () => { imageData = r.result; setThumb(r.result); };
+    r.readAsDataURL(f);
+  };
+  document.getElementById('form').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const errBox = document.getElementById('err');
+    errBox.classList.remove('is-shown');
+    const btn = document.getElementById('submit');
+    btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Submitting…';
+    try {
+      const body = {
+        title:               document.getElementById('f-title').value.trim(),
+        description:         document.getElementById('f-desc').value.trim(),
+        starting_bid_cents:  document.getElementById('f-start').value ? Math.round(Number(document.getElementById('f-start').value) * 100) : 0,
+        fair_value_cents:    document.getElementById('f-fmv').value   ? Math.round(Number(document.getElementById('f-fmv').value)   * 100) : null,
+        donor_name:          document.getElementById('f-donor').value.trim(),
+        image_data:          imageData,
+      };
+      const r = await fetch(`/api/event-sites/${encodeURIComponent(slug)}/auction-intake`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Submit failed');
+      document.getElementById('view').innerHTML = `<div style="text-align:center;padding:40px 0">
+        <div style="font-size:48px;margin-bottom:12px">✓</div>
+        <h1 style="font-family:Playfair Display,serif;font-size:1.8rem">Thanks — we got it</h1>
+        <p style="color:var(--ink-2);max-width:380px;margin:12px auto">Your item is in the queue for the organizer's review. We'll let you know when it's listed.</p>
+        <a class="btn btn-primary" style="margin-top:16px" href="/e/${encodeURIComponent(slug)}/auction">← Back to auction</a>
+      </div>`;
+    } catch (e) {
+      errBox.textContent = e.message;
+      errBox.classList.add('is-shown');
+      btn.disabled = false; btn.textContent = orig;
+    }
+  };
+}
+
+function setThumb(data) {
+  const tile = document.getElementById('img-tile');
+  if (data) {
+    tile.innerHTML = `<img src="${esc(data)}" alt="" />`;
+    document.getElementById('btn-remove').style.display = 'inline-flex';
+  } else {
+    tile.innerHTML = '<span style="color:var(--ink-3);font-size:11px">No photo</span>';
+    document.getElementById('btn-remove').style.display = 'none';
+  }
+}
+
+load();
+</script>
+</body>
+</html>

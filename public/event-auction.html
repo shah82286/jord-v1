@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Silent Auction · JORD Golf</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/jord.css" />
+  <style>
+    .au-wrap { max-width: 1200px; margin: 0 auto; padding: var(--s-5) var(--s-4) var(--s-7); }
+    .au-hero { text-align:center; padding: var(--s-5) 0 var(--s-3); }
+    .au-eyebrow { font-size:12px; letter-spacing:.26em; text-transform:uppercase;
+      color:var(--accent); font-weight:700; }
+    .au-title { font-family:var(--font-display); font-size:clamp(2rem,5vw,3rem);
+      letter-spacing:-.02em; margin:8px 0; }
+    .au-sub { color:var(--ink-2); max-width:640px; margin:0 auto; font-size:15px; }
+    .au-actions { margin-top:var(--s-3); display:flex; justify-content:center; gap:var(--s-2); flex-wrap:wrap; }
+
+    .au-grid { display:grid; gap:var(--s-4); grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+      margin-top:var(--s-4); }
+    .au-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+      overflow:hidden; display:flex; flex-direction:column; transition:box-shadow var(--t-fast); }
+    .au-card:hover { box-shadow:var(--shadow-md); }
+    .au-card .thumb { width:100%; height:200px; background:var(--surface-2);
+      display:flex; align-items:center; justify-content:center; overflow:hidden; }
+    .au-card .thumb img { width:100%; height:100%; object-fit:cover; }
+    .au-card .thumb .empty { color:var(--ink-3); font-size:14px; }
+    .au-card .body { padding:var(--s-4); flex:1; display:flex; flex-direction:column; gap:8px; }
+    .au-card .name { font-family:var(--font-display); font-size:1.3rem; line-height:1.2; }
+    .au-card .desc { font-size:14px; color:var(--ink-2); line-height:1.5; }
+    .au-card .donor { font-size:11px; color:var(--ink-3); letter-spacing:.06em; text-transform:uppercase; font-weight:600; }
+    .au-card .fmv { font-size:12px; color:var(--ink-3); }
+    .au-card .bid-info { margin-top:auto; padding-top:var(--s-3); border-top:1px solid var(--border); }
+    .au-card .high-label { font-size:11px; letter-spacing:.18em; text-transform:uppercase;
+      color:var(--ink-3); font-weight:700; }
+    .au-card .high-amount { font-family:var(--font-display); font-size:1.6rem; color:var(--accent); line-height:1.1; }
+    .au-card .high-meta { font-size:13px; color:var(--ink-2); margin-top:2px; }
+    .au-card .closes { font-size:12px; color:var(--ink-3); margin-top:6px; }
+    .au-card .closed-chip { display:inline-block; background:rgba(20,19,18,.10); color:var(--ink-2);
+      font-size:11px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+      padding:3px 10px; border-radius:999px; margin-top:6px; }
+    .au-card .bid-btn { width:100%; margin-top:var(--s-3); }
+
+    /* Bid modal */
+    .modal-overlay { position:fixed; inset:0; background:rgba(20,19,18,.65); backdrop-filter:blur(2px);
+      display:none; align-items:center; justify-content:center; z-index:50; padding:var(--s-3); }
+    .modal-overlay.open { display:flex; }
+    .modal { background:var(--bg); border-radius:var(--r-lg); width:100%; max-width:480px;
+      padding:var(--s-4); border:1px solid var(--border); box-shadow:0 10px 40px rgba(0,0,0,.30); }
+    .modal h2 { font-family:var(--font-display); font-size:1.5rem; margin-bottom:6px; }
+    .modal .item-name { font-size:14px; color:var(--ink-2); margin-bottom:var(--s-3); }
+    .modal label { display:block; font-size:12px; font-weight:600; color:var(--ink-2);
+      letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
+    .modal .min-line { font-size:13px; color:var(--ink-2); margin-bottom:var(--s-3); }
+    .modal input { width:100%; padding:12px 14px; border:1px solid var(--border); border-radius:var(--r-md);
+      background:var(--surface); color:var(--ink); font-size:16px; font-family:inherit; }
+    .modal .field { margin-bottom:var(--s-3); }
+    .modal .actions { display:flex; gap:var(--s-2); justify-content:flex-end; margin-top:var(--s-4); }
+    .modal .err { color:#c0392b; font-size:14px; margin-top:var(--s-3); display:none; }
+    .modal .err.is-shown { display:block; }
+  </style>
+</head>
+<body>
+<main class="au-wrap" id="view"><p class="mini">Loading…</p></main>
+
+<div class="modal-overlay" id="bid-modal">
+  <div class="modal">
+    <h2 id="bm-title">Place a bid</h2>
+    <div class="item-name" id="bm-item-name"></div>
+    <div class="min-line" id="bm-min"></div>
+
+    <div class="field">
+      <label>Your bid (USD)</label>
+      <input type="number" id="bm-amount" min="0" step="0.01" inputmode="decimal" required />
+    </div>
+    <div class="field">
+      <label>Your name</label>
+      <input type="text" id="bm-name" required autocomplete="name" />
+    </div>
+    <div class="field">
+      <label>Email</label>
+      <input type="email" id="bm-email" required autocomplete="email" />
+    </div>
+    <div class="field">
+      <label>Phone (optional)</label>
+      <input type="tel" id="bm-phone" autocomplete="tel" />
+    </div>
+
+    <div class="err" id="bm-err"></div>
+
+    <div class="actions">
+      <button class="btn btn-ghost" data-close-modal>Cancel</button>
+      <button class="btn btn-accent btn-lg" id="bm-submit">Place bid</button>
+    </div>
+    <p style="font-size:11px;color:var(--ink-3);margin-top:var(--s-3);line-height:1.5;text-align:center">
+      Your bid is binding. If you win, the organizer will email you a secure Stripe link to pay.
+    </p>
+  </div>
+</div>
+
+<script src="/js/jord.js"></script>
+<script>
+const esc = JORD.escapeHtml;
+const slug = location.pathname.split('/').filter(Boolean)[1]; // /e/:slug/auction → slug
+const state = { eventName: '', accent: null, isCharity: false, items: [], intro: null, intakeEnabled: false, currentBid: null };
+
+const fmtPrice = c => '$' + ((Number(c) || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+function fmtDateTime(s, tz) {
+  if (!s) return '';
+  try {
+    const d = new Date(s);
+    const opts = { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' };
+    if (tz) opts.timeZone = tz;
+    return d.toLocaleString(undefined, opts);
+  } catch { return s; }
+}
+
+async function load() {
+  try {
+    const [site, auction] = await Promise.all([
+      fetch('/api/event-sites/' + encodeURIComponent(slug)).then(r => r.json()),
+      fetch('/api/event-sites/' + encodeURIComponent(slug) + '/auction').then(r => r.json()),
+    ]);
+    if (site.error) throw new Error(site.error);
+    state.eventName = site.event?.name || 'Event';
+    state.accent = site.event?.brand_accent || null;
+    state.isCharity = !!site.event?.is_charity;
+    state.timeZone = site.event?.time_zone || null;
+    state.items = auction.items || [];
+    state.intro = auction.intro;
+    state.intakeEnabled = !!auction.intake_enabled;
+    if (!auction.auction_enabled) {
+      document.body.innerHTML = `<div style="padding:60px 20px;text-align:center;font-family:Inter,system-ui">
+        <h1 style="font-family:Playfair Display,serif">Auction not available</h1>
+        <p style="color:#5C5852">This event doesn't have a public silent auction yet.</p>
+        <a class="btn btn-primary" style="margin-top:24px" href="/e/${encodeURIComponent(slug)}">← Back to event</a>
+      </div>`;
+      return;
+    }
+    render();
+  } catch (e) {
+    document.getElementById('view').innerHTML = `<p style="color:#a33;padding:20px;text-align:center">${esc(e.message || 'Failed to load')}</p>`;
+  }
+}
+
+function render() {
+  if (state.accent) document.documentElement.style.setProperty('--accent', state.accent);
+  document.title = `Silent Auction · ${state.eventName}`;
+  const live = state.items.filter(i => i.bidding_open);
+  const closed = state.items.filter(i => !i.bidding_open);
+
+  document.getElementById('view').innerHTML = `
+    <div style="margin-bottom:var(--s-3)">
+      <a class="pill-link" href="/e/${encodeURIComponent(slug)}" style="font-size:13px;color:var(--ink-2)">← Back to ${esc(state.eventName)}</a>
+    </div>
+
+    <div class="au-hero">
+      <div class="au-eyebrow">${state.isCharity ? 'Charity silent auction' : 'Silent auction'}</div>
+      <h1 class="au-title">Bid on the <em>good stuff</em></h1>
+      <p class="au-sub">${esc(state.intro || 'Every dollar supports the event. Place a bid below — the high bidder at close gets a secure Stripe link from the organizer to pay.')}</p>
+      ${state.intakeEnabled ? `<div class="au-actions">
+        <a class="btn btn-ghost" href="/e/${encodeURIComponent(slug)}/donate-item">+ Donate an item</a>
+      </div>` : ''}
+    </div>
+
+    ${live.length ? `<div class="au-grid">${live.map(renderItem).join('')}</div>` : ''}
+    ${closed.length ? `
+      <h2 style="font-family:var(--font-display);font-size:1.6rem;margin:var(--s-5) 0 var(--s-2)">Closed lots</h2>
+      <div class="au-grid">${closed.map(renderItem).join('')}</div>` : ''}
+    ${state.items.length === 0 ? `<div style="padding:60px 20px;text-align:center;color:var(--ink-3)">
+      <p>No items listed yet. Check back soon.</p>
+    </div>` : ''}
+  `;
+  document.querySelectorAll('[data-bid-item]').forEach(b => b.onclick = () => openBidModal(b.dataset.bidItem));
+}
+
+function renderItem(it) {
+  const high = it.high_cents != null ? it.high_cents : it.starting_bid_cents;
+  return `<div class="au-card">
+    <div class="thumb">${it.image_data
+      ? `<img src="${esc(it.image_data)}" alt="${esc(it.title)}" />`
+      : `<span class="empty">Item ${esc(it.title)}</span>`}</div>
+    <div class="body">
+      ${it.donor_name ? `<div class="donor">Donated by ${esc(it.donor_name)}</div>` : ''}
+      <div class="name">${esc(it.title)}</div>
+      ${it.description ? `<div class="desc">${esc(it.description)}</div>` : ''}
+      ${it.fair_value_cents ? `<div class="fmv">Fair-market value: ${fmtPrice(it.fair_value_cents)}</div>` : ''}
+      <div class="bid-info">
+        <div class="high-label">${it.bid_count ? 'Current high bid' : 'Starting bid'}</div>
+        <div class="high-amount">${fmtPrice(high || 0)}</div>
+        <div class="high-meta">${it.bid_count ? `${it.bid_count} bid${it.bid_count===1?'':'s'} · leader ${esc(it.leader_name || '—')}` : 'Be the first bidder.'}</div>
+        ${it.bidding_open
+          ? (it.closes_at ? `<div class="closes">Closes ${fmtDateTime(it.closes_at, state.timeZone)}</div>` : '')
+          : `<div class="closed-chip">${it.winner_name ? `Sold to ${esc(it.winner_name)}` : 'Closed'}</div>`}
+        ${it.bidding_open
+          ? `<button class="btn btn-accent btn-lg bid-btn" data-bid-item="${esc(it.id)}">Place a bid →</button>`
+          : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ── Bid modal ─────────────────────────────────────────────────────────────
+function openBidModal(itemId) {
+  const it = state.items.find(i => i.id === itemId);
+  if (!it || !it.bidding_open) return;
+  state.currentBid = it;
+  const minNext = it.bid_count
+    ? (it.high_cents || 0) + (it.min_increment_cents || 0)
+    : (it.starting_bid_cents || 0);
+  document.getElementById('bm-item-name').textContent = it.title;
+  document.getElementById('bm-min').textContent =
+    it.bid_count
+      ? `Current high: ${fmtPrice(it.high_cents || 0)} · minimum next bid: ${fmtPrice(minNext)}`
+      : `Starting bid: ${fmtPrice(it.starting_bid_cents || 0)}`;
+  document.getElementById('bm-amount').value = (minNext / 100).toFixed(2);
+  document.getElementById('bm-amount').min = (minNext / 100).toFixed(2);
+  document.getElementById('bm-err').classList.remove('is-shown');
+  document.getElementById('bid-modal').classList.add('open');
+  setTimeout(() => document.getElementById('bm-amount').focus(), 50);
+}
+
+document.getElementById('bm-submit').onclick = async () => {
+  const it = state.currentBid;
+  if (!it) return;
+  const btn = document.getElementById('bm-submit');
+  const errBox = document.getElementById('bm-err');
+  errBox.classList.remove('is-shown');
+  btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Placing…';
+  try {
+    const amount_cents = Math.round((Number(document.getElementById('bm-amount').value) || 0) * 100);
+    const r = await fetch(`/api/auctions/${encodeURIComponent(it.id)}/bid`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        amount_cents,
+        bidder_name:  document.getElementById('bm-name').value.trim(),
+        bidder_email: document.getElementById('bm-email').value.trim(),
+        bidder_phone: document.getElementById('bm-phone').value.trim() || null,
+      }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Bid failed');
+    closeModals();
+    // Quick optimistic reload so the user sees their bid as the new high.
+    await load();
+    alert(`Your bid of ${fmtPrice(amount_cents)} is in. You're the current leader — we'll email you if you win.`);
+  } catch (e) {
+    errBox.textContent = e.message;
+    errBox.classList.add('is-shown');
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+};
+
+function closeModals() { document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open')); }
+document.querySelectorAll('[data-close-modal]').forEach(b => b.onclick = closeModals);
+document.querySelectorAll('.modal-overlay').forEach(o =>
+  o.addEventListener('click', e => { if (e.target === o) closeModals(); })
+);
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModals(); });
+
+load();
+</script>
+</body>
+</html>

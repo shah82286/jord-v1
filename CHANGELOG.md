@@ -2,6 +2,84 @@
 
 ---
 
+## v3.45.0 — 2026-05-26
+### Session 62 — E4: Silent auction (full MVP)
+
+The Donations + Silent Auction phase (E4 in the platform spec) ships in
+one slice: items, bidding, donor intake, photo uploads, winner checkout —
+all wired end-to-end through the existing Stripe Connect plumbing.
+
+#### What changed
+- **Schema** — two new tables (`auction_items`, `auction_bids`) plus
+  three event_sites toggles (`auction_enabled`, `auction_intake_enabled`,
+  `auction_intro`). Item lifecycle: `pending` → `live` → `ended` →
+  `paid`, with `rejected` for admin-declined intake submissions.
+- **Server endpoints**:
+  - `GET /api/admin/events/:id/auction` — items + bid summaries.
+  - `GET /api/admin/events/:id/auction/items/:itemId/bids` — full bid
+    list for the bids drawer.
+  - `POST/PATCH/DELETE /api/admin/events/:id/auction/items[/:itemId]` —
+    CRUD with image_data guard (≤2.8 MB, `data:image/*`).
+  - `POST /…/items/:itemId/close` — picks the highest bid as winner,
+    flips item to `ended`. No-bids items end without a winner.
+  - `POST /…/items/:itemId/checkout-winner` — lazy-creates a per-item
+    `package_kind='auction_item'` row, creates a registrations row,
+    spins up a Stripe Checkout against the organizer's Connect
+    account. Stripe webhook flips the linked item to `paid` on
+    `checkout.session.completed` via `metadata.auction_item_id`.
+  - `GET /api/event-sites/:slug/auction` — public payload. Items in
+    `live` or `ended` status appear (ended ones show "Sold to X" tag).
+    `bidding_open` computed from status + opens_at / closes_at so a
+    forgotten `live` item with a past close time auto-renders as
+    closed.
+  - `POST /api/auctions/:itemId/bid` — public bid endpoint. Validates
+    bidder name + email, amount ≥ starting bid, amount ≥ current
+    high + min_increment_cents. No bidder account required.
+  - `POST /api/event-sites/:slug/auction-intake` — public donor
+    submission. Lands as `status='pending'` awaiting admin approval.
+- **Admin auction page** (`/admin/events/:id/auction`):
+  - Stat strip (live count, pending review, total bids, gross revenue
+    from paid items).
+  - Filter pills (all / live / pending / ended / paid / rejected).
+  - Item grid with photo, donor, FMV, bid count + current leader,
+    status chip, contextual action buttons (Approve / Close / Checkout
+    winner / View bids / Edit).
+  - Create/edit modal with photo upload (≤2.5 MB), starting bid,
+    increment, FMV, status, opens_at, closes_at.
+  - Bids drawer showing every bid with name, email, phone, amount,
+    timestamp.
+- **Public auction page** (`/e/:slug/auction`):
+  - Hero with organizer-supplied intro copy.
+  - Item grid showing photo, donor credit, description, FMV (when
+    set), current high bid + leader name, closes_at timestamp in the
+    event's IANA zone.
+  - Bid modal collects amount + name + email + optional phone; client
+    pre-fills the next-min amount, server enforces it.
+  - Closed lots section below live ones.
+- **Donor intake page** (`/e/:slug/donate-item`):
+  - Title, description, starting-bid + FMV hints, photo upload,
+    donor name + email.
+  - Submits to `/api/event-sites/:slug/auction-intake`; lands in the
+    admin's Pending queue with a green Approve button.
+- **Editor integration**:
+  - Site editor gains a "Silent auction" card with enable toggles,
+    intake toggle, optional intro copy, and a link to the admin
+    auction console.
+  - Event editor header gets a `🔨 Auction` nav button.
+- **Public event-site teaser** — when auction_enabled, a "Bid on the
+  good stuff" section on `/e/:slug` deep-links to the auction page
+  (and intake page when enabled), with an item count.
+
+#### Tested
+- **285/285 unit tests pass** (+32 new) covering: table creation,
+  toggles, route registration, format whitelist, status validation,
+  image guard, min-increment enforcement, close-picks-highest logic,
+  lazy auction package creation, Stripe webhook wiring, intake-toggle
+  check, public payload gating, all four new HTML pages exist and
+  parse, editor + nav-button surfaces.
+
+---
+
 ## v3.44.0 — 2026-05-26
 ### Session 61 — Pairings → scoring score-groups bridge
 

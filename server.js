@@ -327,6 +327,60 @@ try { db.exec("ALTER TABLE score_groups ADD COLUMN pairing_group_id TEXT"); } ca
 try { db.exec("ALTER TABLE round_entries ADD COLUMN source_registration_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE round_entries ADD COLUMN source_player_index INTEGER"); } catch {}
 
+// Silent auction (E4): an event can run a timed silent auction alongside
+// registrations. Items live in `auction_items`, bids in `auction_bids`.
+// The lazy 'auction_item' package_kind is created per-item at winner
+// checkout (same lazy pattern as donations).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS auction_items (
+    id                     TEXT PRIMARY KEY,
+    event_id               TEXT NOT NULL,
+    title                  TEXT NOT NULL,
+    description            TEXT,
+    image_data             TEXT,          -- base64 data URL, ~2.5 MB cap
+    starting_bid_cents     INTEGER NOT NULL DEFAULT 0,
+    min_increment_cents    INTEGER DEFAULT 500,
+    fair_value_cents       INTEGER,       -- estimated value, shown publicly
+    donor_name             TEXT,          -- who donated the item
+    status                 TEXT DEFAULT 'pending',
+       -- pending  → submitted via intake form, awaiting organizer approval
+       -- live     → approved + accepting bids during [opens_at, closes_at]
+       -- ended    → closes_at passed, winner picked, awaiting payment
+       -- paid     → winner paid via Stripe
+       -- rejected → admin declined to list
+    opens_at               TEXT,          -- ISO datetime; bidding starts
+    closes_at              TEXT,          -- ISO datetime; bidding ends
+    winner_email           TEXT,
+    winner_name            TEXT,
+    winner_bid_cents       INTEGER,
+    winner_registration_id TEXT,          -- FK once they checkout
+    sort_order             INTEGER DEFAULT 0,
+    created_at             DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_auction_items_event ON auction_items(event_id, status, sort_order);
+
+  CREATE TABLE IF NOT EXISTS auction_bids (
+    id           TEXT PRIMARY KEY,
+    item_id      TEXT NOT NULL,
+    event_id     TEXT NOT NULL,         -- denormalized for fast per-event aggregates
+    bidder_name  TEXT NOT NULL,
+    bidder_email TEXT NOT NULL,
+    bidder_phone TEXT,
+    amount_cents INTEGER NOT NULL,
+    created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES auction_items(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_auction_bids_item ON auction_bids(item_id, amount_cents DESC, created_at);
+`);
+
+// Public toggles — same opt-in pattern as donations. `auction_enabled`
+// controls the public listing/bidding pages; `auction_intake_enabled`
+// controls whether visitors can also submit items via the intake form.
+try { db.exec("ALTER TABLE event_sites ADD COLUMN auction_enabled INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE event_sites ADD COLUMN auction_intake_enabled INTEGER DEFAULT 0"); } catch {}
+try { db.exec("ALTER TABLE event_sites ADD COLUMN auction_intro TEXT"); } catch {}
+
 // Team share code (6-char code from registration; lets players join via QR after team is finalized)
 try { db.exec("ALTER TABLE teams ADD COLUMN share_code TEXT"); } catch {}
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_teams_share_code ON teams(share_code)"); } catch {}
@@ -808,6 +862,15 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req,
                       WHERE id=? AND payment_status!='paid'`)
             .run(session.id, regId);
           console.log(`[Stripe] Registration ${regId} marked paid (session ${session.id})`);
+
+          // Auction winner paid — flip the linked auction_item to 'paid'
+          // so it disappears from the public listing and shows as settled
+          // in the admin auction console.
+          if (session.metadata.auction_item_id) {
+            db.prepare("UPDATE auction_items SET status='paid' WHERE id=? AND event_id=?")
+              .run(session.metadata.auction_item_id, session.metadata.event_id);
+            console.log(`[Stripe] Auction item ${session.metadata.auction_item_id} marked paid`);
+          }
 
           // Walk-up Stripe payments: buyer is standing at the desk, auto-
           // check-in their roster (skip if any check-ins already exist so
@@ -4793,7 +4856,8 @@ app.put('/api/admin/events/:id/site', requireAuth, requireAdminOrSuper, requireE
   const cols = ['slug','headline','subhead','hero_image','starts_at','location_name',
                 'about_html','schedule_json','course_info','faq_json',
                 'contact_name','contact_email','contact_phone','published',
-                'donations_enabled','donation_suggested_json','donation_min_cents','donation_prompt'];
+                'donations_enabled','donation_suggested_json','donation_min_cents','donation_prompt',
+                'auction_enabled','auction_intake_enabled','auction_intro'];
   // Normalize the suggested amounts to a sorted array of positive integer
   // cents values so the public page never has to defend against garbage.
   let suggested = null;
@@ -4823,6 +4887,9 @@ app.put('/api/admin/events/:id/site', requireAuth, requireAdminOrSuper, requireE
     donation_suggested_json: suggested,
     donation_min_cents: b.donation_min_cents != null ? Math.max(100, Number(b.donation_min_cents) || 500) : 500,
     donation_prompt: b.donation_prompt || null,
+    auction_enabled: b.auction_enabled ? 1 : 0,
+    auction_intake_enabled: b.auction_intake_enabled ? 1 : 0,
+    auction_intro: b.auction_intro || null,
     published: b.published ? 1 : 0,
   };
   const params = cols.map(c => data[c]);
@@ -4961,11 +5028,23 @@ app.get('/api/event-sites/:slug', (req, res) => {
     prompt: site.donation_prompt || null,
   } : { enabled: false };
 
+  // Auction config — surface a teaser on /e/:slug ("There's a silent
+  // auction → see it here") when enabled. Item lists live at the
+  // dedicated /api/event-sites/:slug/auction endpoint to keep this
+  // payload small.
+  const auction = site.auction_enabled ? {
+    enabled: true,
+    intake_enabled: !!site.auction_intake_enabled,
+    intro: site.auction_intro || null,
+    item_count: db.prepare(`SELECT COUNT(*) AS n FROM auction_items
+                            WHERE event_id=? AND status IN ('live','ended')`).get(site.event_id).n,
+  } : { enabled: false };
+
   res.json({
     site, event, packages, sponsorships,
     schedule: parseJson(site.schedule_json),
     faq:      parseJson(site.faq_json),
-    fundraising, donations,
+    fundraising, donations, auction,
     registration_open,
     payment_mode: stripeHelper.mode,
   });
@@ -5851,6 +5930,345 @@ app.post('/api/admin/events/:id/pairings/auto-assign', requireAuth, requireAdmin
   res.json({ ok: true, groups_created: createdGroups, players_assigned: pool.length });
 });
 
+// ─── SILENT AUCTION (E4) ─────────────────────────────────────────────────
+// Items can be created manually by the organizer OR submitted via a public
+// intake form (donors offering prizes). Visitors at /e/:slug bid through
+// the public endpoint. When closes_at passes, the highest bid wins and the
+// organizer can trigger a Stripe Checkout for the winner.
+
+const AUCTION_ITEM_STATUSES = new Set(['pending', 'live', 'ended', 'paid', 'rejected']);
+
+function safeBidderEmail(s) {
+  return typeof s === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
+// Aggregate current high bid + bid count per item. Returns a map keyed by
+// item_id with `{ high_cents, bid_count, leader_name }`. One query —
+// cheaper than N+1 lookups when rendering the public list.
+function _itemBidSummary(eventId) {
+  const rows = db.prepare(`
+    SELECT b.item_id, COUNT(*) AS bid_count, MAX(b.amount_cents) AS high_cents
+    FROM auction_bids b
+    WHERE b.event_id=?
+    GROUP BY b.item_id
+  `).all(eventId);
+  const out = new Map();
+  for (const r of rows) {
+    const leader = db.prepare(`SELECT bidder_name FROM auction_bids
+                               WHERE item_id=? AND amount_cents=?
+                               ORDER BY created_at LIMIT 1`).get(r.item_id, r.high_cents);
+    out.set(r.item_id, { high_cents: r.high_cents, bid_count: r.bid_count, leader_name: leader?.bidder_name || null });
+  }
+  return out;
+}
+
+// Validate + normalize an inbound image data URL. Same rule as brand_logo:
+// data:image/* under 2.8 MB. Empty string clears the field; anything else
+// fails with 400 so we never write garbage.
+function normalizeImageData(v) {
+  if (v == null || v === '') return { ok: true, value: null };
+  if (typeof v === 'string' && /^data:image\//i.test(v) && v.length < 2_800_000) return { ok: true, value: v };
+  return { ok: false };
+}
+
+// ── Admin: list every item for an event (any status) + bid summaries ──
+app.get('/api/admin/events/:id/auction', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const items = db.prepare(`SELECT * FROM auction_items WHERE event_id=? ORDER BY sort_order, created_at`).all(req.params.id);
+  const summary = _itemBidSummary(req.params.id);
+  for (const it of items) {
+    const s = summary.get(it.id);
+    it.bid_count = s ? s.bid_count : 0;
+    it.high_cents = s ? s.high_cents : null;
+    it.leader_name = s ? s.leader_name : null;
+  }
+  res.json({ items });
+});
+
+// ── Admin: list bids for a single item (audit / leaderboard) ──
+app.get('/api/admin/events/:id/auction/items/:itemId/bids', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const item = db.prepare('SELECT id FROM auction_items WHERE id=? AND event_id=?').get(req.params.itemId, req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+  const bids = db.prepare(`SELECT id, bidder_name, bidder_email, bidder_phone, amount_cents, created_at
+                           FROM auction_bids WHERE item_id=?
+                           ORDER BY amount_cents DESC, created_at`).all(req.params.itemId);
+  res.json({ bids });
+});
+
+// ── Admin: create or upsert an item ──
+app.post('/api/admin/events/:id/auction/items', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const b = req.body || {};
+  if (!b.title || !String(b.title).trim()) return res.status(400).json({ error: 'Title required' });
+  const img = normalizeImageData(b.image_data);
+  if (!img.ok) return res.status(400).json({ error: 'image_data must be an image data URL under 2.5 MB' });
+  const status = AUCTION_ITEM_STATUSES.has(b.status) ? b.status : 'live';
+  const id = uid('AI');
+  const nextSort = (db.prepare('SELECT COALESCE(MAX(sort_order), 0) AS n FROM auction_items WHERE event_id=?')
+                      .get(req.params.id).n || 0) + 1;
+  db.prepare(`INSERT INTO auction_items
+    (id, event_id, title, description, image_data, starting_bid_cents, min_increment_cents,
+     fair_value_cents, donor_name, status, opens_at, closes_at, sort_order)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+  .run(id, req.params.id, String(b.title).trim().slice(0, 200),
+       (b.description || '').trim().slice(0, 2000) || null,
+       img.value,
+       Math.max(0, Number(b.starting_bid_cents) || 0),
+       Math.max(0, Number(b.min_increment_cents) || 500),
+       b.fair_value_cents != null ? Math.max(0, Number(b.fair_value_cents) || 0) : null,
+       (b.donor_name || '').trim().slice(0, 120) || null,
+       status,
+       b.opens_at || null,
+       b.closes_at || null,
+       Number(b.sort_order) || nextSort);
+  res.json({ id });
+});
+
+// ── Admin: update an item (status changes, edits, set winner manually) ──
+app.patch('/api/admin/events/:id/auction/items/:itemId', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const cur = db.prepare('SELECT * FROM auction_items WHERE id=? AND event_id=?').get(req.params.itemId, req.params.id);
+  if (!cur) return res.status(404).json({ error: 'Item not found' });
+  const b = req.body || {};
+  if (b.image_data !== undefined) {
+    const img = normalizeImageData(b.image_data);
+    if (!img.ok) return res.status(400).json({ error: 'image_data must be an image data URL under 2.5 MB' });
+    b.image_data = img.value;
+  }
+  if (b.status !== undefined && !AUCTION_ITEM_STATUSES.has(b.status)) {
+    return res.status(400).json({ error: `Invalid status (must be one of ${[...AUCTION_ITEM_STATUSES].join(', ')})` });
+  }
+  const n = {
+    title:               b.title               !== undefined ? String(b.title).trim().slice(0, 200) : cur.title,
+    description:         b.description         !== undefined ? (String(b.description||'').trim().slice(0, 2000) || null) : cur.description,
+    image_data:          b.image_data          !== undefined ? b.image_data : cur.image_data,
+    starting_bid_cents:  b.starting_bid_cents  !== undefined ? Math.max(0, Number(b.starting_bid_cents) || 0) : cur.starting_bid_cents,
+    min_increment_cents: b.min_increment_cents !== undefined ? Math.max(0, Number(b.min_increment_cents) || 0) : cur.min_increment_cents,
+    fair_value_cents:    b.fair_value_cents    !== undefined ? (b.fair_value_cents === null || b.fair_value_cents === '' ? null : Math.max(0, Number(b.fair_value_cents) || 0)) : cur.fair_value_cents,
+    donor_name:          b.donor_name          !== undefined ? (String(b.donor_name||'').trim().slice(0, 120) || null) : cur.donor_name,
+    status:              b.status              !== undefined ? b.status : cur.status,
+    opens_at:            b.opens_at            !== undefined ? (b.opens_at || null) : cur.opens_at,
+    closes_at:           b.closes_at           !== undefined ? (b.closes_at || null) : cur.closes_at,
+    sort_order:          b.sort_order          !== undefined ? Number(b.sort_order) || cur.sort_order : cur.sort_order,
+  };
+  db.prepare(`UPDATE auction_items
+    SET title=?, description=?, image_data=?, starting_bid_cents=?, min_increment_cents=?,
+        fair_value_cents=?, donor_name=?, status=?, opens_at=?, closes_at=?, sort_order=?
+    WHERE id=?`).run(n.title, n.description, n.image_data, n.starting_bid_cents, n.min_increment_cents,
+                     n.fair_value_cents, n.donor_name, n.status, n.opens_at, n.closes_at, n.sort_order,
+                     req.params.itemId);
+  res.json({ ok: true });
+});
+
+app.delete('/api/admin/events/:id/auction/items/:itemId', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  db.prepare('DELETE FROM auction_items WHERE id=? AND event_id=?').run(req.params.itemId, req.params.id);
+  res.json({ ok: true });
+});
+
+// ── Admin: close an item now (computes winner from highest current bid) ──
+// Idempotent — re-running on an already-ended item is a no-op.
+app.post('/api/admin/events/:id/auction/items/:itemId/close', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
+  const item = db.prepare('SELECT * FROM auction_items WHERE id=? AND event_id=?').get(req.params.itemId, req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+  if (item.status === 'paid') return res.status(400).json({ error: 'Item already paid — cannot reopen' });
+  const top = db.prepare(`SELECT bidder_name, bidder_email, amount_cents
+                          FROM auction_bids WHERE item_id=?
+                          ORDER BY amount_cents DESC, created_at LIMIT 1`).get(req.params.itemId);
+  if (!top) {
+    // No bids — mark ended without a winner.
+    db.prepare("UPDATE auction_items SET status='ended', winner_email=NULL, winner_name=NULL, winner_bid_cents=NULL WHERE id=?")
+      .run(req.params.itemId);
+    return res.json({ ok: true, status: 'ended', winner: null });
+  }
+  db.prepare(`UPDATE auction_items
+    SET status='ended', winner_email=?, winner_name=?, winner_bid_cents=?
+    WHERE id=?`).run(top.bidder_email, top.bidder_name, top.amount_cents, req.params.itemId);
+  res.json({ ok: true, status: 'ended', winner: { name: top.bidder_name, email: top.bidder_email, amount_cents: top.amount_cents } });
+});
+
+// ── Public: list LIVE items for an event slug ──
+app.get('/api/event-sites/:slug/auction', (req, res) => {
+  const site = db.prepare(`SELECT event_id, auction_enabled, auction_intake_enabled, auction_intro
+                           FROM event_sites WHERE slug=? AND published=1`).get(req.params.slug);
+  if (!site) return res.status(404).json({ error: 'Event not found' });
+  if (!site.auction_enabled) return res.json({ auction_enabled: false, items: [] });
+  const now = new Date().toISOString();
+  // Include items in 'live' or 'ended' status — 'ended' show as closed
+  // with a "Sold to …" tag so the public sees outcomes. Skip pending/
+  // rejected/paid (paid = no longer interesting publicly).
+  const items = db.prepare(`SELECT id, title, description, image_data,
+                                   starting_bid_cents, min_increment_cents, fair_value_cents,
+                                   donor_name, status, opens_at, closes_at,
+                                   winner_name, winner_bid_cents
+                            FROM auction_items
+                            WHERE event_id=? AND status IN ('live','ended')
+                            ORDER BY sort_order, created_at`).all(site.event_id);
+  const summary = _itemBidSummary(site.event_id);
+  for (const it of items) {
+    const s = summary.get(it.id);
+    it.high_cents = s ? s.high_cents : null;
+    it.bid_count = s ? s.bid_count : 0;
+    // Public sees leader's name when bids exist — typical silent-auction
+    // transparency. Email never exposed.
+    it.leader_name = s ? s.leader_name : null;
+    // Compute live/closed state from the timestamps in addition to the
+    // status column — so a forgotten 'live' item auto-shows as closed
+    // when its closes_at passed.
+    it.bidding_open = it.status === 'live' &&
+                      (!it.opens_at || it.opens_at <= now) &&
+                      (!it.closes_at || it.closes_at > now);
+  }
+  res.json({
+    auction_enabled: true,
+    intake_enabled: !!site.auction_intake_enabled,
+    intro: site.auction_intro || null,
+    items,
+  });
+});
+
+// ── Public: place a bid ──
+app.post('/api/auctions/:itemId/bid', (req, res) => {
+  const b = req.body || {};
+  const name = (b.bidder_name || '').trim();
+  const email = (b.bidder_email || '').trim().toLowerCase();
+  const amount = Math.floor(Number(b.amount_cents) || 0);
+  if (!name) return res.status(400).json({ error: 'Bidder name required' });
+  if (!safeBidderEmail(email)) return res.status(400).json({ error: 'Valid email required' });
+  if (amount <= 0) return res.status(400).json({ error: 'Bid amount required' });
+
+  const item = db.prepare('SELECT * FROM auction_items WHERE id=?').get(req.params.itemId);
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+  if (item.status !== 'live') return res.status(400).json({ error: 'Bidding is closed for this item' });
+
+  const now = new Date().toISOString();
+  if (item.opens_at && item.opens_at > now) return res.status(400).json({ error: 'Bidding hasn\'t opened yet' });
+  if (item.closes_at && item.closes_at <= now) return res.status(400).json({ error: 'Bidding has closed' });
+
+  // Validate minimum: starting bid or current high + increment.
+  const top = db.prepare(`SELECT MAX(amount_cents) AS high FROM auction_bids WHERE item_id=?`).get(req.params.itemId);
+  const currentHigh = top && top.high ? top.high : 0;
+  const minNext = currentHigh
+    ? currentHigh + (item.min_increment_cents || 0)
+    : (item.starting_bid_cents || 0);
+  if (amount < minNext) {
+    return res.status(400).json({ error: `Bid must be at least $${(minNext/100).toFixed(2)}`, min_next_cents: minNext });
+  }
+
+  const id = uid('BID');
+  db.prepare(`INSERT INTO auction_bids
+    (id, item_id, event_id, bidder_name, bidder_email, bidder_phone, amount_cents)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, req.params.itemId, item.event_id, name.slice(0, 120), email,
+         (b.bidder_phone || '').trim().slice(0, 40) || null, amount);
+  res.json({ ok: true, id, amount_cents: amount, leader_name: name, leading: true });
+});
+
+// ── Public: submit an item for the silent auction (donor intake) ──
+app.post('/api/event-sites/:slug/auction-intake', (req, res) => {
+  const site = db.prepare(`SELECT event_id, auction_enabled, auction_intake_enabled
+                           FROM event_sites WHERE slug=? AND published=1`).get(req.params.slug);
+  if (!site) return res.status(404).json({ error: 'Event not found' });
+  if (!site.auction_enabled || !site.auction_intake_enabled) {
+    return res.status(400).json({ error: 'Item submissions are not open for this event' });
+  }
+  const b = req.body || {};
+  if (!b.title || !String(b.title).trim()) return res.status(400).json({ error: 'Item title required' });
+  if (!b.donor_name || !String(b.donor_name).trim()) return res.status(400).json({ error: 'Your name is required' });
+  const img = normalizeImageData(b.image_data);
+  if (!img.ok) return res.status(400).json({ error: 'image_data must be an image data URL under 2.5 MB' });
+
+  const id = uid('AI');
+  db.prepare(`INSERT INTO auction_items
+    (id, event_id, title, description, image_data, starting_bid_cents, min_increment_cents,
+     fair_value_cents, donor_name, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`)
+  .run(id, site.event_id, String(b.title).trim().slice(0, 200),
+       (b.description || '').trim().slice(0, 2000) || null,
+       img.value,
+       Math.max(0, Number(b.starting_bid_cents) || 0),
+       Math.max(0, Number(b.min_increment_cents) || 500),
+       b.fair_value_cents != null ? Math.max(0, Number(b.fair_value_cents) || 0) : null,
+       String(b.donor_name).trim().slice(0, 120));
+  res.json({ ok: true, id });
+});
+
+// ── Admin: trigger Stripe Checkout for the winner ──
+app.post('/api/admin/events/:id/auction/items/:itemId/checkout-winner', requireAuth, requireAdminOrSuper, requireEventAccess, async (req, res) => {
+  const item = db.prepare('SELECT * FROM auction_items WHERE id=? AND event_id=?').get(req.params.itemId, req.params.id);
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+  if (item.status === 'paid') return res.status(400).json({ error: 'Item already paid' });
+  if (!item.winner_email || !item.winner_bid_cents) {
+    return res.status(400).json({ error: 'No winner recorded — close the auction first to pick one.' });
+  }
+  const event = db.prepare('SELECT id, name, admin_id FROM events WHERE id=?').get(item.event_id);
+  if (!event) return res.status(404).json({ error: 'Event not found' });
+  const site = db.prepare('SELECT slug FROM event_sites WHERE event_id=?').get(item.event_id);
+
+  // Lazy-upsert an 'auction_item' package row to satisfy the FK on
+  // registrations. One package per item — keeps the dashboard line-itemy.
+  let pkg = db.prepare("SELECT * FROM registration_packages WHERE event_id=? AND package_kind='auction_item' AND name=?")
+    .get(item.event_id, ('Auction: ' + item.title).slice(0, 80));
+  if (!pkg) {
+    const pkgId = uid('PKG');
+    db.prepare(`INSERT INTO registration_packages
+      (id, event_id, name, description, price_cents, includes_players, sort_order, active, package_kind)
+      VALUES (?, ?, ?, ?, ?, 0, 999, 1, 'auction_item')`)
+      .run(pkgId, item.event_id, ('Auction: ' + item.title).slice(0, 80), item.description || null, item.winner_bid_cents);
+    pkg = db.prepare('SELECT * FROM registration_packages WHERE id=?').get(pkgId);
+  }
+
+  const id = crypto.randomBytes(8).toString('hex');
+  const amount = item.winner_bid_cents;
+  const platform_fee_cents = stripeHelper.feeCents(amount);
+  const confirmationPath = (regId) => site && site.slug ? `/e/${site.slug}/confirmation/${regId}` : `/registrations/${regId}`;
+
+  if (stripeHelper.mode === 'mock') {
+    db.prepare(`INSERT INTO registrations
+      (id, event_id, package_id, buyer_name, buyer_email, buyer_phone, players_json,
+       amount_cents, platform_fee_cents, payment_status, payment_mode, paid_at, description)
+      VALUES (?, ?, ?, ?, ?, NULL, '[]', ?, ?, 'paid', 'mock', CURRENT_TIMESTAMP, ?)`)
+      .run(id, item.event_id, pkg.id, item.winner_name || 'Auction winner',
+           item.winner_email, amount, platform_fee_cents,
+           'Auction win: ' + item.title);
+    db.prepare("UPDATE auction_items SET status='paid', winner_registration_id=? WHERE id=?").run(id, req.params.itemId);
+    return res.json({ id, confirmation_url: confirmationPath(id), payment_mode: 'mock', status: 'paid' });
+  }
+
+  if (!event.admin_id) return res.status(503).json({ error: 'This event has no organizer on file' });
+  const organizer = db.prepare(`SELECT stripe_account_id, stripe_charges_enabled
+                                FROM admins WHERE id=?`).get(event.admin_id);
+  if (!organizer || !organizer.stripe_account_id || !organizer.stripe_charges_enabled) {
+    return res.status(503).json({ error: 'Organizer Stripe account is not active — cannot bill the winner.' });
+  }
+
+  db.prepare(`INSERT INTO registrations
+    (id, event_id, package_id, buyer_name, buyer_email, buyer_phone, players_json,
+     amount_cents, platform_fee_cents, payment_status, payment_mode, description)
+    VALUES (?, ?, ?, ?, ?, NULL, '[]', ?, ?, 'pending', 'stripe', ?)`)
+    .run(id, item.event_id, pkg.id, item.winner_name || 'Auction winner',
+         item.winner_email, amount, platform_fee_cents,
+         'Auction win: ' + item.title);
+  db.prepare('UPDATE auction_items SET winner_registration_id=? WHERE id=?').run(id, req.params.itemId);
+
+  try {
+    const APP_URL = process.env.APP_URL || `http://localhost:${PORT}`;
+    const session = await stripeHelper.createCheckoutSession({
+      amountCents:        amount,
+      platformFeeCents:   platform_fee_cents,
+      connectedAccountId: organizer.stripe_account_id,
+      productName:        `${event.name} · Auction: ${item.title}`,
+      productDescription: item.description || undefined,
+      buyerEmail:         item.winner_email,
+      metadata: { registration_id: id, event_id: item.event_id, package_id: pkg.id, auction_item_id: item.id, kind: 'auction_winner', jord: '1' },
+      successUrl: `${APP_URL}${confirmationPath(id)}?session_id={CHECKOUT_SESSION_ID}`,
+      cancelUrl:  `${APP_URL}/e/${site ? site.slug : ''}/auction?canceled=1`,
+    });
+    db.prepare('UPDATE registrations SET stripe_session_id=? WHERE id=?').run(session.id, id);
+    res.json({ id, checkout_url: session.url, session_id: session.id, payment_mode: 'stripe' });
+  } catch (e) {
+    console.error('[Stripe auction checkout]', e);
+    db.prepare("UPDATE registrations SET payment_status='failed' WHERE id=?").run(id);
+    res.status(502).json({ error: 'Could not start checkout — please try again.' });
+  }
+});
+
 // ─── SCORING BRIDGE (Enterprise event → Clubhouse tournament/round) ────────
 // One paid registration's player roster becomes scoring entries in a real
 // tournament so the leaderboard at /tournament/:id pulls from the field
@@ -6222,6 +6640,7 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   '/admin/events/:id/check-in':       'admin/event-checkin.html',
   '/admin/events/:id/pairings/poster': 'admin/event-pairings-poster.html',
   '/admin/events/:id/pairings':       'admin/event-pairings.html',
+  '/admin/events/:id/auction':        'admin/event-auction.html',
   '/admin/events/:id':       'admin/editor.html',
   '/admin/events/:id/:tab':  'admin/editor.html',
   '/admin/stripe-connect':       'admin/stripe-connect.html',
@@ -6234,6 +6653,8 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   '/login':     'login.html',                   // user (personal/player) sign-in + sign-up
   '/e/:slug/register':              'event-register.html',     // registration form + checkout
   '/e/:slug/confirmation/:regId':   'event-confirmation.html', // post-checkout thank-you
+  '/e/:slug/auction':               'event-auction.html',      // public silent auction (E4)
+  '/e/:slug/donate-item':           'event-donate-item.html',  // public item-intake form (E4)
   '/e/:slug':   'event-site.html',              // public brandable event site (E1)
   '/scorecard/:roundId': 'scorecard.html',     // score entry (public, via link)
   '/live/:roundId': 'live.html',               // round live leaderboard (public)

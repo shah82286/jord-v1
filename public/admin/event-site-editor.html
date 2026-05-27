@@ -274,6 +274,35 @@ function render() {
       </div>
     </div>
 
+    <div class="card" id="auction-card">
+      <h2 class="card-title">${lbl('Silent auction', "Run a public silent auction alongside the event. Items show on /e/your-slug/auction with bid forms; winners get a Stripe checkout link after the close time. Use the admin auction page to add items and approve donor submissions.")}</h2>
+      <div class="field-grid" style="grid-template-columns:1fr 1fr">
+        <div class="field">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="f-auction-enabled" ${(state.site && state.site.auction_enabled) ? 'checked' : ''} />
+            <span>Enable silent auction page</span>
+          </label>
+          <div class="hint">Adds a public auction at <code>/e/${esc(state.site?.slug || 'your-slug')}/auction</code>.</div>
+        </div>
+        <div class="field">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="f-auction-intake" ${(state.site && state.site.auction_intake_enabled) ? 'checked' : ''} />
+            <span>Accept donor item submissions</span>
+          </label>
+          <div class="hint">Adds <code>/donate-item</code> for visitors to submit items for your review.</div>
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <label>Intro copy (optional)</label>
+          <textarea class="textarea" id="f-auction-intro" rows="2" placeholder="Every dollar supports …">${esc((state.site && state.site.auction_intro) || '')}</textarea>
+          <div class="hint">Shown above the items on the public auction page. Leave blank for the default.</div>
+        </div>
+        <div class="field" style="grid-column:1/-1">
+          <a class="btn btn-ghost" href="/admin/events/${esc(eventId)}/auction">⚙ Manage auction items →</a>
+          <span class="hint" style="margin-left:8px">Add items, review submissions, close bidding, send winner checkouts.</span>
+        </div>
+      </div>
+    </div>
+
     <div class="card">
       <h2 class="card-title">${lbl('Sponsorships', "Non-playing items your event can sell — hole signs, beverage carts, scorecard branding, etc. Sponsors check out through the same Stripe flow as players; the number-of-players field defaults to 0.")}</h2>
       <p class="hint" style="margin-bottom:var(--s-3)">Tap a tile below to quick-add a common sponsorship at a starter price you can edit. Or click "+ Add custom" for anything else.</p>
@@ -652,6 +681,9 @@ async function save() {
     donation_suggested: suggested,
     donation_min_cents: Math.max(100, Math.round((Number($('#f-don-min')?.value) || 5) * 100)),
     donation_prompt: ($('#f-don-prompt')?.value || '').trim() || null,
+    auction_enabled: $('#f-auction-enabled')?.checked ? 1 : 0,
+    auction_intake_enabled: $('#f-auction-intake')?.checked ? 1 : 0,
+    auction_intro: ($('#f-auction-intro')?.value || '').trim() || null,
   };
   const btn = $('#saveBtn'); btn.disabled = true; btn.textContent = 'Saving…';
   try {
