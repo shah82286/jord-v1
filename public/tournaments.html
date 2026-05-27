@@ -742,13 +742,11 @@ async function openTournament(id) {
         <span class="badge ${r.status==='active'?'badge-success':r.status==='ended'?'badge-danger':''}">${esc(r.status)}</span></div>
       <div style="display:flex;gap:var(--s-2);flex-wrap:wrap">
         <a class="btn btn-ghost" href="/live/${r.id}" target="_blank">Live ↗</a>
-        <button class="btn btn-ghost" data-copy="${r.id}">Score link</button>
+        <a class="btn btn-primary" href="/scorecard/${r.id}" target="_blank">📝 Score card ↗</a>
         ${r.status==='active'?`<button class="btn btn-ghost" data-end="${r.id}">End</button>`
           :`<button class="btn btn-ghost" data-start="${r.id}">Start</button>`}
       </div>
     </div>`).join('');
-  $('#roundList').querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>
-    JORD.copyToClipboard(origin+'/scorecard/'+b.dataset.copy).then(()=>JORD.success('Score-entry link copied')));
   $('#roundList').querySelectorAll('[data-end]').forEach(b=>b.onclick=()=>setStatus(b.dataset.end,'ended',id));
   $('#roundList').querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>setStatus(b.dataset.start,'active',id));
 
