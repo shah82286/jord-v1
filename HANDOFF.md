@@ -32,16 +32,63 @@ Super admin login: `shah82286@gmail.com` / `jord2026` (password = `ADMIN_PASSWOR
 
 ---
 
-## Current state — v3.43.0 (2026-05-25)
+## Current state — v3.47.0 (2026-05-26)
 
-> **Snapshot context**: The previous handoff was at v3.37 with Session 53
-> work (timezones / carts / poster) in-flight. That shipped — plus six more
-> arcs landed in quick succession through v3.43. The system is now
-> feature-complete on **E1 (sell tickets)**, **E2 (run the day)** including
-> scoring, and **E3 (raise money)** except for the Klaviyo email blast
-> (deferred behind #KLAVIYO-FLOWS). 219/219 tests passing.
+> **Snapshot context**: The entire platform spec (E1–E5) is now
+> feature-complete. The last handoff (at v3.43) marked E3 done; since
+> then the **scoring↔pairings bridge** (v3.44), the **full E4 silent
+> auction MVP** (v3.45), and **both halves of E5 — event store +
+> supplies marketplace** (v3.46–v3.47) shipped. Plus a hotfix pass
+> (v3.43.1) caught four bugs from the post-deploy review.
+> **319/319 unit tests passing.**
 
-### What's shipped since v3.37 (this session arc)
+### What's shipped since v3.43 (this session arc)
+
+- **v3.43.1** — Hotfix pass. Fixed: editor stuck on Loading (nested
+  IIFE-in-template-literal syntax error), donation package leaking
+  into the public Register grid, donor messages becoming phantom
+  players in scoring/pairings, clone-tournament endpoint dropping
+  sponsor + fundraising + donation config. Added an
+  inline-script-syntax test category that runs `new Function()` over
+  every `<script>` under `public/` on every CI run.
+- **v3.44.0** — Pairings → score-groups bridge. New columns
+  `score_groups.pairing_group_id` + `round_entries.source_registration_id`
+  / `source_player_index`. `_syncPairingsToScoreGroups()` mirrors
+  pairing_groups into score_groups, refreshes name/hole/tee changes,
+  deletes orphans, and re-walks every round_entry to set its group_id
+  from the source registration's pairing assignment. Team-card formats
+  force every team member into the captain's group. Wired into both
+  existing endpoints + new explicit `POST /sync-pairings-to-scoring`.
+  Pairings page sync button renamed "↻ Sync to leaderboard".
+- **v3.45.0** — **E4: Silent auction (full MVP)**. New tables
+  `auction_items` + `auction_bids`. Lifecycle:
+  `pending → live → ended → paid` (+`rejected`). Endpoints for CRUD,
+  close, checkout-winner; public list + bid + intake. Three new pages:
+  `/admin/events/:id/auction`, `/e/:slug/auction`, `/e/:slug/donate-item`.
+  Winner checkout lazy-creates a per-item `package_kind='auction_item'`
+  row and goes through Stripe Connect. Stripe webhook flips items to
+  `paid` on `metadata.auction_item_id`. Photo uploads on items + intake.
+  Editor card + nav button + teaser on `/e/:slug`.
+- **v3.46.0** — **E5 phase 1: Event store**. New `package_kind='event_item'`
+  joins the existing four. `registration_packages.image_data` for
+  product photos. Editor card with 10-tile quick-add catalog (🔁
+  mulligans, 🎟️ raffle bundles, 🥏 CTP, 🚀 LD, 🍻 drinks, 👕 shirts,
+  🧢 hats). Public "Shop the event" section on /e/:slug. Register page
+  recognizes event_item kind (0-player flow, "Check out: <item>" framing).
+- **v3.47.0** — **E5 phase 2: Supplies marketplace** (JORD as seller).
+  First flow on the platform that uses **direct Stripe charges** instead
+  of Connect destination charges. New `lib/stripe.js` helper
+  `createDirectCheckoutSession` (no `application_fee`, no
+  `transfer_data`, US shipping address + phone collected at Checkout).
+  Two new tables (`supply_products`, `supply_orders`). Four new admin
+  pages: catalog (`/admin/shop`), order detail
+  (`/admin/shop/orders/:id`), buyer order list
+  (`/admin/shop/orders`), super-admin product mgmt
+  (`/admin/shop/products`). Webhook captures the shipping address.
+  Super-admin "Mark shipped" with optional tracking URL. 🛒 JORD Shop
+  button in the main admin nav.
+
+### What's shipped since v3.37 (carried from the prior handoff)
 
 - **v3.38.0** — Time zones across the system (`tz-lookup`,
   `events.time_zone` auto-resolved from venue lat/lon, displayed as
@@ -142,44 +189,64 @@ Mobile visual: `node tests/mobile-visual.js` (Puppeteer iPhone 14 + Pixel 7 view
 
 ## What was in-flight when we stopped
 
-Nothing — the v3.43 session ended on a clean push of the full E3 arc.
+Nothing — the v3.47 session ended on a clean push of the full E5 arc.
 There is no pending work to resume.
 
 ---
 
-## Next priorities
+## Roadmap status — E1 through E5
 
-### E3 remaining
-- **Klaviyo donation/sponsor email blast** — deferred behind
-  #KLAVIYO-FLOWS until the dashboard flows ship. Will plug into the
-  existing send pipeline once those land.
+| Phase | Status | Notes |
+|------|--------|-------|
+| E1 — sell tickets | ✅ done | Brandable site, packages, Stripe Connect, registrations dashboard, refunds + add-ons |
+| E2 — run the day | ✅ done | Check-in, walk-ups (incl. Stripe QR), pairings + poster, scoring bridge, pairings↔scoring sync |
+| E3 — raise money | ✅ done | Sponsorships, fundraising goal bar, revenue dashboard, standalone donations |
+| E4 — silent auction | ✅ done | Item intake (donor + admin), public bidding, close, winner Stripe Checkout, photo uploads |
+| E5 — marketplaces | ✅ done | Event store (raffle tickets / mulligans / merch) + Supplies marketplace (JORD as seller) |
 
-### E4 (Silent auction) — not started
-Donation-item intake form, organizer approval, auto-list into silent
-auction with timed bidding, winner checkout via Stripe.
+---
 
-### E5 (Marketplaces) — not started
-Event store (charity sells raffle tickets, mulligans, merch to attendees),
-supplies marketplace (organizers buy JORD Shopify + partner gear).
+## Next priorities (post-roadmap)
 
-### Bigger gaps still open
-- **Wire pairings → scoring** — pairings groups + scoring round entries
-  are two parallel systems by design (one for cart/hole logistics, the
-  other for the leaderboard). If we want a single source of truth for
-  groupings, the bridge would write each pairing group as a
-  `score_groups` row on the round. Optional — current setup works.
-- **Sponsorship logo display** — the catalog is in place but we don't
-  yet render sponsor logos on the public page or on the poster. Easy
-  follow-up if organizers ask.
-- **Reps invite flow** — `/admin/events/:id/reps` UI exists; could use
-  a one-click "Invite by email" with a magic-link onboarding.
+### Deferred / blocked
+- **Klaviyo email blast for donations + sponsors + auction** — deferred
+  behind `#KLAVIYO-FLOWS` until the 6 dashboard flows are built.
+- **`#STRIPE-LIVE`** — still on sandbox keys. Flipping to live needs a
+  fresh `whsec_`, a re-onboarded JORD platform Connect account, and an
+  end-to-end test with a real card + refund.
+- **`#STRIPE-TERMINAL`** — Tap-to-Pay / BBPOS reader for in-person card
+  payments at the registration desk.
+- **`#OAUTH-1`** — Google + Microsoft SSO, waiting on client app
+  registration in Google Cloud + Azure AD.
+- **`#KLAVIYO-TRANSACTIONAL`** — Klaviyo support ticket still open on
+  transactional-status approval for a JORD email.
+
+### Smaller polish items worth picking up
+- **Sponsorship logos on poster + public site** — the catalog is in
+  place but we still only render names, not images. ~1 hr.
+- **Reps invite flow** — `/admin/events/:id/reps` UI exists; one-click
+  "Invite by email" with magic-link onboarding is the next step.
+- **Multi-product cart for the supplies marketplace** — phase 1 is
+  single-product-per-checkout. Cart deferred to phase 3.
+- **Sponsorship logo display on event-site cards** — sponsor section
+  could lead with logos instead of emoji chips when an image is uploaded.
+- **International shipping for the JORD shop** — currently US-only;
+  one-line change to the `allowed_countries` whitelist.
+
+### Bigger directions (if the platform pivots)
+- Mobile PWA / offline scoring for the on-course experience.
+- Golfer-facing app (live leaderboard subscriptions, push notifications
+  when they're outbid in the auction, etc.).
+- Partner integrations: GHIN handicap verification, USGA event
+  registration import, Square / Clover POS sync for in-person sales.
 
 ### Operational TODOs (in TODO.md)
-- **#STRIPE-LIVE** — flip from sandbox to live keys. Need to re-enable Connect in live mode (separate from sandbox), get a fresh `whsec_` webhook secret, re-onboard the JORD platform account, end-to-end test with a real card + refund.
-- **#STRIPE-TERMINAL** — Tap-to-Pay (no hardware, NFC) or BBPOS reader (~$60) for in-person card payments. Connect plumbing already supports it; needs either a native mobile wrapper (iOS/Android) or the Stripe Terminal JS SDK.
-- **#KLAVIYO-FLOWS** — 6 Flows to build in Klaviyo dashboard: `jord_password_reset` (highest priority), `jord_account_welcome`, `jord_admin_welcome`, `jord_admin_assigned`, `jord_tournament_signup`, `jord_addon_charge`. All email-only, server builds the HTML, flow just passes through `{{ event.EmailBodyHtml|safe }}`.
-- **#KLAVIYO-TRANSACTIONAL** — Klaviyo rejected transactional status on a JORD email. Shaheen working with their support. Blocker for password-reset / welcome emails reaching opted-out users.
-- **#OAUTH-1** — Google + Microsoft sign-in. Awaiting OAuth client app creation in Google Cloud Console + Azure AD. Backend `POST /api/users/oauth` and login buttons slot in once Client IDs are set.
+See the "Deferred / blocked" subsection above for details. Pending IDs:
+- **#STRIPE-LIVE** — flip from sandbox to live keys.
+- **#STRIPE-TERMINAL** — in-person card payments at the registration desk.
+- **#KLAVIYO-FLOWS** — 6 Flows pending in the Klaviyo dashboard.
+- **#KLAVIYO-TRANSACTIONAL** — Klaviyo transactional-status approval.
+- **#OAUTH-1** — Google + Microsoft SSO client IDs.
 - **#HELP-BUBBLES** — ✅ Shipped in v3.39.1.
 
 ---
@@ -210,6 +277,13 @@ supplies marketplace (organizers buy JORD Shopify + partner gear).
 | `public/admin/event-checkin.html` | Mobile-first check-in + walk-ups (incl. Stripe QR) |
 | `public/admin/event-pairings.html` | Pairings + hole assignments + auto-assign + print + scoring bridge |
 | `public/admin/event-pairings-poster.html` | 24×36 in print poster for the pairings sheet |
+| `public/admin/event-auction.html` | Silent-auction console — items, bids, close, winner checkout |
+| `public/event-auction.html` | Public auction page — bid modal + Closed lots |
+| `public/event-donate-item.html` | Public donor intake form for the auction |
+| `public/admin/shop.html` | JORD Shop catalog (any admin) |
+| `public/admin/shop-orders.html` | Buyer's own supply orders |
+| `public/admin/shop-order.html` | Supply-order detail + super-admin Ship form |
+| `public/admin/shop-products.html` | Super-admin product CRUD for the JORD shop |
 | `public/event-site.html` | Public brandable event site at `/e/:slug` |
 | `public/event-register.html` | Public registration form at `/e/:slug/register` |
 | `public/event-confirmation.html` | Post-checkout thank-you at `/e/:slug/confirmation/:regId` |
@@ -224,9 +298,9 @@ supplies marketplace (organizers buy JORD Shopify + partner gear).
 | `public/css/jord.css` | Shared cream editorial design system |
 | `public/js/jord.js` | Frontend library — API client (dual-token), toasts, helpers |
 | `scripts/seed-event-site.js` | Idempotent demo event-site seed (Fairway Fund) |
-| `tests/run-tests.js` | 219 unit tests — route presence + scoring logic + bridge + sponsorships + donations + fundraising |
+| `tests/run-tests.js` | 319 unit tests — routes, scoring, sponsorships, donations, auction, marketplace, plus inline-script syntax check across every public HTML page |
 | `tests/mobile-visual.js` | Puppeteer iPhone 14 + Pixel 7 mobile visual regression |
-| `CHANGELOG.md` | Full version history; v3.38 through v3.43 cover the latest session arc |
+| `CHANGELOG.md` | Full version history; v3.43.1 through v3.47 cover the latest session arc (post-v3.43 hotfix + E4 + E5) |
 | `TODO.md` | Numbered backlog — reference by # (e.g. "let's do #STRIPE-LIVE") |
 | `ENTERPRISE-PLATFORM-SPEC.md` | E1-E5 phased plan + competitive map vs EventCaddy |
 | `LEADERBOARD-SPEC.md` | Clubhouse scoring spec |
