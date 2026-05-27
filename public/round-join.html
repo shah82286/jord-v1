@@ -82,10 +82,26 @@ function formatLabel(fmt) {
 }
 
 async function load() {
+  // Bare-link sanity check before hitting the API. The link generator
+  // produces 6-char codes; anything else is almost certainly user error.
+  if (!shareCode || shareCode.length < 4) {
+    showError("That link doesn't include a share code.", 'Share codes are 6 characters — ask the host to send a fresh link.');
+    return;
+  }
   try {
     const r = await fetch('/api/round-public/' + encodeURIComponent(shareCode));
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'Game not found');
+    // The server returns JSON in both success and error cases. iOS Safari
+    // throws "The string did not match the expected pattern" if the body
+    // is HTML (e.g. during deploy when the route isn't live yet) — fall
+    // back to a friendly status-based message instead of the raw error.
+    let data = null;
+    try { data = await r.json(); } catch {}
+    if (!r.ok || !data) {
+      const status = r.status;
+      if (status === 404) return showError('Game not found', 'The host may have deleted the round, or the link is mistyped. Ask them to resend.');
+      if (status === 502 || status === 503) return showError('Just a sec…', "Server's coming back online — refresh in 10 seconds.");
+      return showError('Could not load the game', `Status ${status}. Try again in a moment.`);
+    }
     state.tournament = data.tournament;
     state.round = data.round;
     state.course = data.course;
@@ -94,11 +110,15 @@ async function load() {
     try { state.me = await JORD.api('/api/users/me'); } catch {}
     render();
   } catch (e) {
-    document.getElementById('view').innerHTML = `<div style="padding:60px 20px;text-align:center">
-      <h1 style="font-family:Playfair Display,serif">${esc(e.message)}</h1>
-      <p style="color:var(--ink-2);margin-top:10px">Double-check the link — share codes are 6 characters.</p>
-    </div>`;
+    showError("Couldn't reach the server", 'Check your connection and try again.');
   }
+}
+function showError(title, sub) {
+  document.getElementById('view').innerHTML = `<div style="padding:60px 20px;text-align:center">
+    <h1 style="font-family:Playfair Display,serif">${esc(title)}</h1>
+    <p style="color:var(--ink-2);margin-top:10px">${esc(sub)}</p>
+    <a class="btn btn-ghost" style="margin-top:var(--s-4)" href="/clubhouse">Back to JORD Clubhouse</a>
+  </div>`;
 }
 
 function render() {

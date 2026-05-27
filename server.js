@@ -4355,13 +4355,20 @@ function roundScoringOpts(round) {
 function roundLeaderboardPayload(roundId) {
   const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(roundId);
   if (!round) return null;
-  const lb = scoring.buildLeaderboard(gatherRoundEntries(roundId), roundScoringOpts(round));
+  const entries = gatherRoundEntries(roundId);
+  const lb = scoring.buildLeaderboard(entries, roundScoringOpts(round));
   const tour = db.prepare('SELECT flights_enabled,num_flights FROM tournaments WHERE id=?')
     .get(round.tournament_id);
   if (tour && tour.flights_enabled && lb.rows && lb.rows.length) {
     scoring.applyFlights(lb, tour.num_flights || 1);
   }
-  return { round, leaderboard: lb };
+  // Attach the round's hole layout (par + stroke_index) so the live
+  // leaderboard can render a click-to-expand hole-by-hole grid without
+  // a second fetch. Picks the first non-empty `holes` array off any
+  // entry — all entries on the same tee carry the same layout.
+  const sample = entries.find(e => Array.isArray(e.holes) && e.holes.length);
+  const holes = sample ? sample.holes : [];
+  return { round, leaderboard: lb, holes };
 }
 
 // SSE for live leaderboard / scorecard — keyed by round id.
@@ -4596,8 +4603,12 @@ app.post('/api/rounds/:roundId/status', requireAuth, requireAdminOrSuper, (req, 
 // ── Public round-by-share-code lookup ──────────────────────────────────
 // A friend clicks a shared link → this endpoint resolves the share code
 // to the round details + current player roster. No auth required.
+// Case-insensitive match so typed-in codes work even if the user fat-
+// fingered the capitalization (share codes are uppercase hex by default).
 app.get('/api/round-public/:shareCode', (req, res) => {
-  const t = db.prepare('SELECT * FROM tournaments WHERE share_code=?').get(req.params.shareCode);
+  const code = String(req.params.shareCode || '').trim();
+  if (!code) return res.status(404).json({ error: 'Share code missing from the link' });
+  const t = db.prepare('SELECT * FROM tournaments WHERE share_code = ? COLLATE NOCASE').get(code);
   if (!t) return res.status(404).json({ error: 'Game not found — check the link' });
   const round = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number LIMIT 1').get(t.id);
   if (!round) return res.status(404).json({ error: 'Game has no round yet' });
@@ -4630,7 +4641,9 @@ app.get('/api/round-public/:shareCode', (req, res) => {
 // Authenticated users get their user_id stamped on the entry so it shows
 // up on their "My games" list. Guests join with just a name.
 app.post('/api/round-public/:shareCode/join', (req, res) => {
-  const t = db.prepare('SELECT * FROM tournaments WHERE share_code=?').get(req.params.shareCode);
+  const code = String(req.params.shareCode || '').trim();
+  if (!code) return res.status(404).json({ error: 'Share code missing' });
+  const t = db.prepare('SELECT * FROM tournaments WHERE share_code = ? COLLATE NOCASE').get(code);
   if (!t) return res.status(404).json({ error: 'Game not found' });
   const round = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number LIMIT 1').get(t.id);
   if (!round) return res.status(404).json({ error: 'Game has no round yet' });

@@ -2,6 +2,62 @@
 
 ---
 
+## v3.49.0 — 2026-05-26
+### Session 66 — Live leaderboard click-to-expand + share-link bug fix
+
+Two issues from real-user feedback on v3.48:
+
+1. **Share link failed with "The string did not match the expected pattern"** —
+   the share modal's `sms:` link used `sms:?&body=…` (extra `&` after `?`),
+   which iOS Safari rejects with that specific error string. Fixed to
+   `sms:&body=…` (or `sms:?body=…`, both RFC-5724-compliant; iOS accepts
+   the former). The round-join page also now handles non-JSON responses
+   gracefully (Railway redeploy windows return HTML 502 pages that crash
+   iOS's `JSON.parse` with the same error message — now we show a
+   "server's coming back online" message with status code instead).
+   Public share-code lookup is now `COLLATE NOCASE` so typed-in codes
+   still resolve if the user fat-fingered capitalization.
+
+2. **Live leaderboard only showed totals** — no way to see hole-by-hole
+   scores per player. Now the leaderboard rows are click-to-expand; the
+   drawer shows two 9-hole grids (Out / In) with hole number, par, and
+   the player's score per hole, color-coded by score-to-par (eagle/
+   birdie/par/bogey/double). Totals strip below shows Out + In + Total
+   + course handicap.
+
+#### What changed
+- **`lib/scoring.js`** — `scoreEntry()` now returns `scores` (hole → strokes)
+  and `strokeMap` (hole → received strokes for handicap formats) on each
+  row. The existing fields (`thru`, `gross`, `net`, `points`, etc.)
+  unchanged — pure addition.
+- **`server.js`** — `roundLeaderboardPayload()` attaches the round's
+  `holes` array (par + stroke index per hole) at the top level so the
+  client can render the drawer without a second fetch.
+- **`server.js`** — both `GET /api/round-public/:shareCode` and
+  `POST /api/round-public/:shareCode/join` use `COLLATE NOCASE` on
+  the share code lookup.
+- **`public/tournaments.html`** — share modal `sms:` href fixed.
+- **`public/live.html`** — new expand-row UI:
+  - `data-toggle` attribute + `state.expanded` Set tracking which rows
+    are open. SSE re-renders preserve the open state so live updates
+    keep flowing inside the open drawer.
+  - Color-coded score cells: gold for eagle+, green for birdie,
+    plain for par, red for bogey, dark red for double+.
+  - Out / In / Total summary line under each drawer.
+  - Color-legend chips so the score colors are self-documenting.
+- **`public/round-join.html`** — graceful error display when the API
+  responds with non-JSON (HTML 502 during Railway deploy, status pages,
+  etc.) instead of crashing on `JSON.parse`. Pre-fetch length sanity
+  check on the share code.
+
+#### Tested
+- **340/340 unit tests pass** (+6 new) covering: scoreEntry includes
+  scores, leaderboard payload includes holes, COLLATE NOCASE on the
+  public lookup, fixed sms: URL pattern, live-page expand handler
+  wiring, expanded-state preservation across re-renders.
+
+---
+
 ## v3.48.0 — 2026-05-26
 ### Session 65 — Clubhouse for users (Golf Game Book-style)
 

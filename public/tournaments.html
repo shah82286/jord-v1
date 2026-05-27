@@ -779,7 +779,9 @@ function openShareModal(t, shareUrl) {
       JORD.el('button', { class: 'btn btn-primary', type: 'button', on: { click: () => {
         JORD.copyToClipboard(shareUrl).then(() => JORD.success('Link copied — text it to your group'));
       }}}, '📋 Copy link'),
-      JORD.el('a', { class: 'btn btn-ghost', href: `sms:?&body=${encodeURIComponent('Join the game: ' + shareUrl)}` }, '💬 Text it'),
+      // iOS rejects `sms:?&body=…` with "The string did not match the expected
+      // pattern." — the first param after `?` must not be preceded by `&`.
+      JORD.el('a', { class: 'btn btn-ghost', href: `sms:&body=${encodeURIComponent('Join the game: ' + shareUrl)}` }, '💬 Text it'),
       JORD.el('a', { class: 'btn btn-ghost', href: `mailto:?subject=Join%20the%20game&body=${encodeURIComponent(shareUrl)}` }, '📧 Email')
     ),
     JORD.el('div', { class: 'mini', style: { color: 'var(--ink-3)', marginTop: '4px' } }, 'Share code: ' + (t.share_code || '—'))

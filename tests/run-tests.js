@@ -446,6 +446,44 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
 }
 
+console.log('\n🏌 Leaderboard expand + share polish (v3.49)\n');
+{
+  test('scoreEntry now returns per-hole scores',
+    () => {
+      const sc = require('../lib/scoring');
+      const holes = Array.from({length:18},(_,i)=>({hole_number:i+1,par:4,stroke_index:i+1}));
+      const r = sc.scoreEntry({ entryId:'E1', playerName:'Pat', courseHandicap:0,
+        holes, scores:{1:4,2:5,3:3} });
+      assert(r.scores && r.scores['1'] === 4 && r.scores['3'] === 3, 'scores not on row');
+    });
+  test('Leaderboard payload includes the round.holes layout',
+    () => assert(src.includes('holes: holes') || /return\s*\{\s*round,\s*leaderboard:\s*lb,\s*holes\s*\}/.test(src), 'holes not on payload'));
+  test('Public share-code lookup uses COLLATE NOCASE',
+    () => assert(src.includes('share_code = ? COLLATE NOCASE'), 'Case sensitivity not relaxed'));
+  test('Share modal uses RFC-compliant sms: URI (no double-param &)',
+    () => {
+      const fs = require('fs');
+      const html = fs.readFileSync('./public/tournaments.html', 'utf8');
+      // The bug was `sms:?&body=…` in a template literal. The fixed
+      // version is `sms:&body=…` or `sms:?body=…`. Comments can mention
+      // the old pattern, so we only check for it inside template
+      // literal `href:` attributes.
+      const m = html.match(/href:\s*`([^`]*?sms:[^`]*?)`/);
+      assert(m, 'Could not locate sms: href in share modal');
+      assert(!m[1].includes('sms:?&'), 'Share modal href still has the broken sms:?& pattern');
+    });
+  test('Live page renders click-to-expand hole-by-hole drawer',
+    () => {
+      const html = require('fs').readFileSync('./public/live.html', 'utf8');
+      assert(html.includes('renderHoleDrawer') && html.includes('data-toggle'), 'Expand UI not wired');
+    });
+  test('Live page tracks expanded entries across SSE re-renders',
+    () => {
+      const html = require('fs').readFileSync('./public/live.html', 'utf8');
+      assert(html.includes('state.expanded') && html.includes('new Set()'), 'Expanded set not preserved');
+    });
+}
+
 console.log('\n👥 Clubhouse for users (v3.48)\n');
 {
   test('tournaments.user_id column migrated',

@@ -41,6 +41,36 @@
   .live-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#4A7A53; margin-right:5px;
     animation:pulse 1.6s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  /* Expand affordance + hole-by-hole drawer (v3.49). */
+  .lb-row.expandable { cursor:pointer; }
+  .lb-row.expandable:hover { background:var(--surface-2); }
+  .lb-row.expandable .pos::after { content:' ›'; color:var(--ink-3); font-size:14px; transition:transform var(--t-fast); display:inline-block; }
+  .lb-row.expandable.is-open .pos::after { transform:rotate(90deg); }
+  .lb-drawer { display:none; padding:14px 12px 18px; border-bottom:1px solid var(--border);
+    background:var(--surface-2); }
+  .lb-drawer.is-open { display:block; }
+  .lb-drawer .hole-grid { display:grid; grid-template-columns: 28px repeat(9, 1fr); gap:4px;
+    font-family:'JetBrains Mono', monospace; font-size:12px; line-height:1.15; }
+  .lb-drawer .hole-grid .lbl { color:var(--ink-3); text-transform:uppercase; letter-spacing:.05em; font-weight:700; font-size:10px; padding:4px 2px; text-align:right; }
+  .lb-drawer .hole-grid .cell { padding:6px 0; text-align:center; border-radius:4px; background:var(--surface); }
+  .lb-drawer .hole-grid .cell.hole { background:none; color:var(--ink-3); font-weight:700; }
+  .lb-drawer .hole-grid .cell.par  { background:none; color:var(--ink-3); }
+  /* Score-to-par color coding — same colors as the leaderboard totals. */
+  .lb-drawer .hole-grid .cell.score.eagle  { background:#d4af37; color:#fff; font-weight:700; border-radius:50%; }
+  .lb-drawer .hole-grid .cell.score.birdie { background:rgba(74,122,83,.18); color:#2d5d36; font-weight:700; border-radius:50%; }
+  .lb-drawer .hole-grid .cell.score.par    { color:var(--ink); }
+  .lb-drawer .hole-grid .cell.score.bogey  { background:rgba(192,57,43,.10); color:#a33; }
+  .lb-drawer .hole-grid .cell.score.double { background:rgba(192,57,43,.22); color:#811; }
+  .lb-drawer .hole-grid .cell.score.empty  { color:var(--ink-3); }
+  .lb-drawer .totals { display:flex; justify-content:space-between; gap:12px; margin-top:10px;
+    padding-top:10px; border-top:1px dashed var(--border); font-size:12px; color:var(--ink-2); }
+  .lb-drawer .totals strong { color:var(--ink); font-family:'JetBrains Mono', monospace; }
+  .lb-drawer .legend { font-size:10px; color:var(--ink-3); margin-top:10px; display:flex; gap:14px; flex-wrap:wrap; }
+  .lb-drawer .legend span { display:inline-flex; align-items:center; gap:4px; }
+  .lb-drawer .legend .swatch { display:inline-block; width:12px; height:12px; border-radius:50%; }
+  body.theme-dark .lb-drawer { background:rgba(255,255,255,.04); }
+  body.theme-dark .lb-drawer .hole-grid .cell { background:rgba(255,255,255,.06); }
 </style>
 </head>
 <body>
@@ -50,9 +80,77 @@
 const $ = (s,r=document)=>r.querySelector(s);
 const esc = JORD.escapeHtml;
 const roundId = location.pathname.split('/').pop();
-const state = { round:null, leaderboard:null, tv:false };
+// `expanded` is the set of entryIds currently showing their hole-by-hole
+// drawer. Tracked here (not by DOM class) so SSE re-renders preserve the
+// open/closed state without flicker.
+const state = { round:null, leaderboard:null, tv:false, holes:[], expanded:new Set() };
 
 function toParText(n){ return n==null?'—':(n===0?'E':(n>0?'+'+n:''+n)); }
+
+// Score-to-par classification → CSS class for the hole-by-hole grid.
+function scoreClass(strokes, par) {
+  if (strokes == null) return 'empty';
+  const d = strokes - par;
+  if (d <= -2) return 'eagle';
+  if (d === -1) return 'birdie';
+  if (d === 0)  return 'par';
+  if (d === 1)  return 'bogey';
+  return 'double';
+}
+
+// Render the 18-hole grid for a single entry — shown when the user taps
+// a leaderboard row. Splits into Out (1-9) and In (10-18) on phones so
+// each half fits the viewport.
+function renderHoleDrawer(row) {
+  if (!state.holes.length) return '<p style="text-align:center;color:var(--ink-3);font-size:12px;padding:8px">No scorecard layout for this round.</p>';
+  const scores = row.scores || {};
+  const half = (start, end, label) => {
+    const cells = [];
+    cells.push(`<div class="lbl">${label}</div>`);
+    for (let i = start; i <= end; i++) cells.push(`<div class="cell hole">${i}</div>`);
+    cells.push('<div class="lbl">Par</div>');
+    let parSum = 0;
+    for (let i = start; i <= end; i++) {
+      const h = state.holes.find(x => x.hole_number === i);
+      const par = h ? h.par : 0;
+      parSum += par;
+      cells.push(`<div class="cell par">${par || '—'}</div>`);
+    }
+    cells.push('<div class="lbl">Score</div>');
+    let scoreSum = 0, anyScore = false;
+    for (let i = start; i <= end; i++) {
+      const h = state.holes.find(x => x.hole_number === i);
+      const par = h ? h.par : 0;
+      const s = scores[i] ?? scores[String(i)];
+      if (s != null) { scoreSum += s; anyScore = true; }
+      cells.push(`<div class="cell score ${scoreClass(s, par)}">${s != null ? s : '—'}</div>`);
+    }
+    return { html: `<div class="hole-grid">${cells.join('')}</div>`, parSum, scoreSum, anyScore };
+  };
+  const out = half(1, 9,  'Hole');
+  const inn = half(10, 18, 'Hole');
+  const totalScore = (out.anyScore ? out.scoreSum : 0) + (inn.anyScore ? inn.scoreSum : 0);
+  const totalPar   = (out.anyScore ? out.parSum   : 0) + (inn.anyScore ? inn.parSum   : 0);
+  const anyScore = out.anyScore || inn.anyScore;
+  return `
+    ${out.html}
+    <div style="height:8px"></div>
+    ${inn.html}
+    <div class="totals">
+      <span>Out <strong>${out.anyScore ? out.scoreSum : '—'}</strong></span>
+      <span>In <strong>${inn.anyScore ? inn.scoreSum : '—'}</strong></span>
+      <span>Total <strong>${anyScore ? totalScore : '—'}</strong>${anyScore ? ' (' + toParText(totalScore - totalPar) + ')' : ''}</span>
+      ${row.courseHandicap != null ? `<span>HCP <strong>${row.courseHandicap}</strong></span>` : ''}
+    </div>
+    <div class="legend">
+      <span><i class="swatch" style="background:#d4af37"></i> Eagle+</span>
+      <span><i class="swatch" style="background:rgba(74,122,83,.55)"></i> Birdie</span>
+      <span><i class="swatch" style="background:#fff;border:1px solid var(--border)"></i> Par</span>
+      <span><i class="swatch" style="background:rgba(192,57,43,.45)"></i> Bogey</span>
+      <span><i class="swatch" style="background:rgba(192,57,43,.85)"></i> Double+</span>
+    </div>
+  `;
+}
 
 function render() {
   const r = state.round, lb = state.leaderboard;
@@ -80,6 +178,9 @@ function render() {
 
   if (!rows.length) { $('#rows').innerHTML =
     '<p style="text-align:center;color:var(--ink-3);padding:var(--s-6)">No players yet.</p>'; return; }
+  // Each row carries its own per-hole scores (v3.49 enrichment), so the
+  // tap-to-expand drawer can render without an extra fetch.
+  const expandable = state.holes.length > 0;
   const rowHtml = row => {
     const t = row.total;
     const totText = lowWins ? toParText(t) : (t==null?'—':t+(unit?' '+unit:''));
@@ -88,12 +189,15 @@ function render() {
       ? (lowWins ? row.score+' strokes' : row.score+(unit?' '+unit:''))
       : 'not started';
     const pos = lb.flighted ? row.flightPosition : row.position;
-    return `<div class="lb-row ${pos===1&&t!=null?'is-leader':''}">
+    const isOpen = expandable && row.entryId && state.expanded.has(row.entryId);
+    return `<div class="lb-row ${pos===1&&t!=null?'is-leader':''} ${expandable && row.entryId ? 'expandable' : ''} ${isOpen?'is-open':''}"
+      ${expandable && row.entryId ? `data-toggle="${esc(row.entryId)}"` : ''}>
       <div class="pos">${row.thru?((row.tied&&!lb.flighted?'T':'')+pos):'–'}</div>
       <div class="nm">${esc(row.playerName)}<small>${sub}</small></div>
       <div class="thru">${row.thru?(row.thru>=18?'F':row.thru):'–'}</div>
       <div class="tot ${cls}">${totText}</div>
-    </div>`;
+    </div>
+    ${isOpen ? `<div class="lb-drawer is-open">${renderHoleDrawer(row)}</div>` : ''}`;
   };
   if (lb.flighted) {
     let html = '';
@@ -105,6 +209,16 @@ function render() {
   } else {
     $('#rows').innerHTML = rows.map(rowHtml).join('');
   }
+  // Wire the toggle. We re-render rather than mutate so the open drawer
+  // shows updated scores on the next SSE tick.
+  document.querySelectorAll('[data-toggle]').forEach(el => {
+    el.onclick = () => {
+      const id = el.dataset.toggle;
+      if (state.expanded.has(id)) state.expanded.delete(id);
+      else state.expanded.add(id);
+      render();
+    };
+  });
 }
 
 function renderMatch(r, lb) {
@@ -139,6 +253,10 @@ function renderMatch(r, lb) {
 function apply(payload){
   state.round = payload.round;
   state.leaderboard = payload.leaderboard;
+  // The round's hole layout (par + stroke index per hole) is broadcast
+  // alongside the leaderboard so the click-to-expand drawer can color-
+  // code scores vs par without a second fetch.
+  if (Array.isArray(payload.holes)) state.holes = payload.holes;
   render();
 }
 
