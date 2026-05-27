@@ -71,6 +71,25 @@
   .lb-drawer .legend .swatch { display:inline-block; width:12px; height:12px; border-radius:50%; }
   body.theme-dark .lb-drawer { background:rgba(255,255,255,.04); }
   body.theme-dark .lb-drawer .hole-grid .cell { background:rgba(255,255,255,.06); }
+
+  /* Team standings (v3.50) — shown above the individual leaderboard
+     when the host grouped players into teams. */
+  .team-section { margin: var(--s-3) 0 var(--s-4); }
+  .team-section h2 { font-family:var(--font-display); font-size:1.1rem; letter-spacing:-.01em;
+    padding: 0 16px var(--s-2); color:var(--ink-2); }
+  .team-row { display:grid; grid-template-columns:54px 1fr 64px 78px; gap:var(--s-2); align-items:center;
+    padding:12px 16px; border-bottom:1px solid var(--border); background:var(--surface); }
+  .team-row:first-child { border-radius: var(--r-md) var(--r-md) 0 0; }
+  .team-row:last-child  { border-radius: 0 0 var(--r-md) var(--r-md); border-bottom:none; }
+  .team-row .pos { font-family:var(--font-display); font-size:1.2rem; color:var(--accent); }
+  .team-row .nm  { font-weight:600; }
+  .team-row .nm small { display:block; font-weight:400; color:var(--ink-3); font-size:11px; margin-top:2px; }
+  .team-row .thru { text-align:center; font-size:13px; color:var(--ink-2); }
+  .team-row .tot  { text-align:right; font-family:var(--font-display); font-size:1.2rem; }
+  .team-row .tot.under { color:#4A7A53; } .team-row .tot.over { color:var(--danger); }
+  .team-row.is-leader { background:linear-gradient(90deg,var(--accent),var(--accent-2)); color:#FBF9F4; }
+  .team-row.is-leader .pos, .team-row.is-leader .tot, .team-row.is-leader .nm small { color:#FBF9F4; }
+  body.theme-dark .team-row { border-color:rgba(255,255,255,.1); background:rgba(255,255,255,.04); }
 </style>
 </head>
 <body>
@@ -83,7 +102,7 @@ const roundId = location.pathname.split('/').pop();
 // `expanded` is the set of entryIds currently showing their hole-by-hole
 // drawer. Tracked here (not by DOM class) so SSE re-renders preserve the
 // open/closed state without flicker.
-const state = { round:null, leaderboard:null, tv:false, holes:[], expanded:new Set() };
+const state = { round:null, leaderboard:null, tv:false, holes:[], expanded:new Set(), teams:[] };
 
 function toParText(n){ return n==null?'—':(n===0?'E':(n>0?'+'+n:''+n)); }
 
@@ -152,6 +171,36 @@ function renderHoleDrawer(row) {
   `;
 }
 
+// Render the team-aggregate strip (shown above the individual rows when
+// teams exist). Sort + position done server-side in buildTeamStandings.
+function renderTeamSection(scoreType, unit) {
+  if (!state.teams || !state.teams.length) return '';
+  const lowWins = scoreType === 'topar';
+  const useNet  = state.leaderboard && /net/i.test(state.leaderboard.format || '');
+  return `<div class="team-section">
+    <h2>Team standings</h2>
+    ${state.teams.map(t => {
+      let total, totText, cls = '';
+      if (scoreType === 'points') {
+        total = t.points || 0;
+        totText = total + ' pts';
+      } else {
+        total = useNet ? t.toParNet : t.toParGross;
+        totText = total == null ? '—' : (total === 0 ? 'E' : total > 0 ? '+' + total : ('' + total));
+        cls = total != null ? (total < 0 ? 'under' : total > 0 ? 'over' : '') : '';
+      }
+      const members = t.members.map(m => esc(m.playerName)).join(' · ');
+      const lowestThru = t.thru || 0;
+      return `<div class="team-row ${t.position === 1 && total != null ? 'is-leader' : ''}">
+        <div class="pos">${t.position}</div>
+        <div class="nm">${esc(t.teamName)}<small>${members}</small></div>
+        <div class="thru">${lowestThru ? (lowestThru >= 18 ? 'F' : lowestThru) : '–'}</div>
+        <div class="tot ${cls}">${totText}</div>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
 function render() {
   const r = state.round, lb = state.leaderboard;
   if (!r) { $('#app').innerHTML = `<div class="gate"><div style="font-size:48px">🔍</div>
@@ -171,6 +220,7 @@ function render() {
       <div class="mini">Round ${r.round_number} · ${subLabel}</div>
     </div>
     <div class="lb-controls"><button class="btn btn-ghost" id="tvBtn">${state.tv?'Exit TV':'📺 TV mode'}</button></div>
+    ${renderTeamSection(st, unit)}
     <div class="lb-row head"><div>Pos</div><div>Player</div><div class="thru">Thru</div>
       <div class="tot">${headLabel}</div></div>
     <div id="rows"></div>`;
@@ -257,6 +307,10 @@ function apply(payload){
   // alongside the leaderboard so the click-to-expand drawer can color-
   // code scores vs par without a second fetch.
   if (Array.isArray(payload.holes)) state.holes = payload.holes;
+  // Per-team aggregates ("Team A vs Team B" side-bet UX). Empty array
+  // when nobody opted into teams or when the format is already team-
+  // aggregated (scramble / best ball).
+  state.teams = Array.isArray(payload.teams) ? payload.teams : [];
   render();
 }
 

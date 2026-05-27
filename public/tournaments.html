@@ -519,6 +519,7 @@ function stepPlayers() {
         <div class="field"><label>Phone (optional)</label><input class="input" id="pPhone" /></div>
         <div class="field"><label>Handicap index ${help('The official handicap. JORD turns it into a course handicap for the chosen tee automatically.')}</label><input class="input" type="number" step="0.1" id="pHcp" /></div>
         <div class="field"><label>Tee ${help('Which set of tees the player uses — tees differ in yardage, course rating and slope.')}</label><select class="select" id="pTee"><option value="">default</option></select></div>
+        <div class="field" style="grid-column:1/-1"><label>Team ${help('Optional — group players into teams for a 4-vs-4 side bet or scramble pairing. Free text: "A" / "B", "Reds" / "Blues", or "Smith Foursome" — players sharing the same label aggregate on the team leaderboard.')}</label><input class="input" id="pTeam" placeholder="A / B / Reds / Smith Foursome (leave blank for solo)" /></div>
       </div>
       <button class="btn btn-ghost" id="pAdd">+ Add player</button>
     </div>
@@ -534,8 +535,8 @@ function stepPlayers() {
     const name = $('#pName').value.trim();
     if (!name) { JORD.warn('Player name required'); return; }
     w.players.push({ name, phone:$('#pPhone').value.trim(), handicap_index:+$('#pHcp').value||null,
-      tee_id:$('#pTee').value||null });
-    $('#pName').value=''; $('#pPhone').value=''; $('#pHcp').value='';
+      tee_id:$('#pTee').value||null, team_name:$('#pTeam').value.trim()||null });
+    $('#pName').value=''; $('#pPhone').value=''; $('#pHcp').value=''; $('#pTeam').value='';
     renderWizard();
   };
   wireNav(()=>go('new/setup'), createGame);
@@ -554,7 +555,7 @@ function renderWizPlayers() {
   el.innerHTML = w.players.map((p,i)=>`
     <div class="row-card">
       <div><strong>${esc(p.name)}</strong>
-        <div class="meta">HCP index ${p.handicap_index??'—'}</div></div>
+        <div class="meta">HCP index ${p.handicap_index??'—'}${p.team_name ? ' · Team ' + esc(p.team_name) : ''}</div></div>
       <button class="btn btn-ghost btn-icon" data-rm="${i}">✕</button>
     </div>`).join('');
   el.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => {

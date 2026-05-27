@@ -446,6 +446,37 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
 }
 
+console.log('\n👥 Team side-bet groupings (v3.50)\n');
+{
+  test('Field endpoint uses requireUserOrAdmin + canEditTournament gate',
+    () => assert(/app\.post\('\/api\/tournaments\/:id\/field', requireUserOrAdmin/.test(src), 'Field endpoint still admin-only'));
+  test('Field endpoint accepts team_name and upserts round_teams',
+    () => assert(src.includes('team_name') && src.includes('INSERT INTO round_teams (id, round_id, name)'), 'Team upsert missing'));
+  test('Field endpoint stamps team_id on round_entries',
+    () => assert(/INSERT INTO round_entries[\s\S]*?team_id/.test(src), 'team_id not written on entries'));
+  test('scoreEntry returns teamId on the row',
+    () => {
+      const sc = require('../lib/scoring');
+      const holes = Array.from({length:18},(_,i)=>({hole_number:i+1,par:4,stroke_index:i+1}));
+      const r = sc.scoreEntry({ entryId:'E1', playerName:'Pat', teamId:'T1', teamName:'A',
+        courseHandicap:0, holes, scores:{1:4} });
+      assert(r.teamId === 'T1', 'teamId not on row, got ' + r.teamId);
+    });
+  test('buildTeamStandings helper defined in server',
+    () => assert(src.includes('function buildTeamStandings('), 'Team aggregator missing'));
+  test('Leaderboard payload includes teams[]',
+    () => assert(/return\s*\{\s*round,\s*leaderboard:\s*lb,\s*holes,\s*teams\s*\}/.test(src), 'teams missing from payload'));
+  const fs = require('fs');
+  const wizardHtml = fs.readFileSync('./public/tournaments.html', 'utf8');
+  test('Wizard player form has Team field',
+    () => assert(wizardHtml.includes('id="pTeam"') && wizardHtml.includes('team_name:'), 'Team field not in wizard'));
+  const liveHtml = fs.readFileSync('./public/live.html', 'utf8');
+  test('Live page renders renderTeamSection',
+    () => assert(liveHtml.includes('function renderTeamSection(') && liveHtml.includes('team-row'), 'Team section not wired'));
+  test('Public courses lookup uses real columns (not bogus location)',
+    () => assert(!/SELECT id,\s*name,\s*location\s+FROM courses/.test(src), 'Stale courses.location query still present'));
+}
+
 console.log('\n🏌 Leaderboard expand + share polish (v3.49)\n');
 {
   test('scoreEntry now returns per-hole scores',
@@ -457,7 +488,7 @@ console.log('\n🏌 Leaderboard expand + share polish (v3.49)\n');
       assert(r.scores && r.scores['1'] === 4 && r.scores['3'] === 3, 'scores not on row');
     });
   test('Leaderboard payload includes the round.holes layout',
-    () => assert(src.includes('holes: holes') || /return\s*\{\s*round,\s*leaderboard:\s*lb,\s*holes\s*\}/.test(src), 'holes not on payload'));
+    () => assert(/return\s*\{\s*round,\s*leaderboard:\s*lb,\s*holes(,|\s*\})/.test(src), 'holes not on payload'));
   test('Public share-code lookup uses COLLATE NOCASE',
     () => assert(src.includes('share_code = ? COLLATE NOCASE'), 'Case sensitivity not relaxed'));
   test('Share modal uses RFC-compliant sms: URI (no double-param &)',

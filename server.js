@@ -4350,6 +4350,54 @@ function roundScoringOpts(round) {
   };
 }
 
+// Aggregate per-team standings from the per-row leaderboard. Only fires for
+// individual formats where the rows still carry a `teamId` — used by the
+// "Team A vs Team B" side-bet UX. For native team formats (scramble, best
+// ball) the row IS the team already, so we skip aggregation.
+function buildTeamStandings(rows, fmt) {
+  if (!rows || !rows.length) return [];
+  // Skip when the format already represents the team as one row.
+  if (fmt && (fmt.engine === 'bestball' || fmt.engine === 'scramble' || (fmt.engine === 'lownet' && fmt.tier === 'team'))) {
+    return [];
+  }
+  const byTeam = new Map();
+  for (const r of rows) {
+    if (!r.teamId) continue;
+    if (!byTeam.has(r.teamId)) byTeam.set(r.teamId, {
+      teamId: r.teamId, teamName: r.teamName || 'Team',
+      members: [], gross: 0, net: 0, points: 0, parPlayed: 0, thru: Infinity,
+    });
+    const t = byTeam.get(r.teamId);
+    t.members.push({ entryId: r.entryId, playerName: r.playerName,
+      thru: r.thru || 0, gross: r.gross, net: r.net, points: r.points });
+    if (r.gross != null)    t.gross    += r.gross;
+    if (r.net   != null)    t.net      += r.net;
+    if (r.points != null)   t.points   += r.points;
+    if (r.parPlayed != null) t.parPlayed += r.parPlayed;
+    t.thru = Math.min(t.thru, r.thru || 0);
+  }
+  const teams = [...byTeam.values()].map(t => ({
+    ...t,
+    thru: t.thru === Infinity ? 0 : t.thru,
+    toParGross: t.gross   ? t.gross - t.parPlayed : null,
+    toParNet:   t.net     ? t.net   - t.parPlayed : null,
+  }));
+  // Sort by the scoring type the format uses.
+  const isStableford = fmt && fmt.engine === 'stableford';
+  const useNet = fmt && fmt.net;
+  teams.sort((a, b) => {
+    if (isStableford) return (b.points || 0) - (a.points || 0);
+    const ka = useNet ? a.toParNet : a.toParGross;
+    const kb = useNet ? b.toParNet : b.toParGross;
+    if (ka == null && kb == null) return 0;
+    if (ka == null) return 1;
+    if (kb == null) return -1;
+    return ka - kb;
+  });
+  teams.forEach((t, i) => { t.position = i + 1; });
+  return teams;
+}
+
 // Leaderboard payload for a round — scored for the round's own format, then
 // split into handicap flights if the tournament has flights enabled.
 function roundLeaderboardPayload(roundId) {
@@ -4368,7 +4416,11 @@ function roundLeaderboardPayload(roundId) {
   // entry — all entries on the same tee carry the same layout.
   const sample = entries.find(e => Array.isArray(e.holes) && e.holes.length);
   const holes = sample ? sample.holes : [];
-  return { round, leaderboard: lb, holes };
+  // Team aggregates (side-bet UX) — only when at least one entry carries
+  // a team label and the format isn't already team-aggregated.
+  const fmt = formats.getFormat(round.format);
+  const teams = buildTeamStandings(lb.rows || [], fmt);
+  return { round, leaderboard: lb, holes, teams };
 }
 
 // SSE for live leaderboard / scorecard — keyed by round id.
@@ -4614,9 +4666,16 @@ app.get('/api/round-public/:shareCode', (req, res) => {
   if (!round) return res.status(404).json({ error: 'Game has no round yet' });
   // Pull the course name so the join page can display it without exposing
   // the full course row (tees, holes, etc.).
-  const course = round.course_id
-    ? db.prepare('SELECT id, name, location FROM courses WHERE id=?').get(round.course_id)
-    : null;
+  // The courses table doesn't have a single `location` column — compose
+  // one from city/state/club_name so the join page has a readable line.
+  let course = null;
+  if (round.course_id) {
+    const c = db.prepare('SELECT id, name, club_name, city, state FROM courses WHERE id=?').get(round.course_id);
+    if (c) {
+      const bits = [c.club_name, c.city, c.state].filter(Boolean);
+      course = { id: c.id, name: c.name, location: bits.join(', ') || null };
+    }
+  }
   const entries = db.prepare(`SELECT e.id, e.team_id, e.is_team_card, p.name AS player_name, e.user_id, e.course_handicap
                               FROM round_entries e
                               JOIN players p ON p.id = e.player_id
@@ -4783,12 +4842,13 @@ app.post('/api/rounds/:roundId/teams', requireAuth, requireAdminOrSuper, (req, r
 });
 
 // Add a player to EVERY round of a tournament (multi-round field setup).
-app.post('/api/tournaments/:id/field', requireAuth, requireAdminOrSuper, (req, res) => {
+app.post('/api/tournaments/:id/field', requireUserOrAdmin, (req, res) => {
   const t = db.prepare('SELECT * FROM tournaments WHERE id=?').get(req.params.id);
   if (!t) return res.status(404).json({ error: 'Tournament not found' });
+  if (!canEditTournament(req, t)) return res.status(403).json({ error: 'Only the game host can add players' });
   const rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
   if (!rounds.length) return res.status(400).json({ error: 'Tournament has no rounds' });
-  const { name, phone, email, handicap_index, tee_id, side, match_no } = req.body || {};
+  const { name, phone, email, handicap_index, tee_id, side, match_no, team_name } = req.body || {};
   if (!name) return res.status(400).json({ error: 'player name required' });
 
   let player = phone ? db.prepare('SELECT * FROM players WHERE phone=?').get(phone) : null;
@@ -4801,6 +4861,12 @@ app.post('/api/tournaments/:id/field', requireAuth, requireAdminOrSuper, (req, r
     player = { id: pid };
   }
   const sd = ['red', 'blue'].includes(side) ? side : null;   // Reds vs Blues
+  // Optional team label — for individual formats players can still be
+  // grouped (e.g. "Team A" vs "Team B" stroke-play side bet). We upsert
+  // a round_teams row keyed by name+round so multiple field calls reuse
+  // the same team id.
+  const teamLabel = (team_name || '').trim().slice(0, 80) || null;
+
   for (const round of rounds) {
     let courseHcp = null;
     if (tee_id) {
@@ -4810,8 +4876,20 @@ app.post('/api/tournaments/:id/field', requireAuth, requireAdminOrSuper, (req, r
       courseHcp = (raw != null && fmt && typeof fmt.allowance === 'number')
         ? handicap.playingHandicap(raw, fmt.allowance) : raw;
     }
-    db.prepare('INSERT INTO round_entries (id,round_id,player_id,tee_id,course_handicap,side,match_no) VALUES (?,?,?,?,?,?,?)')
-      .run(uid('ENT'), round.id, player.id, tee_id || null, courseHcp, sd, match_no ?? null);
+    // Resolve / create the per-round team row when a label was supplied.
+    let teamId = null;
+    if (teamLabel) {
+      const existingTeam = db.prepare('SELECT id FROM round_teams WHERE round_id=? AND name=?')
+        .get(round.id, teamLabel);
+      if (existingTeam) teamId = existingTeam.id;
+      else {
+        teamId = uid('TM');
+        db.prepare('INSERT INTO round_teams (id, round_id, name) VALUES (?, ?, ?)')
+          .run(teamId, round.id, teamLabel);
+      }
+    }
+    db.prepare('INSERT INTO round_entries (id,round_id,player_id,tee_id,course_handicap,side,match_no,team_id) VALUES (?,?,?,?,?,?,?,?)')
+      .run(uid('ENT'), round.id, player.id, tee_id || null, courseHcp, sd, match_no ?? null, teamId);
     broadcastRound(round.id);
   }
   res.json({ ok: true, player_id: player.id });

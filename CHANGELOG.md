@@ -2,6 +2,61 @@
 
 ---
 
+## v3.50.0 — 2026-05-26
+### Session 67 — Team side-bet groupings + share-link 500 fix
+
+Two issues from user feedback after v3.49:
+
+1. **`Status 500. Try again in a moment.` on every share link.** The
+   `/api/round-public/:shareCode` lookup was selecting a `location`
+   column from `courses` that doesn't exist (real columns are `city`,
+   `state`, `club_name`). SQLite threw, Express returned 500. Fixed
+   by composing the location from real columns server-side.
+
+2. **No way to group 4-vs-4 teams for individual-format rounds.** The
+   wizard only exposed teams when the format itself was a team format
+   (best ball / scramble / foursomes). For a stroke-play 4v4 side bet,
+   there was no surface to label "Pat, Sam, Alex, Jordan = Team A" and
+   no UI showing aggregated team scores.
+
+#### What changed
+- **`POST /api/tournaments/:id/field`** — auth gate loosened from
+  admin-only → `requireUserOrAdmin` + `canEditTournament` so the
+  game host (admin OR user) can add players. Was a v3.48 regression
+  blocking personal-user round creation entirely.
+- **`POST /api/tournaments/:id/field`** — now accepts an optional
+  `team_name`. When present, the server upserts a `round_teams` row
+  per round (idempotent on the team name within a round so multiple
+  field calls share an id) and stamps `round_entries.team_id`. Works
+  for any format — individual formats use it for side-bet aggregation
+  while team formats keep their existing semantics.
+- **`lib/scoring.js`** — `scoreEntry()` now passes `teamId` through to
+  the row + adds `parPlayed` for the team-aggregate math.
+- **`server.js`** — new `buildTeamStandings()` helper. Aggregates by
+  `teamId` across the leaderboard rows for individual formats only
+  (skips for `bestball` / `scramble` / `team-lownet` since the format
+  engine already aggregates). Sorts by net or stableford points
+  depending on the format.
+- **Leaderboard payload** — gains a `teams: [...]` array with each
+  team's position, name, members list, gross, net, points, par-played,
+  to-par numbers, and earliest `thru`. Empty when nobody opted in.
+- **Wizard `stepPlayers`** — new optional "Team" text field with a help
+  tooltip explaining the side-bet pattern. Renders below name/HCP/tee.
+  Each player card shows `· Team A` next to the HCP when set.
+- **Public live page (`/live/:roundId`)** — when `state.teams` is non-
+  empty, renders a "Team standings" strip ABOVE the individual rows
+  with each team's position, name, member list, lowest-thru, and total
+  (to-par or points). Leader gets the saffron gradient.
+- **Tests** — share-link 500 regression coverage (catches any future
+  query of bogus columns), team field POST, team_id stamping, scoreEntry
+  team passthrough, buildTeamStandings presence, payload structure,
+  wizard field, live render.
+
+#### Tested
+- **349/349 unit tests pass** (+9 new).
+
+---
+
 ## v3.49.0 — 2026-05-26
 ### Session 66 — Live leaderboard click-to-expand + share-link bug fix
 
