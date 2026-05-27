@@ -438,6 +438,32 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
 }
 
+console.log('\n🛍 Event store (E5 phase 1)\n');
+{
+  test('registration_packages.image_data column migrated',
+    () => assert(src.includes('ALTER TABLE registration_packages ADD COLUMN image_data'), 'Missing image_data column'));
+  test('POST packages accepts event_item kind',
+    () => assert(src.includes("['sponsorship', 'donation', 'event_item']"), 'event_item not in whitelist'));
+  test('POST packages validates image_data via normalizeImageData',
+    () => assert(/imageData\s*=\s*b\.image_data/.test(src) || src.includes("normalizeImageData(imageData)"), 'Image guard missing on POST'));
+  test('PATCH packages also accepts image_data',
+    () => assert(/UPDATE registration_packages[\s\S]*image_data=\?/.test(src), 'PATCH UPDATE missing image_data'));
+  test('GET /api/event-sites/:slug returns store_items separately',
+    () => assert(src.includes('store_items') && src.includes("p.package_kind === 'event_item'"), 'Public store split missing'));
+  const fs = require('fs');
+  const editorHtml = fs.readFileSync('./public/admin/event-site-editor.html', 'utf8');
+  test('Event-site editor has STORE_CATALOG (≥10 starter items)',
+    () => assert(editorHtml.includes('STORE_CATALOG') && (editorHtml.match(/{ id:\s*'[a-z_]+\d*'/g) || []).length >= 10, 'Catalog missing or short'));
+  test('Event-site editor exposes Store card',
+    () => assert(editorHtml.includes('id="storeList"') && editorHtml.includes('addCustomStoreItem'), 'Store card not wired'));
+  const siteHtml = fs.readFileSync('./public/event-site.html', 'utf8');
+  test('Public event-site renders Shop section with Buy buttons',
+    () => assert(siteHtml.includes('data-store-pkg') && siteHtml.includes('Buy now'), 'Shop section missing'));
+  const regHtml = fs.readFileSync('./public/event-register.html', 'utf8');
+  test('Register page handles event_item packages (0-player skip)',
+    () => assert(regHtml.includes('isStoreItem') && regHtml.includes('store_items'), 'Register page not store-aware'));
+}
+
 console.log('\n🔨 Silent Auction (E4)\n');
 {
   test('auction_items table created',
@@ -530,8 +556,8 @@ console.log('\n💵 Standalone donations (E3 phase 3)\n');
     () => assert(src.includes('Minimum donation is $'), 'Missing min check'));
   test('Donations lazy-creates a donation package',
     () => assert(src.includes("package_kind='donation'") && src.includes("INSERT INTO registration_packages"), 'No lazy package creation'));
-  test('package_kind accepts donation as third kind',
-    () => assert(src.includes("['sponsorship', 'donation'].includes(b.package_kind)"), 'Donation kind not accepted'));
+  test('package_kind accepts donation alongside other kinds',
+    () => assert(/\['sponsorship', 'donation'(?:, 'event_item')?\]\.includes\(b\.package_kind\)/.test(src), 'Donation kind not accepted'));
   test('Public payload returns donations config when enabled',
     () => assert(src.includes('site.donations_enabled ?') && src.includes('suggested_cents'), 'Public donations not exposed'));
   const fs = require('fs');

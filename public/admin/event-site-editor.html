@@ -274,6 +274,14 @@ function render() {
       </div>
     </div>
 
+    <div class="card">
+      <h2 class="card-title">${lbl('Event store', "Things attendees can buy alongside their ticket — mulligans, raffle tickets, contest entries, merch. Goes through the same Stripe Connect checkout the registrations use; perfect for adding revenue streams on top of player tickets.")}</h2>
+      <p class="hint" style="margin-bottom:var(--s-3)">Tap a tile to quick-add a common store item at a starter price. Or click + Add custom for anything else.</p>
+      <div id="storeCatalog" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:var(--s-2);margin-bottom:var(--s-3)"></div>
+      <div id="storeList"></div>
+      <button class="btn btn-ghost" id="addCustomStoreItem">+ Add custom store item</button>
+    </div>
+
     <div class="card" id="auction-card">
       <h2 class="card-title">${lbl('Silent auction', "Run a public silent auction alongside the event. Items show on /e/your-slug/auction with bid forms; winners get a Stripe checkout link after the close time. Use the admin auction page to add items and approve donor submissions.")}</h2>
       <div class="field-grid" style="grid-template-columns:1fr 1fr">
@@ -316,13 +324,167 @@ function render() {
       <button class="btn btn-primary btn-lg" id="saveBtn">Save changes</button>
     </div></div>`;
 
-  renderSched(); renderFaq(); renderPackages(); renderSponsorCatalog(); renderSponsorships();
+  renderSched(); renderFaq(); renderPackages(); renderSponsorCatalog(); renderSponsorships(); renderStoreCatalog(); renderStoreItems();
   $('#addSched').onclick = () => { state.schedule.push({time:'', title:'', note:''}); renderSched(); };
   $('#addFaq').onclick   = () => { state.faq.push({q:'', a:''}); renderFaq(); };
   $('#addPkg').onclick   = () => createPackage();
   $('#addCustomSponsor').onclick = () => createSponsorship({ sponsor_type: 'custom', name: 'Custom sponsorship' });
+  $('#addCustomStoreItem').onclick = () => createStoreItem({ name: 'Custom item', price_cents: 0 });
   $('#saveBtn').onclick  = save;
   wireLogoHandlers();
+}
+
+// Standard event-store starter catalog. Same UX pattern as the sponsorship
+// catalog — quick-add tiles seed a row with a starter price the organizer
+// can edit before saving. `image` is the emoji shown on the tile.
+const STORE_CATALOG = [
+  { id: 'mulligan_1',   name: 'Single mulligan',          emoji: '🔁', desc: 'One extra stroke during the round.',                  suggested:  2000 },
+  { id: 'mulligan_4',   name: 'Mulligan 4-pack',          emoji: '🔁', desc: 'Four mulligans, one per player or split as you like.', suggested:  5000 },
+  { id: 'raffle_1',     name: 'Raffle ticket',            emoji: '🎟️', desc: 'One entry in the raffle drawing.',                    suggested:   500 },
+  { id: 'raffle_5',     name: 'Raffle 5-pack',            emoji: '🎟️', desc: 'Five raffle tickets at a small discount.',            suggested:  2000 },
+  { id: 'raffle_25',    name: 'Raffle 25-pack',           emoji: '🎟️', desc: '"Arm\'s length" of raffle tickets.',                  suggested:  7500 },
+  { id: 'ctp_entry',    name: 'Closest-to-pin entry',     emoji: '🥏', desc: 'Buy in to the CTP contest hole.',                     suggested:  1000 },
+  { id: 'ld_entry',     name: 'Longest-drive entry',      emoji: '🚀', desc: 'Buy in to the LD contest hole.',                      suggested:  1000 },
+  { id: 'drink',        name: 'Drink ticket',             emoji: '🍻', desc: 'One drink at the cart or post-round bar.',            suggested:   500 },
+  { id: 'tshirt',       name: 'Event T-shirt',            emoji: '👕', desc: 'Branded shirt — pick up at registration.',            suggested:  3000 },
+  { id: 'hat',          name: 'Event hat',                emoji: '🧢', desc: 'Branded hat — pick up at registration.',              suggested:  2500 },
+];
+
+function renderStoreCatalog() {
+  // Disable a tile if an item with the same name was already added (cheap
+  // dedupe; user can still add multiple via Custom if they really want).
+  const usedNames = new Set(state.packages
+    .filter(p => p.package_kind === 'event_item').map(p => (p.name || '').toLowerCase()));
+  $('#storeCatalog').innerHTML = STORE_CATALOG.map(c => {
+    const inUse = usedNames.has(c.name.toLowerCase());
+    return `<button class="sponsor-tile" data-add-store="${c.id}" type="button"
+      ${inUse ? 'disabled' : ''}
+      title="${esc(c.desc)}"
+      style="
+        text-align:left; padding:14px; background:var(--surface); color:var(--ink);
+        border:1px solid var(--border); border-radius:var(--r-md); cursor:${inUse ? 'default' : 'pointer'};
+        font-family:inherit; line-height:1.3; ${inUse ? 'opacity:0.45;' : ''}
+        display:flex; flex-direction:column; gap:4px;
+      ">
+      <span style="font-size:22px;line-height:1">${c.emoji}</span>
+      <strong style="font-size:14px;font-weight:700">${esc(c.name)}</strong>
+      <span class="mini" style="color:var(--ink-3);font-size:11px">${inUse ? 'Added ✓' : 'From $' + (c.suggested/100).toFixed(0)}</span>
+    </button>`;
+  }).join('');
+  $('#storeCatalog').querySelectorAll('[data-add-store]').forEach(b => {
+    b.onclick = () => {
+      const cat = STORE_CATALOG.find(c => c.id === b.dataset.addStore);
+      if (cat) createStoreItem({ name: cat.name, description: cat.desc, price_cents: cat.suggested });
+    };
+  });
+}
+
+async function createStoreItem(seed) {
+  try {
+    const body = {
+      name: seed.name,
+      description: seed.description || '',
+      price_cents: seed.price_cents ?? 0,
+      includes_players: 0,
+      sort_order: state.packages.filter(p => p.package_kind === 'event_item').length,
+      package_kind: 'event_item',
+    };
+    const r = await JORD.api(`/api/admin/events/${eventId}/packages`, { method: 'POST', body });
+    state.packages.push({ id: r.id, ...body, quantity_limit: null, active: 1, image_data: null });
+    renderStoreCatalog();
+    renderStoreItems();
+    JORD.success('Store item added — edit name / price then Save changes.');
+  } catch(e){ JORD.error(e.message); }
+}
+
+function renderStoreItems() {
+  const fmtPrice = c => '$' + ((Number(c)||0)/100).toLocaleString();
+  const items = state.packages.filter(p => p.package_kind === 'event_item');
+  if (!items.length) {
+    $('#storeList').innerHTML = '<p class="mini" style="color:var(--ink-3);margin-bottom:var(--s-3)">No store items yet. Tap a tile above to add one.</p>';
+    return;
+  }
+  $('#storeList').innerHTML = items.map(p => `
+    <div class="pkg" data-pkg="${p.id}">
+      <div class="pkg-head">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
+          ${p.image_data ? `<img src="${esc(p.image_data)}" alt="" style="width:48px;height:48px;object-fit:cover;border-radius:6px;border:1px solid var(--border);flex-shrink:0" />` : ''}
+          <div style="min-width:0">
+            <strong>${esc(p.name)}</strong>
+            <div class="pkg-meta">${fmtPrice(p.price_cents)}${p.quantity_limit ? ` · limit ${p.quantity_limit}` : ''}</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:6px">
+          <button class="btn btn-ghost" data-edit-store="${p.id}">Edit</button>
+          <button class="icon-btn" data-del-store="${p.id}" title="Delete">✕</button>
+        </div>
+      </div>
+      <div id="storeEdit-${p.id}" hidden>
+        <div class="grid">
+          <div class="field"><label>Name</label><input class="input" data-sf="name" data-id="${p.id}" value="${esc(p.name)}" /></div>
+          <div class="field"><label>Price (USD)</label><input class="input" type="number" min="0" step="0.01" data-sf="price" data-id="${p.id}" value="${(Number(p.price_cents)||0)/100}" /></div>
+          <div class="field"><label>Quantity limit</label><input class="input" type="number" min="0" data-sf="qty" data-id="${p.id}" value="${p.quantity_limit??''}" /></div>
+          <div class="field"><label>Photo (optional, ≤2.5 MB)</label>
+            <input type="file" accept="image/png,image/jpeg,image/webp" data-sf="file" data-id="${p.id}" />
+            ${p.image_data ? `<button class="btn btn-ghost" type="button" data-clear-store="${p.id}" style="margin-top:6px;color:#a33;font-size:12px;padding:4px 10px">Remove photo</button>` : ''}
+          </div>
+          <div class="field" style="grid-column:1/-1"><label>Description</label>
+            <textarea class="textarea" data-sf="desc" data-id="${p.id}" rows="2">${esc(p.description||'')}</textarea></div>
+        </div>
+        <button class="btn btn-primary" data-save-store="${p.id}">Save item</button>
+      </div>
+    </div>`).join('');
+
+  // Stage uploaded photo per-item — keyed by id since multiple cards
+  // can be open at once.
+  const stagedImages = state._stagedStoreImages = state._stagedStoreImages || {};
+
+  $('#storeList').querySelectorAll('[data-edit-store]').forEach(b => b.onclick = () => {
+    const el = $(`#storeEdit-${b.dataset.editStore}`);
+    el.hidden = !el.hidden;
+  });
+  $('#storeList').querySelectorAll('[data-del-store]').forEach(b => b.onclick = async () => {
+    if (!await JORD.confirm('Delete this store item?', { danger:true })) return;
+    try {
+      await JORD.api(`/api/admin/events/${eventId}/packages/${b.dataset.delStore}`, { method:'DELETE' });
+      state.packages = state.packages.filter(p => p.id !== b.dataset.delStore);
+      renderStoreCatalog(); renderStoreItems();
+      JORD.success('Store item deleted');
+    } catch(e){ JORD.error(e.message); }
+  });
+  $('#storeList').querySelectorAll('[data-clear-store]').forEach(b => b.onclick = () => {
+    stagedImages[b.dataset.clearStore] = '';   // explicit clear
+    b.style.display = 'none';
+  });
+  $('#storeList').querySelectorAll('[data-sf="file"]').forEach(input => input.onchange = () => {
+    const f = input.files[0];
+    if (!f) return;
+    if (f.size > 2_500_000) { alert(`Image too large (${(f.size/1024/1024).toFixed(1)} MB). Try one under 2.5 MB.`); input.value=''; return; }
+    const r = new FileReader();
+    r.onload = () => { stagedImages[input.dataset.id] = r.result; };
+    r.readAsDataURL(f);
+  });
+  $('#storeList').querySelectorAll('[data-save-store]').forEach(b => b.onclick = async () => {
+    const id = b.dataset.saveStore;
+    const get = (k) => $(`#storeList [data-sf="${k}"][data-id="${id}"]`).value.trim();
+    const body = {
+      name: get('name'),
+      description: $(`#storeList [data-sf="desc"][data-id="${id}"]`).value,
+      price_cents: Math.round((Number(get('price'))||0) * 100),
+      quantity_limit: get('qty') === '' ? null : Number(get('qty')),
+      package_kind: 'event_item',
+    };
+    // Send image_data only when staged (new upload or explicit clear).
+    if (stagedImages[id] !== undefined) body.image_data = stagedImages[id] || null;
+    try {
+      await JORD.api(`/api/admin/events/${eventId}/packages/${id}`, { method:'PATCH', body });
+      const p = state.packages.find(x => x.id === id);
+      if (p) Object.assign(p, body, body.image_data !== undefined ? { image_data: body.image_data } : {});
+      delete stagedImages[id];
+      renderStoreItems();
+      JORD.success('Store item saved');
+    } catch(e){ JORD.error(e.message); }
+  });
 }
 
 // Standard sponsorship catalog — shown as quick-add tiles in the editor and

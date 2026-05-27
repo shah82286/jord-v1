@@ -2,6 +2,66 @@
 
 ---
 
+## v3.46.0 — 2026-05-26
+### Session 63 — E5 phase 1: Event store
+
+Charity events can now sell add-ons to attendees — mulligans, raffle
+tickets, contest entries, merch — alongside the existing player tickets,
+sponsorships, donations, and auction. All through the same Stripe Connect
+checkout the event already uses.
+
+#### What changed
+- **Schema** — `registration_packages.image_data TEXT` (optional product
+  photo, `data:image/*` ≤ 2.8 MB) + a new package_kind value:
+  `'event_item'` joins `registration` / `sponsorship` / `donation` /
+  `auction_item` as the fifth kind. POST/PATCH packages accept it; the
+  `includes_players` floor stays at 0 (store items are non-playing).
+- **`GET /api/event-sites/:slug`** now returns `store_items: [...]` as a
+  separate bucket so the public site can render them in a dedicated
+  Shop section without polluting the Register grid.
+- **Admin event-site editor** — new "Event store" card with a 10-tile
+  quick-add catalog:
+  🔁 Single mulligan · 🔁 Mulligan 4-pack · 🎟️ Raffle ticket · 🎟️ Raffle
+  5-pack · 🎟️ Raffle 25-pack · 🥏 Closest-to-pin entry · 🚀 Longest-drive
+  entry · 🍻 Drink ticket · 👕 Event T-shirt · 🧢 Event hat.
+  Each tile seeds a row at a starter price; "+ Add custom store item"
+  covers anything else. Inline edit form per item supports name, price,
+  quantity limit, description, and a photo upload (≤2.5 MB) reused
+  from the auction-item upload pattern.
+- **Public event-site `/e/:slug`** — new "Shop the event" section
+  between Sponsorships and the Auction teaser. Items render as cards
+  with product photo (when set), description, price, "qty available"
+  count, and a "Buy now →" button. Disabled with a "Coming soon"
+  state when the organizer hasn't finished Stripe onboarding.
+- **Register page (`/e/:slug/register?pkg=…`)** — now recognizes three
+  non-registration kinds (`sponsorship`, `event_item`, plus the
+  existing donation flow). For store items: page title becomes
+  "Check out: <item name>", lead copy thanks the buyer, success
+  button reads "Confirm purchase →" or "Pay $X →", the order-summary
+  label becomes "You're buying", and the player roster is skipped.
+- **/e/:slug button delegation** updated so the "Buy now" click on a
+  card (or its inner button) goes to /register with the store item's
+  package id.
+
+#### Out of scope (phase 2)
+- Multi-quantity purchases (5 raffle tickets in one checkout). For now
+  organizers add separate bundle packages (1, 5, 25). Quantity-per-
+  purchase support would add a `qty` field to the register page and
+  the registrations row.
+- Inventory tracking that decrements on each sale (today's `quantity_limit`
+  caps total sales; nothing decrements during the live event).
+- Pickup / shipping tracking for physical merch.
+- **Supplies marketplace** (JORD-owned product catalog for organizers)
+  — separate phase, different payment flow (direct charges to JORD).
+
+#### Tested
+- **294/294 unit tests pass** (+9 new) covering image_data migration,
+  package_kind whitelist update, image guards on POST + PATCH, store_items
+  split in public payload, STORE_CATALOG length, editor surface, public
+  Shop section, register-page store handling.
+
+---
+
 ## v3.45.0 — 2026-05-26
 ### Session 62 — E4: Silent auction (full MVP)
 

@@ -221,6 +221,28 @@ function render(d) {
       </form>
     </section>` : '';
 
+  // Event store — small grid of merch / mulligans / raffle tickets the
+  // charity sells alongside player tickets. Uses the same /register flow
+  // as sponsorships (0-player aware), so the buyer's check-out flow is
+  // unchanged.
+  const storeItems = Array.isArray(d.store_items) ? d.store_items : [];
+  const storeHtml = storeItems.length ? `
+    <section class="es-section" id="shop">
+      <div class="es-eyebrow">Shop the event</div>
+      <h2>Extras &amp; <em>add-ons</em></h2>
+      <div class="lead"><p>Mulligans, raffle tickets, contest entries, merch — every dollar supports the event.</p></div>
+      ${!regOpen ? `<p style="background:rgba(184,136,77,0.10);border:1px solid rgba(184,136,77,0.30);color:var(--accent);padding:14px 18px;border-radius:var(--r-md);margin-top:var(--s-2);font-size:14px;font-weight:600">⏳ Store checkout opens once the organizer finishes payment setup.</p>` : ''}
+      <div class="es-packages" style="margin-top:var(--s-4)">
+        ${storeItems.map(p => `<div class="es-pkg" data-store-pkg="${p.id}" style="cursor:${regOpen?'pointer':'default'}">
+          ${p.image_data ? `<img src="${esc(p.image_data)}" alt="${esc(p.name)}" style="width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:var(--r-md);margin-bottom:var(--s-3);background:var(--surface-2)" />` : ''}
+          <div class="name">${esc(p.name)}</div>
+          <div class="desc">${esc(p.description || '')}</div>
+          <div class="price">${fmtPrice(p.price_cents)}${p.quantity_limit ? `<small>${p.quantity_limit} available</small>` : ''}</div>
+          <button class="btn ${regOpen?'btn-primary':'btn-ghost'} btn-lg btn-block" data-store-pkg="${p.id}" ${regOpen?'':'disabled'}>${regOpen ? 'Buy now →' : 'Coming soon'}</button>
+        </div>`).join('')}
+      </div>
+    </section>` : '';
+
   const sponsors = Array.isArray(d.sponsorships) ? d.sponsorships : [];
   const sponsorEmoji = {
     title:'🏆', hole:'⛳', cart:'🏌', beverage:'🍻', food:'🍴', hole_in_one:'🎯',
@@ -312,6 +334,8 @@ function render(d) {
 
     ${sponsorHtml}
 
+    ${storeHtml}
+
     ${auctionTeaserHtml}
 
     ${donateHtml}
@@ -324,11 +348,15 @@ function render(d) {
       <img src="/img/logos/script-black.png" alt="JORD Golf" />
     </footer>`;
 
-  // Package "Register" + sponsorship "Become a sponsor" buttons both flow
-  // through the same checkout (registration packages with 0 players just
-  // skip the player roster step on the register page).
-  document.querySelectorAll('[data-pkg], [data-sponsor-pkg]').forEach(b => b.onclick = () => {
-    const pkgId = b.getAttribute('data-pkg') || b.getAttribute('data-sponsor-pkg');
+  // Package "Register" + sponsorship "Become a sponsor" + store "Buy now"
+  // all flow through the same /register checkout — only the package's
+  // kind controls how the register page frames it.
+  document.querySelectorAll('[data-pkg], [data-sponsor-pkg], [data-store-pkg]').forEach(b => b.onclick = (ev) => {
+    // The store card has both a card-level + button-level data-store-pkg
+    // attribute; ignore the bubbled card click when the button fired.
+    if (b.tagName !== 'BUTTON' && ev.target && ev.target.tagName === 'BUTTON') return;
+    const pkgId = b.getAttribute('data-pkg') || b.getAttribute('data-sponsor-pkg') || b.getAttribute('data-store-pkg');
+    if (!pkgId) return;
     location.href = `/e/${encodeURIComponent(slug)}/register?pkg=${encodeURIComponent(pkgId)}`;
   });
 

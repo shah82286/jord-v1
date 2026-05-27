@@ -304,6 +304,12 @@ try { db.exec("ALTER TABLE pairing_groups ADD COLUMN cart_numbers TEXT"); } catc
 try { db.exec("ALTER TABLE registration_packages ADD COLUMN package_kind TEXT DEFAULT 'registration'"); } catch {}
 try { db.exec("ALTER TABLE registration_packages ADD COLUMN sponsor_type TEXT"); } catch {}
 
+// Event store (E5 phase 1): a fifth package_kind 'event_item' lets the
+// charity sell things to attendees alongside player tickets — raffle
+// tickets, mulligans, merch, contest entries. image_data carries an
+// optional product photo (~2.5 MB cap, same rule as auction items).
+try { db.exec("ALTER TABLE registration_packages ADD COLUMN image_data TEXT"); } catch {}
+
 // Fundraising goal (E3 phase 2): optional target the public site shows
 // as an animated progress bar. `_visible` is a separate toggle so an
 // organizer can set a goal privately before deciding to show it.
@@ -4916,22 +4922,33 @@ const SPONSOR_TYPES = new Set([
 app.post('/api/admin/events/:id/packages', requireAuth, requireAdminOrSuper, requireEventAccess, (req, res) => {
   const b = req.body || {};
   if (!b.name) return res.status(400).json({ error: 'Package name required' });
-  // Three kinds: 'registration' (player tickets, default), 'sponsorship'
-  // (non-playing branded items), 'donation' (one row per event — auto-
-  // created by /api/donations, manual creation is allowed too).
-  const kind = ['sponsorship', 'donation'].includes(b.package_kind) ? b.package_kind : 'registration';
+  // Four customer-facing kinds: 'registration' (player tickets, default),
+  // 'sponsorship' (non-playing branded items), 'donation' (the lazy-
+  // created free-amount package), 'event_item' (store: mulligans,
+  // raffle tickets, merch). Auction_item is also stored here but only
+  // created server-side, never via this endpoint.
+  const kind = ['sponsorship', 'donation', 'event_item'].includes(b.package_kind) ? b.package_kind : 'registration';
   const sType = (kind === 'sponsorship' && SPONSOR_TYPES.has(b.sponsor_type)) ? b.sponsor_type : null;
-  // Sponsorships + donations have 0 playing slots; registrations need at least 1.
+  // Registrations need at least 1 player slot; everything else defaults to 0.
   const minPlayers = kind === 'registration' ? 1 : 0;
+  // Reuse the same image guard the auction endpoints use.
+  let imageData = b.image_data;
+  if (imageData !== undefined) {
+    const img = normalizeImageData(imageData);
+    if (!img.ok) return res.status(400).json({ error: 'image_data must be an image data URL under 2.5 MB' });
+    imageData = img.value;
+  } else {
+    imageData = null;
+  }
   const id = uid('PKG');
   db.prepare(`INSERT INTO registration_packages
-    (id, event_id, name, description, price_cents, includes_players, quantity_limit, sort_order, active, package_kind, sponsor_type)
-    VALUES (?,?,?,?,?,?,?,?,1,?,?)`).run(
+    (id, event_id, name, description, price_cents, includes_players, quantity_limit, sort_order, active, package_kind, sponsor_type, image_data)
+    VALUES (?,?,?,?,?,?,?,?,1,?,?,?)`).run(
     id, req.params.id, String(b.name).trim(), b.description || null,
     Math.max(0, Number(b.price_cents) || 0),
     Math.max(minPlayers, Number(b.includes_players) ?? minPlayers),
     b.quantity_limit != null && b.quantity_limit !== '' ? Number(b.quantity_limit) : null,
-    Number(b.sort_order) || 0, kind, sType);
+    Number(b.sort_order) || 0, kind, sType, imageData);
   res.json({ id });
 });
 
@@ -4941,9 +4958,16 @@ app.patch('/api/admin/events/:id/packages/:pkgId', requireAuth, requireAdminOrSu
     .get(req.params.pkgId, req.params.id);
   if (!cur) return res.status(404).json({ error: 'Package not found' });
   const kind = b.package_kind != null
-    ? (['sponsorship', 'donation'].includes(b.package_kind) ? b.package_kind : 'registration')
+    ? (['sponsorship', 'donation', 'event_item'].includes(b.package_kind) ? b.package_kind : 'registration')
     : (cur.package_kind || 'registration');
   const minPlayers = kind === 'registration' ? 1 : 0;
+  // image_data validation when present in the body — same guard as auction items.
+  let imageData = cur.image_data;
+  if (b.image_data !== undefined) {
+    const img = normalizeImageData(b.image_data);
+    if (!img.ok) return res.status(400).json({ error: 'image_data must be an image data URL under 2.5 MB' });
+    imageData = img.value;
+  }
   const n = {
     name: b.name != null ? String(b.name).trim() : cur.name,
     description: b.description != null ? b.description : cur.description,
@@ -4958,10 +4982,11 @@ app.patch('/api/admin/events/:id/packages/:pkgId', requireAuth, requireAdminOrSu
     sponsor_type: kind === 'sponsorship'
       ? (b.sponsor_type !== undefined ? (SPONSOR_TYPES.has(b.sponsor_type) ? b.sponsor_type : null) : cur.sponsor_type)
       : null,
+    image_data: imageData,
   };
   db.prepare(`UPDATE registration_packages
-    SET name=?, description=?, price_cents=?, includes_players=?, quantity_limit=?, sort_order=?, active=?, package_kind=?, sponsor_type=?
-    WHERE id=?`).run(n.name, n.description, n.price_cents, n.includes_players, n.quantity_limit, n.sort_order, n.active, n.package_kind, n.sponsor_type, req.params.pkgId);
+    SET name=?, description=?, price_cents=?, includes_players=?, quantity_limit=?, sort_order=?, active=?, package_kind=?, sponsor_type=?, image_data=?
+    WHERE id=?`).run(n.name, n.description, n.price_cents, n.includes_players, n.quantity_limit, n.sort_order, n.active, n.package_kind, n.sponsor_type, n.image_data, req.params.pkgId);
   res.json({ ok: true });
 });
 
@@ -4978,17 +5003,17 @@ app.get('/api/event-sites/:slug', (req, res) => {
   const event = db.prepare(`SELECT id, name, venue, time_zone, is_charity, brand_logo, brand_accent, brand_url, admin_id,
                                    fundraising_goal_cents, fundraising_visible
                             FROM events WHERE id=?`).get(site.event_id);
-  const allPackages = db.prepare(`SELECT id, name, description, price_cents, includes_players, quantity_limit, package_kind, sponsor_type
+  const allPackages = db.prepare(`SELECT id, name, description, price_cents, includes_players, quantity_limit, package_kind, sponsor_type, image_data
                                   FROM registration_packages
                                   WHERE event_id=? AND active=1
                                   ORDER BY sort_order, price_cents`).all(site.event_id);
-  // Split player tickets vs sponsorships so the public site can render each
-  // in its own section with the right framing ("Register" vs "Become a sponsor").
-  // The auto-created `donation` package is intentionally excluded from both —
-  // donations are taken via the dedicated /api/donations endpoint, not by
-  // clicking a tile in the Register grid.
+  // Split into the three customer-facing sections. The auto-created
+  // 'donation' + 'auction_item' packages are intentionally hidden — they
+  // have their own dedicated flows (/donate, /auction) and shouldn't
+  // appear in the generic grids.
   const packages     = allPackages.filter(p => (p.package_kind || 'registration') === 'registration');
   const sponsorships = allPackages.filter(p => p.package_kind === 'sponsorship');
+  const store_items  = allPackages.filter(p => p.package_kind === 'event_item');
   // Registration is "open" only when Stripe is configured AND the organizer
   // has a Connect account with charges enabled. In mock mode it's open by
   // default (test path).
@@ -5041,7 +5066,7 @@ app.get('/api/event-sites/:slug', (req, res) => {
   } : { enabled: false };
 
   res.json({
-    site, event, packages, sponsorships,
+    site, event, packages, sponsorships, store_items,
     schedule: parseJson(site.schedule_json),
     faq:      parseJson(site.faq_json),
     fundraising, donations, auction,
