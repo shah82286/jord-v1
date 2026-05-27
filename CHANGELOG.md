@@ -2,6 +2,100 @@
 
 ---
 
+## v3.48.0 — 2026-05-26
+### Session 65 — Clubhouse for users (Golf Game Book-style)
+
+The Clubhouse has been an admin-only tool until now. v3.48 opens it up
+to **personal users** — anyone with a `/login` account can create casual
+rounds, share an invite link with friends, and edit games after the
+fact. Friends join through a single link, no account required.
+
+#### What changed
+- **Schema** — two nullable columns added so personal-user-created
+  rounds and joined entries get tracked alongside the existing
+  admin/organizer rows:
+  - `tournaments.user_id TEXT` — non-null when the round was created by
+    a personal user (existing `admin_id` stays for organizer-created
+    enterprise rounds).
+  - `round_entries.user_id TEXT` — stamps an entry to a user when they
+    joined via a public share link while signed in (powers the
+    "My games" list).
+- **`requireUserOrAdmin` middleware + `actorIdentity` helper** — runs
+  the admin-token check first (most callers are admins), falls through
+  to the user-token check. Routes that previously read `req.admin.id`
+  now use `actorIdentity(req)` which returns `{ id, kind: 'admin' | 'user' }`.
+- **Tournament endpoints**:
+  - `GET /api/formats` — was `requireAuth` (admin), now
+    `requireUserOrAdmin`. Lets the Clubhouse wizard load formats for
+    signed-in personal users.
+  - `GET /api/tournaments` — filters by creator. Admins see what they
+    own; users see what they created.
+  - `POST /api/tournaments` — accepts either token; stamps either
+    `admin_id` or `user_id` based on who's signed in.
+  - `PATCH /api/tournaments/:id` — **new**. Updates name, format,
+    type, flights, status on the tournament; also updates `course_id`,
+    `round_date`, `holes_segment` on the linked first round when the
+    body includes them. `canEditTournament()` gate: super admin
+    always, creator admin/user yes, anyone else 403.
+  - `GET /api/tournaments/mine` — **new** (user-only). Returns the
+    deduplicated set of tournaments the user **created OR joined**
+    (via `round_entries.user_id`). Powers a future "My games" tab.
+- **Public share + join flow** (the Golf Game Book magic-link pattern):
+  - `GET /api/round-public/:shareCode` — **new, no auth**. Resolves a
+    `tournaments.share_code` to the round details + current player
+    roster (with course name when set). Friends hit this when they
+    open the share link.
+  - `POST /api/round-public/:shareCode/join` — **new, no auth required
+    but x-user-token honored when present**. Adds the friend as a
+    `round_entries` row with their name + optional handicap. When
+    signed in, the entry inherits `user_id` so it shows up on their
+    "My games" list. Auto-computes the course handicap if a tee was
+    provided.
+  - `DELETE /api/rounds/:roundId/entries/:entryId` — **loosened**.
+    Three principals can now delete: the creator admin (or super), the
+    creator user (host), or the user who owns the entry (removing
+    themselves). Was admin-only.
+- **New page `/round/:shareCode`** (`public/round-join.html`) —
+  friend-facing join page. Shows the game name, date, course, format;
+  lists current players (highlights the signed-in user); single form
+  field for "Your name + handicap" → "I'm in" button. Falls through
+  to a link-to-scorecard view once joined. Optional "Sign in to track
+  this on your profile" CTA for guests.
+- **Clubhouse UI** (`public/tournaments.html`):
+  - Auth gate dropped from admin-only to **admin OR user**. Anonymous
+    visitors get a `/login?next=/clubhouse` redirect so they sign in
+    once and land back on the wizard.
+  - Topbar swaps: admins see `← Admin`; users see `My profile`.
+  - Tournament detail view gets two new buttons:
+    - **🔗 Share link** — opens a modal with QR code, copyable URL,
+      tap-to-text (`sms:` deep link), tap-to-email, and the raw share
+      code.
+    - **✎ Edit game** — modal with name + date + format picker that
+      PATCHes the tournament. Course swap deferred (still re-pick from
+      the wizard).
+  - 401 errors during boot now clear both tokens and route to `/login`
+    so a stale admin token doesn't trap a logged-out user.
+
+#### Why this looks the way it does
+- The pattern mirrors **Golf Game Book**: one person hosts, gets a
+  short link to share, friends join without signup, day-of each
+  player scores on their own phone via the existing
+  `/scorecard/:roundId` page, and `/live/:roundId` already streams
+  live updates via SSE.
+- Existing endpoints (`/api/rounds/:roundId/scores`,
+  `/api/rounds/:roundId/leaderboard`, `/api/rounds/:roundId/stream`)
+  are already public and require no auth — that infrastructure
+  carried over from earlier work. The only gap was creation + invite,
+  which this slice closes.
+
+#### Tested
+- **334/334 unit tests pass** (+15 new) covering: schema, middleware
+  presence, auth gates on POST/PATCH/DELETE, public join + lookup
+  endpoints, share-modal + edit-modal UI wiring, page route
+  registration, and the new join page parses cleanly.
+
+---
+
 ## v3.47.0 — 2026-05-26
 ### Session 64 — E5 phase 2: Supplies marketplace
 

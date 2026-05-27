@@ -446,6 +446,40 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
 }
 
+console.log('\n👥 Clubhouse for users (v3.48)\n');
+{
+  test('tournaments.user_id column migrated',
+    () => assert(src.includes('ALTER TABLE tournaments ADD COLUMN user_id'), 'Missing tournaments.user_id'));
+  test('round_entries.user_id column migrated',
+    () => assert(src.includes('ALTER TABLE round_entries ADD COLUMN user_id'), 'Missing round_entries.user_id'));
+  test('requireUserOrAdmin helper defined',
+    () => assert(src.includes('function requireUserOrAdmin('), 'Missing helper'));
+  test('POST /api/tournaments uses requireUserOrAdmin',
+    () => assert(/app\.post\('\/api\/tournaments', requireUserOrAdmin/.test(src), 'Tournaments POST still admin-gated'));
+  test('PATCH /api/tournaments/:id registered with auth gate',
+    () => assert(src.includes("app.patch('/api/tournaments/:id', requireUserOrAdmin"), 'Missing PATCH'));
+  test('canEditTournament checks creator OR super',
+    () => assert(src.includes('function canEditTournament(') && src.includes("admin.role === 'super'"), 'Edit gate logic missing'));
+  test('GET /api/tournaments/mine returns rounds I created OR joined',
+    () => assert(src.includes("app.get('/api/tournaments/mine'") && src.includes('e.user_id = ?'), 'My-rounds endpoint missing'));
+  test('GET /api/round-public/:shareCode returns no-auth round lookup',
+    () => assert(src.includes("app.get('/api/round-public/:shareCode'"), 'Public round lookup missing'));
+  test('POST /api/round-public/:shareCode/join allows guests',
+    () => assert(src.includes("app.post('/api/round-public/:shareCode/join'") && src.includes('user?.id || null'), 'Public join missing or wrong'));
+  test('DELETE entry allows host OR self-removal',
+    () => assert(src.includes('isCreatorAdmin') && src.includes('isOwnEntry'), 'Entry delete permissions missing'));
+  test('Page route /round/:shareCode registered',
+    () => assert(src.includes("'/round/:shareCode'"), 'Join page route missing'));
+  const fs = require('fs');
+  test('public/round-join.html exists',
+    () => assert(fs.existsSync('./public/round-join.html'), 'Join page file missing'));
+  const tourHtml = fs.readFileSync('./public/tournaments.html', 'utf8');
+  test('Clubhouse accepts either token (not admin-only)',
+    () => assert(tourHtml.includes('HAS_USER_TOKEN') && tourHtml.includes('/login?next='), 'Auth gate still admin-only'));
+  test('Clubhouse exposes Share + Edit buttons',
+    () => assert(tourHtml.includes('openShareModal') && tourHtml.includes('openEditModal'), 'Share/Edit not wired'));
+}
+
 console.log('\n🛒 Supplies marketplace (E5 phase 2)\n');
 {
   test('supply_products table created',

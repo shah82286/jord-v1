@@ -310,6 +310,14 @@ try { db.exec("ALTER TABLE registration_packages ADD COLUMN sponsor_type TEXT");
 // optional product photo (~2.5 MB cap, same rule as auction items).
 try { db.exec("ALTER TABLE registration_packages ADD COLUMN image_data TEXT"); } catch {}
 
+// Clubhouse-for-users (v3.48): personal users can create + share casual
+// rounds. `tournaments.user_id` links the round to its creator when not
+// admin-created. `round_entries.user_id` links an entry to a user when
+// they joined with an account. Both nullable so existing admin-created
+// rounds keep working.
+try { db.exec("ALTER TABLE tournaments ADD COLUMN user_id TEXT"); } catch {}
+try { db.exec("ALTER TABLE round_entries ADD COLUMN user_id TEXT"); } catch {}
+
 // Supplies marketplace (E5 phase 2): JORD sells operational supplies
 // (signs, scoreboards, JORD-branded merch, partner gear) to organizers.
 // Direct charges to JORD's Stripe account — not the Connect flow used
@@ -4431,21 +4439,62 @@ app.delete('/api/courses/:id', requireAuth, requireAdminOrSuper, (req, res) => {
 
 // --- tournament + round endpoints --------------------------------------------
 
-// Game-format catalog — drives the setup wizard's format picker.
-app.get('/api/formats', requireAuth, (req, res) => {
+// Game-format catalog — drives the setup wizard's format picker. Open to
+// signed-in admins AND personal users so the public Clubhouse wizard can
+// load it without a forced admin login.
+function requireUserOrAdmin(req, res, next) {
+  // Run admin-token check first since most callers are admins.
+  const adminTok = req.headers['x-admin-token'];
+  const admin = adminTok ? getSessionAdmin(adminTok) : null;
+  if (admin) { req.admin = admin; return next(); }
+  const userTok = req.headers['x-user-token'] || req.query.user_token;
+  const user = userTok ? getSessionUser(userTok) : null;
+  if (user) { req.user = user; return next(); }
+  return res.status(401).json({ error: 'Sign in required' });
+}
+// Resolve the principal (admin OR user) into a single string ID and a
+// `kind` for `tournaments` rows. Always called inside an auth-gated route.
+function actorIdentity(req) {
+  if (req.admin) return { id: req.admin.id, kind: 'admin' };
+  if (req.user)  return { id: req.user.id,  kind: 'user'  };
+  return { id: null, kind: null };
+}
+
+app.get('/api/formats', requireUserOrAdmin, (req, res) => {
   res.json(formats.formatsByTier());
 });
 
-app.get('/api/tournaments', requireAuth, (req, res) => {
-  const all = req.admin.role === 'super';
-  const rows = all
-    ? db.prepare('SELECT * FROM tournaments ORDER BY created_at DESC').all()
-    : db.prepare('SELECT * FROM tournaments WHERE admin_id=? ORDER BY created_at DESC').all(req.admin.id);
+// List tournaments visible to the caller. Admins see what they own (super
+// sees all); personal users see what they created.
+app.get('/api/tournaments', requireUserOrAdmin, (req, res) => {
+  let rows;
+  if (req.admin) {
+    rows = req.admin.role === 'super'
+      ? db.prepare('SELECT * FROM tournaments ORDER BY created_at DESC').all()
+      : db.prepare('SELECT * FROM tournaments WHERE admin_id=? ORDER BY created_at DESC').all(req.admin.id);
+  } else {
+    rows = db.prepare('SELECT * FROM tournaments WHERE user_id=? ORDER BY created_at DESC').all(req.user.id);
+  }
   for (const t of rows) t.rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
   res.json(rows);
 });
 
-app.post('/api/tournaments', requireAuth, requireAdminOrSuper, (req, res) => {
+// Personal users: "my games" — rounds I created OR joined as a player.
+app.get('/api/tournaments/mine', requireUser, (req, res) => {
+  const rows = db.prepare(`
+    SELECT DISTINCT t.*
+    FROM tournaments t
+    LEFT JOIN rounds r       ON r.tournament_id = t.id
+    LEFT JOIN round_entries e ON e.round_id     = r.id
+    WHERE t.user_id = ?
+       OR e.user_id = ?
+    ORDER BY t.created_at DESC
+  `).all(req.user.id, req.user.id);
+  for (const t of rows) t.rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
+  res.json({ tournaments: rows });
+});
+
+app.post('/api/tournaments', requireUserOrAdmin, (req, res) => {
   const { name, type, course_id, round_date, format, holes_segment,
           flights_enabled, num_flights } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
@@ -4456,12 +4505,63 @@ app.post('/api/tournaments', requireAuth, requireAdminOrSuper, (req, res) => {
   const fe = (tType === 'tournament' && flights_enabled) ? 1 : 0;
   const nf = fe ? Math.max(1, Math.min(5, parseInt(num_flights) || 1)) : 1;
   const id = uid('TRN');
-  db.prepare(`INSERT INTO tournaments (id,type,name,admin_id,default_format,share_code,flights_enabled,num_flights)
-    VALUES (?,?,?,?,?,?,?,?)`).run(id, tType, name, req.admin.id, fmt, uid('').slice(0, 6), fe, nf);
+  const actor = actorIdentity(req);
+  db.prepare(`INSERT INTO tournaments
+    (id,type,name,admin_id,user_id,default_format,share_code,flights_enabled,num_flights)
+    VALUES (?,?,?,?,?,?,?,?,?)`).run(
+    id, tType, name,
+    actor.kind === 'admin' ? actor.id : null,
+    actor.kind === 'user'  ? actor.id : null,
+    fmt, uid('').slice(0, 6), fe, nf);
   const roundId = uid('RND');
   db.prepare(`INSERT INTO rounds (id,tournament_id,round_number,course_id,round_date,format,holes_segment,hole_multipliers)
     VALUES (?,?,?,?,?,?,?,?)`).run(roundId, id, 1, course_id || null, round_date || null, fmt, seg, holeMultipliers(fmt));
   res.json({ id, round_id: roundId });
+});
+
+// Helper — is the principal allowed to edit this tournament?
+//   super admin            → always
+//   creator admin          → yes
+//   creator user           → yes
+//   anyone else            → no
+function canEditTournament(req, t) {
+  if (req.admin) return req.admin.role === 'super' || t.admin_id === req.admin.id;
+  if (req.user)  return t.user_id === req.user.id;
+  return false;
+}
+
+// Edit a tournament's metadata (name, format, type, flights) + the
+// linked first round (course, date, holes_segment). Mirrors the wizard
+// fields so the user can fix mistakes after creation.
+app.patch('/api/tournaments/:id', requireUserOrAdmin, (req, res) => {
+  const t = db.prepare('SELECT * FROM tournaments WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Tournament not found' });
+  if (!canEditTournament(req, t)) return res.status(403).json({ error: 'Not your tournament' });
+
+  const b = req.body || {};
+  const upd = {
+    name:            b.name            != null ? String(b.name).trim().slice(0, 200) : t.name,
+    default_format:  b.default_format  != null && scoring.SUPPORTED_FORMATS.includes(b.default_format) ? b.default_format : t.default_format,
+    type:            b.type            != null && ['casual','tournament','reds_blues'].includes(b.type) ? b.type : t.type,
+    flights_enabled: b.flights_enabled != null ? (b.flights_enabled ? 1 : 0) : t.flights_enabled,
+    num_flights:     b.num_flights     != null ? Math.max(1, Math.min(5, Number(b.num_flights) || 1)) : t.num_flights,
+    status:          b.status          != null && ['setup','active','ended'].includes(b.status) ? b.status : t.status,
+  };
+  db.prepare(`UPDATE tournaments SET name=?, default_format=?, type=?, flights_enabled=?, num_flights=?, status=? WHERE id=?`)
+    .run(upd.name, upd.default_format, upd.type, upd.flights_enabled, upd.num_flights, upd.status, req.params.id);
+
+  // Round-level fields the user typically wants to edit live.
+  if (b.round_date !== undefined || b.course_id !== undefined || b.holes_segment !== undefined) {
+    const round = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number LIMIT 1').get(req.params.id);
+    if (round) {
+      const seg = b.holes_segment != null && ['all','front9','back9'].includes(b.holes_segment) ? b.holes_segment : round.holes_segment;
+      db.prepare(`UPDATE rounds SET course_id=?, round_date=?, holes_segment=? WHERE id=?`)
+        .run(b.course_id !== undefined ? (b.course_id || null) : round.course_id,
+             b.round_date !== undefined ? (b.round_date || null) : round.round_date,
+             seg, round.id);
+    }
+  }
+  res.json({ ok: true });
 });
 
 app.get('/api/tournaments/:id', requireAuth, (req, res) => {
@@ -4493,6 +4593,85 @@ app.post('/api/rounds/:roundId/status', requireAuth, requireAdminOrSuper, (req, 
 
 // Add a player to a round. Reuses an existing player row (matched by phone)
 // so history accrues, then computes the WHS course handicap for the tee.
+// ── Public round-by-share-code lookup ──────────────────────────────────
+// A friend clicks a shared link → this endpoint resolves the share code
+// to the round details + current player roster. No auth required.
+app.get('/api/round-public/:shareCode', (req, res) => {
+  const t = db.prepare('SELECT * FROM tournaments WHERE share_code=?').get(req.params.shareCode);
+  if (!t) return res.status(404).json({ error: 'Game not found — check the link' });
+  const round = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number LIMIT 1').get(t.id);
+  if (!round) return res.status(404).json({ error: 'Game has no round yet' });
+  // Pull the course name so the join page can display it without exposing
+  // the full course row (tees, holes, etc.).
+  const course = round.course_id
+    ? db.prepare('SELECT id, name, location FROM courses WHERE id=?').get(round.course_id)
+    : null;
+  const entries = db.prepare(`SELECT e.id, e.team_id, e.is_team_card, p.name AS player_name, e.user_id, e.course_handicap
+                              FROM round_entries e
+                              JOIN players p ON p.id = e.player_id
+                              WHERE e.round_id=?
+                              ORDER BY e.rowid`).all(round.id);
+  res.json({
+    tournament: {
+      id: t.id, name: t.name, type: t.type, default_format: t.default_format,
+      flights_enabled: t.flights_enabled, num_flights: t.num_flights, status: t.status,
+      share_code: t.share_code,
+    },
+    round: {
+      id: round.id, round_date: round.round_date, format: round.format,
+      holes_segment: round.holes_segment, status: round.status,
+    },
+    course,
+    entries,
+  });
+});
+
+// ── Public join: any friend with the share link can add themselves ─────
+// Authenticated users get their user_id stamped on the entry so it shows
+// up on their "My games" list. Guests join with just a name.
+app.post('/api/round-public/:shareCode/join', (req, res) => {
+  const t = db.prepare('SELECT * FROM tournaments WHERE share_code=?').get(req.params.shareCode);
+  if (!t) return res.status(404).json({ error: 'Game not found' });
+  const round = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number LIMIT 1').get(t.id);
+  if (!round) return res.status(404).json({ error: 'Game has no round yet' });
+
+  const { name, phone, email, handicap_index, tee_id } = req.body || {};
+  if (!name || !String(name).trim()) return res.status(400).json({ error: 'Your name is required' });
+
+  // If the requester is signed in, pull their user_id off the user token
+  // and prefer their handicap on file when none was provided in the body.
+  const userTok = req.headers['x-user-token'];
+  const user = userTok ? getSessionUser(userTok) : null;
+
+  let player = phone ? db.prepare('SELECT * FROM players WHERE phone=?').get(phone) : null;
+  if (player) {
+    if (handicap_index != null) db.prepare('UPDATE players SET handicap_index=? WHERE id=?').run(handicap_index, player.id);
+  } else {
+    const pid = uid('PLR');
+    const hcp = handicap_index != null ? handicap_index : (user?.handicap_index ?? null);
+    db.prepare('INSERT INTO players (id,name,phone,email,handicap_index) VALUES (?,?,?,?,?)')
+      .run(pid, String(name).trim().slice(0, 120), phone || null, email || (user?.email || null), hcp);
+    player = { id: pid, handicap_index: hcp };
+  }
+
+  // Compute course handicap if a tee was picked.
+  let courseHcp = null;
+  if (tee_id) {
+    const tee = db.prepare('SELECT * FROM course_tees WHERE id=?').get(tee_id);
+    const raw = handicap.courseHandicap(handicap_index ?? player.handicap_index,
+      tee?.slope_rating, tee?.course_rating, tee?.par_total);
+    const fmt = formats.getFormat(round.format);
+    courseHcp = (raw != null && fmt && typeof fmt.allowance === 'number')
+      ? handicap.playingHandicap(raw, fmt.allowance) : raw;
+  }
+
+  const entryId = uid('ENT');
+  db.prepare(`INSERT INTO round_entries (id, round_id, player_id, tee_id, course_handicap, user_id)
+              VALUES (?, ?, ?, ?, ?, ?)`).run(entryId, round.id, player.id, tee_id || null, courseHcp, user?.id || null);
+  broadcastRound(round.id);
+  res.json({ ok: true, entry_id: entryId, round_id: round.id, course_handicap: courseHcp });
+});
+
 app.post('/api/rounds/:roundId/entries', requireAuth, requireAdminOrSuper, (req, res) => {
   const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
   if (!round) return res.status(404).json({ error: 'Round not found' });
@@ -4718,7 +4897,29 @@ app.get('/api/tournaments/:id/leaderboard', (req, res) => {
     : tournamentLeaderboard(req.params.id));
 });
 
-app.delete('/api/rounds/:roundId/entries/:entryId', requireAuth, requireAdminOrSuper, (req, res) => {
+app.delete('/api/rounds/:roundId/entries/:entryId', (req, res) => {
+  // Three principals can delete an entry:
+  //   • admin/super who created the tournament
+  //   • personal user who created the tournament (the host)
+  //   • personal user who IS this entry (removing themselves)
+  const entry = db.prepare('SELECT * FROM round_entries WHERE id=? AND round_id=?')
+    .get(req.params.entryId, req.params.roundId);
+  if (!entry) return res.status(404).json({ error: 'Entry not found' });
+  const round = db.prepare('SELECT tournament_id FROM rounds WHERE id=?').get(req.params.roundId);
+  const t = round ? db.prepare('SELECT admin_id, user_id FROM tournaments WHERE id=?').get(round.tournament_id) : null;
+
+  const adminTok = req.headers['x-admin-token'];
+  const admin = adminTok ? getSessionAdmin(adminTok) : null;
+  const userTok = req.headers['x-user-token'];
+  const user = userTok ? getSessionUser(userTok) : null;
+
+  const isCreatorAdmin = admin && (admin.role === 'super' || (t && t.admin_id === admin.id));
+  const isCreatorUser  = user  && t && t.user_id === user.id;
+  const isOwnEntry     = user  && entry.user_id === user.id;
+
+  if (!isCreatorAdmin && !isCreatorUser && !isOwnEntry) {
+    return res.status(403).json({ error: 'Sign in as the host (or as the player) to remove this entry' });
+  }
   db.prepare('DELETE FROM round_entries WHERE id=? AND round_id=?').run(req.params.entryId, req.params.roundId);
   broadcastRound(req.params.roundId);
   res.json({ ok: true });
@@ -6903,7 +7104,8 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   '/scan': 'scan.html', '/scan/:code': 'scan.html', '/leaderboard/:id': 'leaderboard.html',
   '/dashboard/:eid/:code': 'dashboard.html', '/monitor/:id': 'monitor.html',
   '/global': 'global.html', '/test': 'test.html', '/system-summary': 'system-summary.html',
-  '/clubhouse': 'tournaments.html',             // create & manage games (admin hub)
+  '/clubhouse': 'tournaments.html',             // create & manage games (open to admins + signed-in personal users)
+  '/round/:shareCode': 'round-join.html',       // public friend-facing join page (Clubhouse share link)
   '/login':     'login.html',                   // user (personal/player) sign-in + sign-up
   '/e/:slug/register':              'event-register.html',     // registration form + checkout
   '/e/:slug/confirmation/:regId':   'event-confirmation.html', // post-checkout thank-you

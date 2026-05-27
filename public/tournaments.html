@@ -121,7 +121,14 @@
 <script>
 const $ = (s,r=document)=>r.querySelector(s);
 const esc = JORD.escapeHtml;
-if (!JORD.getToken()) location.href = '/admin';
+// Clubhouse is open to BOTH organizer admins and signed-in personal users.
+// Send anonymous visitors to /login (personal sign-in), which has an
+// "Or sign in as an organizer" link if they're actually an admin.
+const HAS_ADMIN_TOKEN = !!JORD.getToken();
+const HAS_USER_TOKEN  = !!(JORD.getUserToken && JORD.getUserToken());
+if (!HAS_ADMIN_TOKEN && !HAS_USER_TOKEN) {
+  location.href = '/login?next=' + encodeURIComponent(location.pathname + location.hash);
+}
 
 /* info bubble for a setting label — hover or tap the ⓘ to read what it does */
 const help = txt => `<span class="help-icon" tabindex="0">i<span class="tooltip">${esc(txt)}</span></span>`;
@@ -129,8 +136,12 @@ const help = txt => `<span class="help-icon" tabindex="0">i<span class="tooltip"
 const FMT_EMOJI = { stroke:'⛳', stableford:'🎯', scramble:'🤝', bestball:'🔥',
   matchplay:'⚔️', skins:'💰', erado:'✂️', duplicate:'🎲' };
 
+// Topbar — admins see the Admin link; personal users see Sign out / profile.
 document.getElementById('topbar').appendChild(
-  JORD.renderTopbar('Clubhouse', JORD.el('a',{class:'btn btn-ghost',href:'/admin'},'← Admin')));
+  JORD.renderTopbar('Clubhouse',
+    HAS_ADMIN_TOKEN
+      ? JORD.el('a',{class:'btn btn-ghost',href:'/admin'},'← Admin')
+      : JORD.el('a',{class:'btn btn-ghost',href:'/login'},'My profile')));
 
 const S = { courses:[], tournaments:[], formats:null, wiz:null };
 
@@ -697,21 +708,33 @@ async function openTournament(id) {
   const fmt = findFmt(t.rounds[0].format);
   const origin = location.origin;
   const multi = t.rounds.length > 1;
+  // Build the shareable invite link from the tournament's share_code.
+  // Friends open this URL → /round/:shareCode → public join page.
+  const shareUrl = t.share_code ? `${origin}/round/${t.share_code}` : null;
+
   $('#view').innerHTML = `
     <div class="page-head"><h1>${esc(t.name)}</h1>
       <button class="btn btn-ghost" id="back">← All games</button></div>
+
     <div class="card" style="margin-bottom:var(--s-4)">
       <div style="display:flex;gap:var(--s-3);flex-wrap:wrap;align-items:center;justify-content:space-between">
-        <div class="mini">${fmt?esc(fmt.name+' · '+fmt.sub):esc(t.rounds[0].format)}${t.flights_enabled?' · '+t.num_flights+' flights':''}</div>
-        ${multi?`<a class="btn btn-accent" href="/tournament/${t.id}" target="_blank">🏆 Tournament leaderboard ↗</a>`:''}
+        <div class="mini">${fmt?esc(fmt.name+' · '+fmt.sub):esc(t.rounds[0].format)}${t.flights_enabled?' · '+t.num_flights+' flights':''}${t.rounds[0].round_date ? ' · ' + esc(t.rounds[0].round_date) : ''}</div>
+        <div style="display:flex;gap:var(--s-2);flex-wrap:wrap">
+          ${shareUrl ? `<button class="btn btn-primary" id="btn-share">🔗 Share link</button>` : ''}
+          <button class="btn btn-ghost" id="btn-edit">✎ Edit game</button>
+          ${multi?`<a class="btn btn-accent" href="/tournament/${t.id}" target="_blank">🏆 Tournament leaderboard ↗</a>`:''}
+        </div>
       </div>
     </div>
+
     <div class="card" style="margin-bottom:var(--s-4)">
       <h2 class="card-title">Round${multi?'s':''}</h2>
       <div id="roundList"></div>
     </div>
     <div class="card"><h2 class="card-title">Competitors</h2><div id="playerList"></div></div>`;
   $('#back').onclick = () => go('');
+  if (shareUrl) $('#btn-share').onclick = () => openShareModal(t, shareUrl);
+  $('#btn-edit').onclick = () => openEditModal(t);
 
   $('#roundList').innerHTML = t.rounds.map(r=>`
     <div class="row-card">
@@ -741,10 +764,99 @@ async function setStatus(roundId,status,trnId) {
   openTournament(trnId);
 }
 
+/* ─── share + edit modals (Clubhouse v3.48) ───────────────────────── */
+function openShareModal(t, shareUrl) {
+  // QR code via api.qrserver.com — same pattern the walk-up check-in uses
+  // so we don't pull in another dependency.
+  const qrSize = 220;
+  const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${qrSize}x${qrSize}&data=${encodeURIComponent(shareUrl)}`;
+  const body = JORD.el('div', { class: 'col gap-3', style: { textAlign: 'center' } },
+    JORD.el('p', { class: 'small', style: { color: 'var(--ink-2)' } },
+      'Anyone with this link can join the game. They\'ll see the players, the format, and a one-tap "I\'m in" button.'),
+    JORD.el('img', { src: qrUrl, alt: 'Share QR', style: { width: qrSize + 'px', height: qrSize + 'px', alignSelf: 'center', border: '1px solid var(--border)', borderRadius: '8px', padding: '8px', background: '#fff' } }),
+    JORD.el('input', { class: 'input', value: shareUrl, readonly: true, onclick: function() { this.select(); }, style: { fontFamily: 'JetBrains Mono, monospace', fontSize: '13px' } }),
+    JORD.el('div', { class: 'row gap-2', style: { justifyContent: 'center', flexWrap: 'wrap' } },
+      JORD.el('button', { class: 'btn btn-primary', type: 'button', on: { click: () => {
+        JORD.copyToClipboard(shareUrl).then(() => JORD.success('Link copied — text it to your group'));
+      }}}, '📋 Copy link'),
+      JORD.el('a', { class: 'btn btn-ghost', href: `sms:?&body=${encodeURIComponent('Join the game: ' + shareUrl)}` }, '💬 Text it'),
+      JORD.el('a', { class: 'btn btn-ghost', href: `mailto:?subject=Join%20the%20game&body=${encodeURIComponent(shareUrl)}` }, '📧 Email')
+    ),
+    JORD.el('div', { class: 'mini', style: { color: 'var(--ink-3)', marginTop: '4px' } }, 'Share code: ' + (t.share_code || '—'))
+  );
+  JORD.modal({ title: 'Share with your group', body });
+}
+
+function openEditModal(t) {
+  // Pulls the current round's metadata so the user can change date / format /
+  // course without re-running the wizard. PATCH /api/tournaments/:id covers
+  // both tournament and round-level fields.
+  const round = t.rounds[0] || {};
+  const fmtSelect = JORD.el('select', { class: 'input', id: 'eg-format' });
+  // Build a flat list from the loaded formats catalog. Already-loaded in S.formats.
+  const tiers = [
+    { label: 'Individual', items: S.formats?.individual || [] },
+    { label: 'Pair',       items: S.formats?.pair       || [] },
+    { label: 'Team',       items: S.formats?.team       || [] },
+  ];
+  for (const tier of tiers) {
+    if (!tier.items.length) continue;
+    const grp = document.createElement('optgroup');
+    grp.label = tier.label;
+    for (const f of tier.items) {
+      const opt = document.createElement('option');
+      opt.value = f.id;
+      opt.textContent = `${f.name} · ${f.sub || ''}`.trim();
+      if (f.id === t.default_format) opt.selected = true;
+      grp.appendChild(opt);
+    }
+    fmtSelect.appendChild(grp);
+  }
+
+  const nameInput = JORD.el('input', { class: 'input', value: t.name, id: 'eg-name' });
+  const dateInput = JORD.el('input', { class: 'input', type: 'date', value: round.round_date || '', id: 'eg-date' });
+
+  const body = JORD.el('div', { class: 'col gap-3' },
+    JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Game name'), nameInput),
+    JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Date'), dateInput),
+    JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Format'), fmtSelect),
+    JORD.el('p', { class: 'mini', style: { color: 'var(--ink-3)' } }, 'Course can be changed before the round starts — re-pick from the wizard for now.')
+  );
+
+  const saveBtn = JORD.el('button', { class: 'btn btn-primary', type: 'button' }, 'Save changes');
+  const m = JORD.modal({ title: 'Edit game', body, footer: saveBtn });
+
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+    try {
+      await JORD.api(`/api/tournaments/${t.id}`, { method: 'PATCH', body: {
+        name: nameInput.value.trim(),
+        default_format: fmtSelect.value,
+        round_date: dateInput.value || null,
+      }});
+      m.close();
+      JORD.success('Game updated');
+      await loadAll();
+      openTournament(t.id);
+    } catch (e) {
+      JORD.error(e.message);
+      saveBtn.disabled = false; saveBtn.textContent = 'Save changes';
+    }
+  });
+}
+
 /* ─── boot ─────────────────────────────────────────────────────────── */
 async function init() {
   try { await loadAll(); route(); }
-  catch(e){ if (e.status===401) location.href='/admin'; else JORD.error(e.message); }
+  catch(e){
+    if (e.status === 401) {
+      // Stale token — drop both and route to /login so the next sign-in
+      // can be either user or admin.
+      try { JORD.clearToken && JORD.clearToken(); } catch {}
+      try { JORD.clearUserToken && JORD.clearUserToken(); } catch {}
+      location.href = '/login';
+    } else { JORD.error(e.message); }
+  }
 }
 init();
 </script>

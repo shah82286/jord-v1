@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Join the game · JORD Golf</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/css/jord.css" />
+  <style>
+    .rj-wrap { max-width:680px; margin:0 auto; padding:var(--s-5) var(--s-4) var(--s-7); }
+    .rj-hero { text-align:center; padding:var(--s-4) 0 var(--s-3); }
+    .rj-eyebrow { font-size:12px; letter-spacing:.26em; text-transform:uppercase;
+      color:var(--accent); font-weight:700; }
+    .rj-title { font-family:var(--font-display); font-size:clamp(1.8rem,4vw,2.4rem);
+      letter-spacing:-.02em; margin:6px 0; }
+    .rj-meta { color:var(--ink-2); font-size:14px; display:flex; gap:14px; justify-content:center; flex-wrap:wrap; }
+
+    .rj-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+      padding:var(--s-4); margin-bottom:var(--s-3); }
+    .rj-card h3 { font-family:var(--font-display); font-size:1.2rem; margin-bottom:var(--s-2); }
+
+    .player-list { display:flex; flex-direction:column; gap:6px; }
+    .player-row { display:flex; align-items:center; gap:10px; padding:10px 12px;
+      background:var(--bg); border:1px solid var(--border); border-radius:var(--r-md); font-size:14px; }
+    .player-row .num { width:24px; height:24px; border-radius:50%; background:var(--surface-2);
+      display:flex; align-items:center; justify-content:center; font-weight:700; font-size:12px; color:var(--ink-2); }
+    .player-row.is-you { background:rgba(184,136,77,0.08); border-color:var(--accent); }
+    .player-row .meta { font-size:11px; color:var(--ink-3); }
+
+    .join-form .field { margin-bottom:var(--s-3); }
+    .join-form label { display:block; font-size:12px; font-weight:600; color:var(--ink-2);
+      letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
+    .join-form input, .join-form select {
+      width:100%; padding:11px 14px; border:1px solid var(--border); border-radius:var(--r-md);
+      background:var(--bg); color:var(--ink); font-size:15px; font-family:inherit; }
+    .join-form .row { display:grid; grid-template-columns:1fr 1fr; gap:var(--s-2); }
+    @media (max-width: 560px) { .join-form .row { grid-template-columns:1fr; } }
+    .err { color:#c0392b; font-size:14px; margin-top:var(--s-3); display:none; }
+    .err.is-shown { display:block; }
+
+    .actions { display:flex; gap:var(--s-2); flex-wrap:wrap; }
+
+    .joined-banner { background:rgba(31,126,42,.08); border:1px solid rgba(31,126,42,.30);
+      color:#1f7e2a; padding:14px 18px; border-radius:var(--r-md); font-size:14px;
+      margin-bottom:var(--s-3); }
+    .joined-banner strong { color:#155a1f; }
+  </style>
+</head>
+<body>
+<main class="rj-wrap" id="view"><p class="mini">Loading…</p></main>
+
+<script src="/js/jord.js"></script>
+<script>
+const esc = JORD.escapeHtml;
+const shareCode = location.pathname.split('/').filter(Boolean)[1];
+const state = { tournament: null, round: null, course: null, entries: [], me: null, justJoined: null };
+
+function fmtDate(s) {
+  if (!s) return 'TBD';
+  try { return new Date(s).toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric', year:'numeric' }); }
+  catch { return s; }
+}
+function formatLabel(fmt) {
+  // Quick map for the most common formats — the public page doesn't need
+  // to load the full formats.js catalog just for this one badge.
+  const map = {
+    stroke_gross: 'Stroke · Gross',
+    stroke_net: 'Stroke · Net',
+    stableford: 'Stableford',
+    skins: 'Skins',
+    match_individual: 'Match Play',
+    scramble_4p: '4-person Scramble',
+    scramble_2p: '2-person Scramble',
+    best_ball_4p: '4-person Best Ball',
+    best_ball_2p: '2-person Best Ball',
+    foursomes: 'Foursomes',
+    greensome: 'Greensome',
+  };
+  return map[fmt] || fmt.replace(/_/g, ' ');
+}
+
+async function load() {
+  try {
+    const r = await fetch('/api/round-public/' + encodeURIComponent(shareCode));
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Game not found');
+    state.tournament = data.tournament;
+    state.round = data.round;
+    state.course = data.course;
+    state.entries = data.entries || [];
+    // Try to load the signed-in user (for the "join as you" prefill).
+    try { state.me = await JORD.api('/api/users/me'); } catch {}
+    render();
+  } catch (e) {
+    document.getElementById('view').innerHTML = `<div style="padding:60px 20px;text-align:center">
+      <h1 style="font-family:Playfair Display,serif">${esc(e.message)}</h1>
+      <p style="color:var(--ink-2);margin-top:10px">Double-check the link — share codes are 6 characters.</p>
+    </div>`;
+  }
+}
+
+function render() {
+  const t = state.tournament, round = state.round, course = state.course;
+  const meEntry = state.me && state.entries.find(e => e.user_id === state.me.id);
+  const youJustJoined = state.justJoined;
+
+  document.title = `Join · ${t.name} · JORD Golf`;
+  document.getElementById('view').innerHTML = `
+    <div class="rj-hero">
+      <div class="rj-eyebrow">You're invited to</div>
+      <h1 class="rj-title">${esc(t.name)}</h1>
+      <div class="rj-meta">
+        <span>📅 ${esc(fmtDate(round.round_date))}</span>
+        ${course ? `<span>📍 ${esc(course.name)}</span>` : ''}
+        <span>🏌 ${esc(formatLabel(t.default_format))}</span>
+      </div>
+    </div>
+
+    ${youJustJoined ? `<div class="joined-banner">
+      <strong>You're in.</strong> Your scorecard link will be active when the game starts —
+      we'll keep it open right here.
+    </div>` : ''}
+
+    <div class="rj-card">
+      <h3>Players in this game (${state.entries.length})</h3>
+      ${state.entries.length === 0
+        ? '<p style="color:var(--ink-3);font-size:14px">Nobody has joined yet — be the first.</p>'
+        : `<div class="player-list">${state.entries.map((e, i) => `
+            <div class="player-row ${meEntry && e.id === meEntry.id ? 'is-you' : ''}">
+              <div class="num">${i + 1}</div>
+              <div style="flex:1">
+                <div>${esc(e.player_name)}</div>
+                ${e.course_handicap != null ? `<div class="meta">Course handicap ${e.course_handicap}</div>` : ''}
+              </div>
+              ${meEntry && e.id === meEntry.id ? '<span style="font-size:11px;color:var(--accent);font-weight:700">YOU</span>' : ''}
+            </div>`).join('')}
+          </div>`}
+    </div>
+
+    ${meEntry
+      ? `<div class="rj-card">
+          <h3>What's next</h3>
+          <p style="color:var(--ink-2);font-size:14px;margin-bottom:var(--s-3)">You're in the game. When tee time comes, hit the scorecard link to enter scores live.</p>
+          <div class="actions">
+            <a class="btn btn-accent btn-lg" href="/scorecard/${esc(round.id)}">Open my scorecard →</a>
+            <a class="btn btn-ghost" href="/live/${esc(round.id)}">Live leaderboard</a>
+          </div>
+        </div>`
+      : `<div class="rj-card">
+          <h3>Join the game</h3>
+          <p style="color:var(--ink-2);font-size:14px;margin-bottom:var(--s-3)">Add your name to the roster. No account needed — just type your name and you're in.</p>
+          <form class="join-form" id="join-form">
+            <div class="row">
+              <div class="field">
+                <label>Your name *</label>
+                <input type="text" id="f-name" required maxlength="120" autocomplete="name" placeholder="Pat O'Connor" value="${esc(state.me?.name || '')}" />
+              </div>
+              <div class="field">
+                <label>Handicap index (optional)</label>
+                <input type="number" id="f-hcp" step="0.1" min="-10" max="54" placeholder="14.2" value="${state.me?.handicap_index || ''}" />
+              </div>
+            </div>
+            <div class="err" id="err"></div>
+            <button class="btn btn-accent btn-lg btn-block" type="submit" id="submit">I'm in — join the game →</button>
+            ${!state.me ? `<p style="font-size:12px;color:var(--ink-3);text-align:center;margin-top:var(--s-3)">
+              Want to track this on your profile? <a href="/login" style="color:var(--accent);font-weight:600">Sign in or create an account</a>.
+            </p>` : ''}
+          </form>
+        </div>`}
+
+    <div style="text-align:center;margin-top:var(--s-4)">
+      <a class="pill-link" href="/clubhouse" style="font-size:13px;color:var(--ink-3)">← Back to JORD Clubhouse</a>
+    </div>
+  `;
+  wireForm();
+}
+
+function wireForm() {
+  const form = document.getElementById('join-form');
+  if (!form) return;
+  form.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const errBox = document.getElementById('err');
+    errBox.classList.remove('is-shown');
+    const btn = document.getElementById('submit');
+    btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Joining…';
+    try {
+      const body = {
+        name: document.getElementById('f-name').value.trim(),
+        handicap_index: document.getElementById('f-hcp').value ? Number(document.getElementById('f-hcp').value) : null,
+      };
+      // Include the user token in the header if signed in so the server
+      // stamps `round_entries.user_id` and the entry shows up on the
+      // user's "My games" list.
+      const headers = { 'Content-Type': 'application/json' };
+      const tok = localStorage.getItem('jord_user_token');
+      if (tok) headers['x-user-token'] = tok;
+      const r = await fetch('/api/round-public/' + encodeURIComponent(shareCode) + '/join', {
+        method: 'POST', headers, body: JSON.stringify(body),
+      });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'Could not join');
+      state.justJoined = true;
+      await load();
+    } catch (e) {
+      errBox.textContent = e.message;
+      errBox.classList.add('is-shown');
+      btn.disabled = false; btn.textContent = orig;
+    }
+  };
+}
+
+load();
+</script>
+</body>
+</html>
