@@ -2,6 +2,53 @@
 
 ---
 
+## v3.52.0 — 2026-05-26
+### Session 69 — Auth chooser + self-service organizer signup
+
+Fixed the discovery gap on signup: a brand-new visitor could land at
+`/login` and only see an admin-flavored form, while the casual-golfer
+path was hidden behind a tab toggle. Worse, getting an organizer
+account required a sales-form (`/signup`) gated on "we'll be in touch
+within 48 hours." Both paths are now self-service.
+
+#### What changed
+- **New endpoint `POST /api/auth/signup`** — self-service organizer
+  signup. Body: `{ name, email, password, org_name }`. Creates an
+  `admins` row with `role='admin'`, `active=1`, returns a session
+  token + the same shape as `/api/auth/login`. Rejects duplicate
+  emails with "That email already has an organizer account — try
+  signing in instead." Composes the display name as
+  `"Name (Org Name)"` when an org is supplied so the admin top-bar
+  shows the org identity at a glance.
+- **`/login` rebuilt as a two-tile chooser:**
+  - **⛳ "Play with friends"** — reveals the personal user form
+    (`/api/users/login` / `/api/users/signup` — unchanged).
+  - **🏆 "Run a charity or corporate event"** — reveals the new
+    organizer form (`/api/auth/login` / `/api/auth/signup`).
+  - Tile copy describes what each path is for (formats / event-site /
+    Stripe / silent auction) so a visitor instantly knows which
+    fits.
+  - Back-link from either form returns to the chooser.
+  - `?track=personal` or `?track=organizer` URL params skip the
+    chooser and land directly on a form — useful for landing-page
+    deep-links.
+  - Boot logic: signed-in user → `/clubhouse`; signed-in admin →
+    `/admin`. Either falls back to `?next=…` when provided.
+- **Landing page nav** — "Sign in" + "Sign up" buttons now point at
+  `/login` (the chooser) instead of the admin-only `/admin` /
+  `/signup`. Hero CTAs ("Sign Up Your Tournament") still point at
+  `/signup` for organizers who want the sales-form / hand-holding
+  flow; that page is kept around for the high-touch path.
+
+#### Tested
+- **371/371 unit tests pass** (+10 new) covering: organizer signup
+  route registration, admin-row creation with correct role, duplicate
+  email rejection, org-name composition, tile chooser markup, boot
+  redirects for both principals, `?track=` deep link support,
+  organizer form POSTs to the new endpoint, landing-nav repointed.
+
+---
+
 ## v3.51.0 — 2026-05-26
 ### Session 68 — Banter chat + Clubhouse home for joiners
 

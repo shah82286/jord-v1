@@ -10,7 +10,7 @@
 <link rel="stylesheet" href="/css/jord.css">
 <style>
   body { min-height:100dvh; }
-  .auth-wrap { max-width:480px; margin:0 auto; padding:var(--s-6) var(--s-4) var(--s-8); }
+  .auth-wrap { max-width:560px; margin:0 auto; padding:var(--s-6) var(--s-4) var(--s-8); }
   .auth-card { padding:var(--s-6) var(--s-5); }
   .auth-eyebrow { font-size:11px; letter-spacing:.22em; text-transform:uppercase; color:var(--ink-3); font-weight:700; }
   .auth-card h1 { font-family:var(--font-display); font-size:clamp(1.8rem,5vw,2.3rem); letter-spacing:-0.02em; margin:6px 0 var(--s-2); }
@@ -25,6 +25,32 @@
   .auth-err.show { display:block; }
   .auth-foot { text-align:center; margin-top:var(--s-4); font-size:13px; color:var(--ink-3); }
   .auth-foot a { color:var(--ink-2); }
+
+  /* ── Chooser tiles (v3.52) ─────────────────────────────────── */
+  .chooser-eyebrow { text-align:center; font-size:11px; letter-spacing:.26em; text-transform:uppercase;
+    color:var(--accent); font-weight:700; margin-bottom:6px; }
+  .chooser-h1 { text-align:center; font-family:var(--font-display); font-size:clamp(1.8rem,5vw,2.4rem);
+    letter-spacing:-.02em; margin:6px 0 var(--s-3); }
+  .chooser-h1 em { font-style:italic; color:var(--accent); }
+  .chooser-sub { text-align:center; color:var(--ink-2); font-size:15px; margin-bottom:var(--s-5); line-height:1.5; }
+  .chooser-tiles { display:grid; gap:var(--s-3); grid-template-columns:1fr; }
+  @media (min-width: 640px) { .chooser-tiles { grid-template-columns:1fr 1fr; } }
+  .chooser-tile { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+    padding:var(--s-5); cursor:pointer; transition:box-shadow var(--t-fast), border-color var(--t-fast), transform var(--t-fast);
+    text-align:left; font-family:inherit; color:var(--ink);
+    display:flex; flex-direction:column; gap:8px; min-height:200px; }
+  .chooser-tile:hover { box-shadow:var(--shadow-md); border-color:var(--accent); transform:translateY(-2px); }
+  .chooser-tile .icon { font-size:38px; line-height:1; }
+  .chooser-tile h2 { font-family:var(--font-display); font-size:1.35rem; letter-spacing:-.01em; line-height:1.2; }
+  .chooser-tile p { font-size:14px; color:var(--ink-2); line-height:1.5; }
+  .chooser-tile .features { margin-top:auto; padding-top:8px; border-top:1px dashed var(--border);
+    font-size:12px; color:var(--ink-3); line-height:1.5; }
+  .chooser-tile .arrow { color:var(--accent); font-weight:700; font-size:14px; margin-top:6px; }
+  .chooser-foot { text-align:center; margin-top:var(--s-5); font-size:13px; color:var(--ink-3); }
+  .chooser-foot a { color:var(--ink-2); }
+  .back-link { display:inline-flex; align-items:center; gap:4px; font-size:13px; color:var(--ink-3);
+    margin-bottom:var(--s-3); padding:6px 10px; border-radius:var(--r-pill); cursor:pointer; }
+  .back-link:hover { background:var(--surface-2); color:var(--ink); }
   /* Stack the form items comfortably on phones; large tap targets. */
   @media (max-width: 480px) {
     .auth-card { padding:var(--s-5) var(--s-4); }
@@ -33,114 +59,289 @@
 </head>
 <body>
 <div id="topbar"></div>
-<main class="auth-wrap">
-  <div class="card auth-card">
-    <div class="auth-eyebrow">JORD Golf</div>
-    <h1 id="title">Welcome <em>back</em></h1>
-    <p class="auth-sub" id="sub">Sign in to play in tournaments and casual rounds.</p>
+<main class="auth-wrap" id="root"><p class="mini">Loading…</p></main>
 
-    <div class="auth-seg" role="tablist">
-      <button id="modeSignin" class="is-active" data-mode="login">Sign in</button>
-      <button id="modeSignup"                    data-mode="signup">Create account</button>
-    </div>
-
-    <form id="authForm" novalidate>
-      <div class="field" id="nameField" style="display:none">
-        <label for="name">Your name</label>
-        <input class="input input-lg" id="name" autocomplete="name" />
-      </div>
-      <div class="field">
-        <label for="email">Email</label>
-        <input class="input input-lg" id="email" type="email" autocomplete="email" inputmode="email" required />
-      </div>
-      <div class="field">
-        <label for="password">Password</label>
-        <input class="input input-lg" id="password" type="password" autocomplete="current-password" required minlength="8" />
-        <div class="hint" id="pwHint" style="display:none">At least 8 characters.</div>
-      </div>
-      <div class="field" id="hcpField" style="display:none">
-        <label for="hcp">Handicap index <span style="font-weight:400;color:var(--ink-3)">— optional</span></label>
-        <input class="input input-lg" id="hcp" type="number" step="0.1" inputmode="decimal" placeholder="e.g. 12.4" />
-        <div class="hint">For game-tracking. Self-reported for now — USGA / GHIN sync is on the roadmap.</div>
-      </div>
-      <div class="auth-err" id="err"></div>
-      <button class="btn btn-primary btn-xl btn-block" id="submitBtn" type="submit">Sign in</button>
-    </form>
-
-    <p class="auth-foot"><a href="/">← Back to JORD Golf</a></p>
-  </div>
-</main>
 <script src="/js/jord.js"></script>
 <script>
 const $ = (s,r=document)=>r.querySelector(s);
-let mode = 'login';
+const esc = JORD.escapeHtml;
 
-// If already signed in, leave for wherever they came from (or the Clubhouse).
-function nextUrl() {
+// nextUrl honors ?next=… but falls back per-track: personal → /clubhouse,
+// organizer → /admin. The forced track (?track=personal|organizer) lets
+// the landing page deep-link straight into a specific form.
+function nextUrl(defaultPath) {
   const p = new URLSearchParams(location.search).get('next');
-  return p && p.startsWith('/') ? p : '/clubhouse';
+  return p && p.startsWith('/') ? p : (defaultPath || '/clubhouse');
 }
-(async () => {
-  if (!JORD.getUserToken()) return;
-  try { await JORD.api('/api/users/me'); location.replace(nextUrl()); }
-  catch { JORD.clearUserToken(); }
-})();
+function forcedTrack() {
+  const t = new URLSearchParams(location.search).get('track');
+  return t === 'personal' || t === 'organizer' ? t : null;
+}
 
 document.getElementById('topbar').appendChild(
   JORD.renderTopbar('Sign in', JORD.el('a',{class:'btn btn-ghost',href:'/'},'← Home')));
 
-function setMode(m) {
-  mode = m;
-  $('#modeSignin').classList.toggle('is-active', m==='login');
-  $('#modeSignup').classList.toggle('is-active', m==='signup');
-  $('#nameField').style.display = m==='signup' ? '' : 'none';
-  $('#hcpField').style.display  = m==='signup' ? '' : 'none';
-  $('#pwHint').style.display    = m==='signup' ? '' : 'none';
-  $('#title').innerHTML = m==='login' ? 'Welcome <em>back</em>' : 'Create your <em>account</em>';
-  $('#sub').textContent = m==='login'
-    ? 'Sign in to play in tournaments and casual rounds.'
-    : 'Start tracking your games, rounds, and tournaments.';
-  $('#submitBtn').textContent = m==='login' ? 'Sign in' : 'Create account';
-  $('#password').setAttribute('autocomplete', m==='login' ? 'current-password' : 'new-password');
-  $('#err').classList.remove('show');
-  // jump focus to the first relevant field on switch
-  setTimeout(() => (m==='signup' ? $('#name') : $('#email')).focus(), 0);
+// ── Boot ─────────────────────────────────────────────────────────────
+// If already signed in as a user, send them to wherever they were going
+// (defaults to Clubhouse). If signed in as admin, send to /admin. If
+// they're on a forced track from the URL, jump straight to that form.
+(async () => {
+  const userTok = JORD.getUserToken && JORD.getUserToken();
+  if (userTok) {
+    try { await JORD.api('/api/users/me'); return location.replace(nextUrl('/clubhouse')); }
+    catch { JORD.clearUserToken && JORD.clearUserToken(); }
+  }
+  const adminTok = JORD.getToken && JORD.getToken();
+  if (adminTok) {
+    try { await JORD.api('/api/auth/me'); return location.replace(nextUrl('/admin')); }
+    catch { JORD.clearToken && JORD.clearToken(); }
+  }
+  const t = forcedTrack();
+  if (t === 'personal')  return renderPersonalForm('login');
+  if (t === 'organizer') return renderOrganizerForm('login');
+  renderChooser();
+})();
+
+// ── Chooser ──────────────────────────────────────────────────────────
+function renderChooser() {
+  $('#root').innerHTML = `
+    <div class="chooser-eyebrow">JORD Golf</div>
+    <h1 class="chooser-h1">What brings you <em>here</em>?</h1>
+    <p class="chooser-sub">Two ways to use JORD. Pick the path that fits — you can always create a second account later if you need both.</p>
+    <div class="chooser-tiles">
+      <button class="chooser-tile" data-track="personal" type="button">
+        <div class="icon">⛳</div>
+        <h2>Play with friends</h2>
+        <p>Set up casual rounds at any course, invite friends with a single link, and pick from 20 game formats. Live scoring on your phone.</p>
+        <div class="features">Stroke · Scramble · Skins · Match Play · Best Ball · 16 more</div>
+        <div class="arrow">Sign in or sign up →</div>
+      </button>
+      <button class="chooser-tile" data-track="organizer" type="button">
+        <div class="icon">🏆</div>
+        <h2>Run a charity or corporate event</h2>
+        <p>Build a brandable event site, take online registration via Stripe, run check-in + pairings + scoring on event day. Silent auction, sponsorships, donations included.</p>
+        <div class="features">Branded /e/your-slug · Stripe payouts · LD &amp; CTP contests · Silent auction</div>
+        <div class="arrow">Sign in or sign up →</div>
+      </button>
+    </div>
+    <p class="chooser-foot"><a href="/">← Back to JORD Golf</a></p>
+  `;
+  document.querySelectorAll('[data-track]').forEach(b => {
+    b.onclick = () => {
+      const t = b.dataset.track;
+      // Preserve the ?next= forwarding; add ?track= so a refresh keeps them here.
+      const url = new URL(location.href);
+      url.searchParams.set('track', t);
+      history.replaceState(null, '', url.toString());
+      if (t === 'personal')  renderPersonalForm('login');
+      if (t === 'organizer') renderOrganizerForm('login');
+    };
+  });
 }
-$('#modeSignin').onclick = () => setMode('login');
-$('#modeSignup').onclick = () => setMode('signup');
 
-function showErr(msg){ const e=$('#err'); e.textContent=msg; e.classList.add('show'); }
+// ── Personal form (existing /api/users/* endpoints) ─────────────────
+function renderPersonalForm(initialMode) {
+  let mode = initialMode || 'login';
+  $('#root').innerHTML = `
+    <div class="card auth-card">
+      <span class="back-link" id="back">← Back</span>
+      <div class="auth-eyebrow">Play with friends</div>
+      <h1 id="title">${mode === 'login' ? 'Welcome <em>back</em>' : 'Create your <em>account</em>'}</h1>
+      <p class="auth-sub" id="sub">${mode === 'login'
+        ? 'Sign in to join casual rounds, set up your own, and live-score with friends.'
+        : 'Free — name, email, password. We never share your info.'}</p>
 
-$('#authForm').addEventListener('submit', async (ev) => {
-  ev.preventDefault();
-  const email = $('#email').value.trim();
-  const password = $('#password').value;
-  const name = $('#name').value.trim();
-  if (!email || !password) return showErr('Email and password are required.');
-  if (mode==='signup' && !name) return showErr('Tell us your name.');
-  if (mode==='signup' && password.length < 8) return showErr('Password must be at least 8 characters.');
+      <div class="auth-seg" role="tablist">
+        <button id="modeSignin" class="${mode==='login'?'is-active':''}" data-mode="login" type="button">Sign in</button>
+        <button id="modeSignup" class="${mode==='signup'?'is-active':''}" data-mode="signup" type="button">Create account</button>
+      </div>
 
-  const btn = $('#submitBtn');
-  const orig = btn.textContent;
-  btn.disabled = true; btn.textContent = mode==='login' ? 'Signing in…' : 'Creating…';
-  // Optional handicap index — null if blank, allows scratch (0) to be saved
-  const hcpRaw = $('#hcp').value.trim();
-  const handicap_index = hcpRaw === '' ? null : Number(hcpRaw);
-  if (mode==='signup' && hcpRaw !== '' && !Number.isFinite(handicap_index)) {
-    return showErr('Handicap index must be a number, or leave it blank.');
+      <form id="authForm" novalidate>
+        <div class="field" id="nameField" style="${mode==='signup'?'':'display:none'}">
+          <label for="name">Your name</label>
+          <input class="input input-lg" id="name" autocomplete="name" />
+        </div>
+        <div class="field">
+          <label for="email">Email</label>
+          <input class="input input-lg" id="email" type="email" autocomplete="email" inputmode="email" required />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input class="input input-lg" id="password" type="password" autocomplete="${mode==='login'?'current-password':'new-password'}" required minlength="8" />
+          <div class="hint" id="pwHint" style="${mode==='signup'?'':'display:none'}">At least 8 characters.</div>
+        </div>
+        <div class="field" id="hcpField" style="${mode==='signup'?'':'display:none'}">
+          <label for="hcp">Handicap index <span style="font-weight:400;color:var(--ink-3)">— optional</span></label>
+          <input class="input input-lg" id="hcp" type="number" step="0.1" inputmode="decimal" placeholder="e.g. 12.4" />
+          <div class="hint">Used for net-scoring formats. Self-reported for now.</div>
+        </div>
+        <div class="auth-err" id="err"></div>
+        <button class="btn btn-primary btn-xl btn-block" id="submitBtn" type="submit">${mode==='login'?'Sign in':'Create account'}</button>
+      </form>
+    </div>`;
+  wirePersonal(mode);
+}
+
+function wirePersonal(initialMode) {
+  let mode = initialMode;
+  function setMode(m) {
+    mode = m;
+    $('#modeSignin').classList.toggle('is-active', m==='login');
+    $('#modeSignup').classList.toggle('is-active', m==='signup');
+    $('#nameField').style.display = m==='signup' ? '' : 'none';
+    $('#hcpField').style.display  = m==='signup' ? '' : 'none';
+    $('#pwHint').style.display    = m==='signup' ? '' : 'none';
+    $('#title').innerHTML = m==='login' ? 'Welcome <em>back</em>' : 'Create your <em>account</em>';
+    $('#sub').textContent = m==='login'
+      ? 'Sign in to join casual rounds, set up your own, and live-score with friends.'
+      : 'Free — name, email, password. We never share your info.';
+    $('#submitBtn').textContent = m==='login' ? 'Sign in' : 'Create account';
+    $('#password').setAttribute('autocomplete', m==='login' ? 'current-password' : 'new-password');
+    $('#err').classList.remove('show');
+    setTimeout(() => (m==='signup' ? $('#name') : $('#email')).focus(), 0);
   }
-  try {
-    const r = await JORD.api(
-      mode==='login' ? '/api/users/login' : '/api/users/signup',
-      { method:'POST', body: mode==='login' ? { email, password } : { name, email, password, handicap_index } }
-    );
-    JORD.setUserToken(r.token);
-    location.replace(nextUrl());
-  } catch (e) {
-    showErr(e.message || 'Something went wrong.');
-    btn.disabled = false; btn.textContent = orig;
+  $('#modeSignin').onclick = () => setMode('login');
+  $('#modeSignup').onclick = () => setMode('signup');
+  $('#back').onclick = () => {
+    const url = new URL(location.href);
+    url.searchParams.delete('track');
+    history.replaceState(null, '', url.toString());
+    renderChooser();
+  };
+
+  $('#authForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const email = $('#email').value.trim();
+    const password = $('#password').value;
+    const name = $('#name').value.trim();
+    const errBox = $('#err');
+    errBox.classList.remove('show');
+    if (!email || !password) { errBox.textContent='Email and password are required.'; errBox.classList.add('show'); return; }
+    if (mode==='signup' && !name) { errBox.textContent='Tell us your name.'; errBox.classList.add('show'); return; }
+    if (mode==='signup' && password.length < 8) { errBox.textContent='Password must be at least 8 characters.'; errBox.classList.add('show'); return; }
+    const hcpRaw = $('#hcp').value.trim();
+    const handicap_index = hcpRaw === '' ? null : Number(hcpRaw);
+    if (mode==='signup' && hcpRaw !== '' && !Number.isFinite(handicap_index)) {
+      errBox.textContent='Handicap index must be a number, or leave it blank.'; errBox.classList.add('show'); return;
+    }
+    const btn = $('#submitBtn'); const orig = btn.textContent;
+    btn.disabled = true; btn.textContent = mode==='login' ? 'Signing in…' : 'Creating…';
+    try {
+      const r = await JORD.api(
+        mode==='login' ? '/api/users/login' : '/api/users/signup',
+        { method:'POST', body: mode==='login' ? { email, password } : { name, email, password, handicap_index } }
+      );
+      JORD.setUserToken(r.token);
+      location.replace(nextUrl('/clubhouse'));
+    } catch (e) {
+      errBox.textContent = e.message || 'Something went wrong.';
+      errBox.classList.add('show');
+      btn.disabled = false; btn.textContent = orig;
+    }
+  });
+}
+
+// ── Organizer form (uses /api/auth/* admin endpoints) ────────────────
+function renderOrganizerForm(initialMode) {
+  const mode = initialMode || 'login';
+  $('#root').innerHTML = `
+    <div class="card auth-card">
+      <span class="back-link" id="back">← Back</span>
+      <div class="auth-eyebrow">Run a charity or corporate event</div>
+      <h1 id="orgTitle">${mode==='login' ? 'Organizer <em>sign in</em>' : 'Set up your <em>organizer</em> account'}</h1>
+      <p class="auth-sub" id="orgSub">${mode==='login'
+        ? 'Manage your tournament site, registrations, payments, check-in, and live scoring.'
+        : 'Free to set up. You can run your first event right after signing up.'}</p>
+
+      <div class="auth-seg" role="tablist">
+        <button id="orgModeSignin" class="${mode==='login'?'is-active':''}" data-mode="login" type="button">Sign in</button>
+        <button id="orgModeSignup" class="${mode==='signup'?'is-active':''}" data-mode="signup" type="button">Create account</button>
+      </div>
+
+      <form id="orgForm" novalidate>
+        <div class="field" id="orgOrgField" style="${mode==='signup'?'':'display:none'}">
+          <label for="orgName">Organization / charity name</label>
+          <input class="input input-lg" id="orgName" autocomplete="organization" placeholder="e.g. Fairway Fund" />
+        </div>
+        <div class="field" id="orgNameField" style="${mode==='signup'?'':'display:none'}">
+          <label for="orgPerson">Your name</label>
+          <input class="input input-lg" id="orgPerson" autocomplete="name" />
+        </div>
+        <div class="field">
+          <label for="orgEmail">Email</label>
+          <input class="input input-lg" id="orgEmail" type="email" autocomplete="email" inputmode="email" required />
+        </div>
+        <div class="field">
+          <label for="orgPassword">Password</label>
+          <input class="input input-lg" id="orgPassword" type="password" autocomplete="${mode==='login'?'current-password':'new-password'}" required minlength="8" />
+          <div class="hint" id="orgPwHint" style="${mode==='signup'?'':'display:none'}">At least 8 characters.</div>
+        </div>
+        <div class="auth-err" id="orgErr"></div>
+        <button class="btn btn-primary btn-xl btn-block" id="orgSubmit" type="submit">${mode==='login'?'Sign in':'Create organizer account'}</button>
+        <p class="auth-foot" style="margin-top:var(--s-3)">${mode==='signup'
+          ? `<a href="/signup">Prefer to be onboarded by our team?</a>`
+          : ``}</p>
+      </form>
+    </div>`;
+  wireOrganizer(mode);
+}
+
+function wireOrganizer(initialMode) {
+  let mode = initialMode;
+  function setMode(m) {
+    mode = m;
+    $('#orgModeSignin').classList.toggle('is-active', m==='login');
+    $('#orgModeSignup').classList.toggle('is-active', m==='signup');
+    $('#orgOrgField').style.display  = m==='signup' ? '' : 'none';
+    $('#orgNameField').style.display = m==='signup' ? '' : 'none';
+    $('#orgPwHint').style.display    = m==='signup' ? '' : 'none';
+    $('#orgTitle').innerHTML = m==='login' ? 'Organizer <em>sign in</em>' : 'Set up your <em>organizer</em> account';
+    $('#orgSub').textContent = m==='login'
+      ? 'Manage your tournament site, registrations, payments, check-in, and live scoring.'
+      : 'Free to set up. You can run your first event right after signing up.';
+    $('#orgSubmit').textContent = m==='login' ? 'Sign in' : 'Create organizer account';
+    $('#orgPassword').setAttribute('autocomplete', m==='login' ? 'current-password' : 'new-password');
+    $('#orgErr').classList.remove('show');
+    setTimeout(() => (m==='signup' ? $('#orgName') : $('#orgEmail')).focus(), 0);
   }
-});
+  $('#orgModeSignin').onclick = () => setMode('login');
+  $('#orgModeSignup').onclick = () => setMode('signup');
+  $('#back').onclick = () => {
+    const url = new URL(location.href);
+    url.searchParams.delete('track');
+    history.replaceState(null, '', url.toString());
+    renderChooser();
+  };
+
+  $('#orgForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const email    = $('#orgEmail').value.trim();
+    const password = $('#orgPassword').value;
+    const name     = $('#orgPerson').value.trim();
+    const org_name = $('#orgName').value.trim();
+    const errBox   = $('#orgErr');
+    errBox.classList.remove('show');
+    if (!email || !password) { errBox.textContent='Email and password are required.'; errBox.classList.add('show'); return; }
+    if (mode==='signup' && !name) { errBox.textContent='Tell us your name.'; errBox.classList.add('show'); return; }
+    if (mode==='signup' && password.length < 8) { errBox.textContent='Password must be at least 8 characters.'; errBox.classList.add('show'); return; }
+    const btn = $('#orgSubmit'); const orig = btn.textContent;
+    btn.disabled = true; btn.textContent = mode==='login' ? 'Signing in…' : 'Creating…';
+    try {
+      // Auth endpoints follow the existing admin pattern: /api/auth/login
+      // and the new /api/auth/signup that creates an admin row directly.
+      const r = await JORD.api(
+        mode==='login' ? '/api/auth/login' : '/api/auth/signup',
+        { method:'POST', body: mode==='login' ? { email, password } : { name, email, password, org_name } }
+      );
+      JORD.setToken(r.token);
+      location.replace(nextUrl('/admin'));
+    } catch (e) {
+      errBox.textContent = e.message || 'Something went wrong.';
+      errBox.classList.add('show');
+      btn.disabled = false; btn.textContent = orig;
+    }
+  });
+}
 </script>
 </body>
 </html>

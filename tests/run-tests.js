@@ -446,6 +446,33 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
 }
 
+console.log('\n🚪 Auth chooser + self-service organizer signup (v3.52)\n');
+{
+  test('POST /api/auth/signup endpoint registered',
+    () => assert(src.includes("app.post('/api/auth/signup'"), 'Organizer signup endpoint missing'));
+  test('Organizer signup creates an admin row with role=admin',
+    () => assert(/INSERT INTO admins[\s\S]*?role,\s*active[\s\S]*?'admin',\s*1/.test(src) || /INSERT INTO admins[\s\S]*?'admin',\s*1\)/.test(src), 'Signup not inserting admin row'));
+  test('Organizer signup rejects duplicate emails',
+    () => assert(src.includes("already has an organizer account"), 'Duplicate check missing'));
+  test('Organizer signup composes display name with org',
+    () => assert(src.includes('org_name') && /name\.trim\(\)/.test(src), 'Org name plumbing missing'));
+  const fs = require('fs');
+  const loginHtml = fs.readFileSync('./public/login.html', 'utf8');
+  test('Login page renders the two-tile chooser',
+    () => assert(loginHtml.includes('chooser-tile') && loginHtml.includes('data-track="personal"') && loginHtml.includes('data-track="organizer"'), 'Tile chooser not wired'));
+  test('Login page boot routes signed-in admins to /admin',
+    () => assert(loginHtml.includes("location.replace(nextUrl('/admin'))"), 'Admin redirect missing'));
+  test('Login page boot routes signed-in users to /clubhouse',
+    () => assert(loginHtml.includes("location.replace(nextUrl('/clubhouse'))"), 'User redirect missing'));
+  test('Login page supports ?track= deep links for landing-page CTAs',
+    () => assert(loginHtml.includes('forcedTrack()') && /t\s*===\s*'personal'/.test(loginHtml), 'Track param not honored'));
+  test('Login page has organizer form posting to /api/auth/signup',
+    () => assert(loginHtml.includes('/api/auth/signup') && loginHtml.includes('renderOrganizerForm'), 'Organizer form missing'));
+  const landingHtml = fs.readFileSync('./public/landing.html', 'utf8');
+  test('Landing nav Sign in points at /login (the chooser)',
+    () => assert(/<a href="\/login" class="nav-link">Sign in<\/a>/.test(landingHtml), 'Landing Sign in still admin-only'));
+}
+
 console.log('\n💬 Banter chat (v3.51)\n');
 {
   test('banter_messages table created',

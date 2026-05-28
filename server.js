@@ -1861,6 +1861,41 @@ app.post('/api/auth/login', loginLimiter, (req, res) => {
   });
 });
 
+// Self-service organizer signup (v3.52). Anyone can create an admin
+// account that immediately works for /admin — no more "we'll be in
+// touch in 48 hours" gate. The old sales-form /signup still exists
+// for users who want to be hand-held by a human; this endpoint is
+// for the chooser flow ("Run a charity / corporate event" tile).
+app.post('/api/auth/signup', (req, res) => {
+  const { name, email, password, org_name } = req.body || {};
+  if (!name || !email || !password) return res.status(400).json({ error: 'Name, email, and password are required.' });
+  if (String(password).length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Email address looks invalid.' });
+  const e = String(email).toLowerCase().trim();
+  if (db.prepare('SELECT id FROM admins WHERE email=?').get(e)) {
+    return res.status(409).json({ error: 'That email already has an organizer account — try signing in instead.' });
+  }
+  // Prepend the org name to the display name when supplied; the admin
+  // panel shows this on the top bar so the organizer sees their org
+  // identity at a glance.
+  const displayName = (org_name && String(org_name).trim())
+    ? `${String(name).trim()} (${String(org_name).trim().slice(0, 60)})`
+    : String(name).trim();
+  const id = uid('ADM');
+  db.prepare(`INSERT INTO admins (id, name, email, password_hash, role, active)
+              VALUES (?, ?, ?, ?, 'admin', 1)`)
+    .run(id, displayName.slice(0, 120), e, hashPassword(password));
+  const token = createSession(id);
+  res.json({
+    token,
+    id, name: displayName, email: e, role: 'admin',
+    // Defaults match what /api/auth/login returns so the client can use
+    // the same response handling for sign-in vs sign-up.
+    perm_corrections: 1, perm_end_tournament: 1,
+    perm_manage_players: 1, perm_manage_balls: 1,
+  });
+});
+
 app.post('/api/auth/logout', requireAuth, (req, res) => {
   const token = req.headers['x-admin-token'] || req.query.token;
   db.prepare('DELETE FROM sessions WHERE token=?').run(token);
