@@ -2172,14 +2172,48 @@
 
   /* Show each game's settings container only while that contest is toggled on.
      Combined-scoring is only meaningful when both games are on. */
+  // Panels + header buttons that are ONLY meaningful when at least one
+  // of the LD / CTP contests is enabled. The full LD/CTP module stack:
+  // map (zones + pins), ball codes (scanning), players & teams (ball
+  // drop registry), reps (on-course rep accounts), alerts (rough/OOB
+  // events). The Leaderboard + Monitor header links also point at
+  // LD/CTP-specific pages.
+  const CONTEST_ONLY_PANELS = ['map', 'balls', 'players', 'reps', 'alerts'];
+  const CONTEST_ONLY_HEADER_BTNS = ['btn-view-leaderboard', 'btn-view-monitor'];
+
   function syncGameSettings() {
     const f = $('#form-settings');
     const ld = f.has_longest_drive.checked;
     const ctp = f.has_closest_pin.checked;
+    const hasContests = ld || ctp;
+    // Within the Settings tab
     $('#ld-settings').classList.toggle('is-hidden', !ld);
     $('#ctp-settings').classList.toggle('is-hidden', !ctp);
     $('#combined-scoring-wrap').style.display = (ld && ctp) ? '' : 'none';
-    $('#no-contest-note').classList.toggle('is-hidden', ld || ctp);
+    $('#no-contest-note').classList.toggle('is-hidden', hasContests);
+
+    // Left nav — hide contest-only tabs when both contests are off so a
+    // registration-only organizer doesn't stare at irrelevant UI.
+    document.querySelectorAll('.editor-nav .nav-item[data-panel]').forEach(item => {
+      if (CONTEST_ONLY_PANELS.includes(item.dataset.panel)) {
+        item.classList.toggle('hidden', !hasContests);
+      }
+    });
+
+    // Header buttons — Leaderboard + Monitor go to LD/CTP-specific pages.
+    CONTEST_ONLY_HEADER_BTNS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = hasContests ? '' : 'none';
+    });
+
+    // If the user is currently parked on a panel we just hid, bounce them
+    // back to Settings so they don't see an empty card.
+    if (!hasContests) {
+      const active = document.querySelector('.editor-nav .nav-item.is-active');
+      if (active && CONTEST_ONLY_PANELS.includes(active.dataset.panel)) {
+        showPanel('settings');
+      }
+    }
   }
   ['has_longest_drive', 'has_closest_pin'].forEach(n => {
     $('#form-settings')[n].addEventListener('change', syncGameSettings);

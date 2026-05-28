@@ -2,6 +2,58 @@
 
 ---
 
+## v3.54.0 — 2026-05-26
+### Session 71 — Full LD/CTP module gating
+
+v3.53 hid only the per-contest *penalty rules* when the toggles were
+off. v3.54 extends that to the full LD/CTP module stack: the entire
+set of tabs and header buttons that only make sense for an event
+actually running Longest Drive or Closest to Pin contests.
+
+A charity event running just registrations / sponsorships / donations
+now sees a clean editor without irrelevant tabs. The moment they
+toggle LD or CTP on, the whole stack lights up.
+
+#### What changed
+- **`public/admin/editor.html`** — extended `syncGameSettings()`
+  (already wired to the LD/CTP toggle change events) to also hide /
+  show:
+  - **Left-nav tabs** — `Course map`, `Ball Codes`, `Players & teams`,
+    `Reps`, and `Alerts` all listed in `CONTEST_ONLY_PANELS`. The
+    `Settings` tab stays always-visible.
+  - **Header buttons** — `Leaderboard` and `Monitor` listed in
+    `CONTEST_ONLY_HEADER_BTNS`. The other header links (`Site`,
+    `Registrations`, `Check-in`, `Pairings`, `Auction`, `Export CSV`,
+    `End tournament`) stay always-visible since they apply to any
+    event type.
+  - **Auto-switch** — if the user was parked on a contest-only panel
+    (say, Course Map) and just toggled both contests off, the editor
+    bounces them back to Settings so they don't see an empty card.
+- **Wired to existing change-listeners** — the
+  `has_longest_drive` / `has_closest_pin` checkbox listeners already
+  call `syncGameSettings()` on change, and `fillSettings()` calls it
+  once after loading the event row, so the visibility is in sync
+  immediately on open + lives-updates when the organizer toggles.
+
+#### Why it looks the way it does
+- Course Map, Ball Codes, Players & Teams, Reps, and Alerts are all
+  LD/CTP-specific by design — the polygon zones, drop-code scanning,
+  4-player team registry, on-course reps, and rough/OOB alerts are
+  all features of the GPS-scored contests, not the registration /
+  sponsorship / donation / silent-auction side.
+- Leaderboard (`/leaderboard/:id`) and Monitor (`/monitor/:id`) are
+  the LD/CTP-specific live boards. The Clubhouse-style
+  `/tournament/:id` cumulative leaderboard is reached separately
+  (via the scoring-bridge "Start scoring" flow on the Pairings page).
+
+#### Tested
+- **386/386 unit tests pass** (+5 new) covering: `CONTEST_ONLY_PANELS`
+  list declared, includes ball codes / players / reps / alerts,
+  header button gate declared, nav-item toggle wiring, auto-switch
+  back to Settings.
+
+---
+
 ## v3.53.0 — 2026-05-26
 ### Session 70 — Personal → organizer upgrade requests + LD/CTP collapse
 

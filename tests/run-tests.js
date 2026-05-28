@@ -446,6 +446,22 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
 }
 
+console.log('\n🎛 LD/CTP module gating (v3.54)\n');
+{
+  const fs = require('fs');
+  const editorHtml = fs.readFileSync('./public/admin/editor.html', 'utf8');
+  test('Editor declares CONTEST_ONLY_PANELS list',
+    () => assert(/CONTEST_ONLY_PANELS\s*=\s*\[[^\]]*'map'/.test(editorHtml), 'Contest panel list missing'));
+  test('Editor includes ball codes, players, reps, alerts in the LD/CTP gate',
+    () => assert(/CONTEST_ONLY_PANELS\s*=\s*\[[^\]]*'balls'[^\]]*'players'[^\]]*'reps'[^\]]*'alerts'/s.test(editorHtml), 'Contest panel list incomplete'));
+  test('Editor gates Leaderboard + Monitor header buttons',
+    () => assert(/CONTEST_ONLY_HEADER_BTNS\s*=\s*\[[^\]]*btn-view-leaderboard[^\]]*btn-view-monitor/.test(editorHtml), 'Header button gate missing'));
+  test('syncGameSettings toggles nav-item hidden class on contest panels',
+    () => assert(editorHtml.includes("item.dataset.panel") && editorHtml.includes("classList.toggle('hidden'"), 'Nav toggle missing'));
+  test('syncGameSettings bounces user to Settings when leaving a contest-only panel',
+    () => assert(editorHtml.includes("showPanel('settings')") && /CONTEST_ONLY_PANELS\.includes\(active\.dataset\.panel\)/.test(editorHtml), 'Auto-switch missing'));
+}
+
 console.log('\n📨 Organizer-upgrade requests + LD/CTP collapse (v3.53)\n');
 {
   test('tournament_requests.requester_user_id column migrated',
