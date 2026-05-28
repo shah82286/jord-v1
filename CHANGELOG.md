@@ -2,6 +2,72 @@
 
 ---
 
+## v3.53.0 — 2026-05-26
+### Session 70 — Personal → organizer upgrade requests + LD/CTP collapse
+
+Two requested features:
+
+1. **Personal users can now request organizer access from inside the
+   Clubhouse.** JORD's team vets each request (no auto-grant). On
+   approval, the new admin row reuses the user's existing password hash
+   so they sign into `/admin` with the same credentials as
+   `/clubhouse` — no temp password to remember.
+2. **LD/CTP settings collapse** in the admin event editor. The "Longest
+   Drive — penalty rules" and "Closest to Pin — penalty rules" blocks
+   hide when the corresponding contest toggle is off, so an event
+   running CTP-only doesn't see rough/OOB knobs cluttering the form.
+
+#### What changed
+- **Schema** — `tournament_requests.requester_user_id` (nullable, FK
+  to the personal user when the request came from the Clubhouse
+  upgrade flow). The legacy /signup sales form leaves it null, same
+  workflow as before.
+- **`POST /api/users/request-organizer-upgrade`** (auth: `requireUser`) —
+  inserts a `tournament_requests` row with `status='pending'`,
+  `requester_user_id` stamped, display name composed as
+  "Person (Org)". Rejects duplicate pending requests with a friendly
+  409 ("you already have a pending request"). Email + name auto-
+  filled from the user's profile so they only have to type the
+  org details.
+- **`GET /api/users/organizer-request-status`** — returns the user's
+  latest request row (any status) so the Clubhouse can render the
+  right CTA state: none / pending / accepted / rejected.
+- **Accept-request flow extended** — `POST /api/admin/tournament-requests/:id/accept`
+  now checks `requester_user_id`. When present, the new admin row is
+  minted with **the user's password hash mirrored** rather than a
+  fresh temp password. Result: the same email + password works in
+  both `/clubhouse` and `/admin`. Notification flips to "you've been
+  granted access" (no password reveal) instead of the welcome-with-
+  temp-password copy.
+- **Clubhouse home** — new "Request organizer access" card (visible
+  only to signed-in personal users without an admin token). Polls
+  `/api/users/organizer-request-status` on load; the card body
+  changes based on state:
+  - **none** → "Running a charity tournament?" CTA + Request button
+  - **pending** → "⏳ Request in review" copy
+  - **accepted** → "✅ You're approved" + "Open admin console →"
+    link to `/admin`
+  - **rejected** → "Request declined" + reach-out copy
+- **Upgrade modal** — lightweight form: org name, tournament name
+  (optional), event date, venue, location, contact phone, expected
+  players, contest type (LD/CTP/both), charity checkbox, notes.
+  POSTs to the upgrade-request endpoint, closes on success,
+  re-renders the card in the pending state.
+- **Admin event editor** — LD and CTP penalty-rule sections now wrap
+  in `#ld-settings` / `#ctp-settings` containers. New
+  `updateContestVisibility()` listens on the contest-toggle change
+  event and hides/shows the corresponding block. Initial render
+  (after `fillSettings()`) calls it once so the form opens in the
+  right state for the existing event's toggles.
+
+#### Tested
+- **381/381 unit tests pass** (+10 new) covering: schema migration,
+  both new endpoints, duplicate-pending guard, password-mirror branch
+  in the accept flow, Clubhouse upgrade-CTA wiring, modal endpoint
+  target, LD + CTP block wrappers, visibility handler.
+
+---
+
 ## v3.52.0 — 2026-05-26
 ### Session 69 — Auth chooser + self-service organizer signup
 

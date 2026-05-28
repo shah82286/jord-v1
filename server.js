@@ -318,6 +318,13 @@ try { db.exec("ALTER TABLE registration_packages ADD COLUMN image_data TEXT"); }
 try { db.exec("ALTER TABLE tournaments ADD COLUMN user_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE round_entries ADD COLUMN user_id TEXT"); } catch {}
 
+// Personal → organizer upgrade requests (v3.53): a signed-in personal
+// user can submit a request to JORD to be approved as an organizer.
+// The existing tournament_requests row gets stamped with their user_id
+// so on accept we can mint an admin account that reuses their password
+// hash (same sign-in creds across both UIs).
+try { db.exec("ALTER TABLE tournament_requests ADD COLUMN requester_user_id TEXT"); } catch {}
+
 // Banter chat (v3.51): a lightweight group-chat tied to a tournament.
 // Anyone with the share code can read + post. user_id is stamped when
 // the poster is signed in; sender_name is required either way so guest
@@ -4013,12 +4020,30 @@ app.post('/api/admin/tournament-requests/:id/accept', requireAuth, requireSuper,
       ownerAdminId = existing.id;
       notifyKind = 'assigned';
     } else {
-      tempPassword = generateAdminPassword();
-      createdNew = true;
-      notifyKind = 'welcome';
+      // Two sub-cases:
+      //  • Request came from a signed-in personal user (requester_user_id
+      //    set): mint an admin row that reuses their password hash so
+      //    they sign in to /admin with their existing creds — no temp
+      //    password to remember.
+      //  • Request came from a public /signup form (no requester_user_id):
+      //    generate a temp password and email it via the welcome flow.
+      const personal = r.requester_user_id
+        ? db.prepare('SELECT * FROM users WHERE id=?').get(r.requester_user_id)
+        : null;
       const newId = uid('ADM');
-      db.prepare('INSERT INTO admins (id,name,email,password_hash,role) VALUES (?,?,?,?,?)')
-        .run(newId, String(r.admin_name || 'Tournament Admin').trim(), reqEmail, hashPassword(tempPassword), 'admin');
+      if (personal && personal.email === reqEmail) {
+        // Mirror the user's password hash; no temp password needed.
+        db.prepare('INSERT INTO admins (id,name,email,password_hash,role) VALUES (?,?,?,?,?)')
+          .run(newId, String(r.admin_name || personal.name || 'Tournament Admin').trim(),
+               reqEmail, personal.password_hash, 'admin');
+        notifyKind = 'assigned';   // "you've been granted access" copy, no password reveal
+      } else {
+        tempPassword = generateAdminPassword();
+        notifyKind = 'welcome';
+        db.prepare('INSERT INTO admins (id,name,email,password_hash,role) VALUES (?,?,?,?,?)')
+          .run(newId, String(r.admin_name || 'Tournament Admin').trim(), reqEmail, hashPassword(tempPassword), 'admin');
+      }
+      createdNew = true;
       ownerAdminId = newId;
     }
   }
@@ -7291,6 +7316,63 @@ app.get('/api/users/me', requireUser, (req, res) => {
     id: req.user.id, name: req.user.name, email: req.user.email,
     handicap_index: req.user.handicap_index, ghin_id: req.user.ghin_id,
   }});
+});
+
+// Signed-in personal user requests to be approved as an organizer. Lands
+// in the existing tournament_requests queue at /admin/requests with the
+// `requester_user_id` stamped so the accept flow can mint an admin row
+// linked to the same person. Lightweight intentionally — just enough
+// info for JORD's team to vet ("is this person legit? is the event real?").
+// The existing /signup sales form still exists for organizers who want
+// the high-touch onboarding without an account yet.
+app.post('/api/users/request-organizer-upgrade', requireUser, (req, res) => {
+  const b = req.body || {};
+  const orgName    = (b.org_name || '').trim();
+  const tName      = (b.tournament_name || `${req.user.name}'s event`).trim();
+  const eventDate  = (b.event_date || '').trim() || 'TBD';
+  const venue      = (b.venue || '').trim();
+  const location   = (b.location || '').trim();
+  const contestType = ['ld', 'ctp', 'both'].includes(b.contest_type) ? b.contest_type : 'both';
+  const expected   = Math.max(1, Math.min(1000, Number(b.expected_players) || 0));
+  const phone      = (b.phone || '').trim();
+  const notes      = (b.notes || '').trim().slice(0, 2000) || null;
+  const isCharity  = b.is_charity ? 1 : 0;
+
+  if (!orgName)          return res.status(400).json({ error: 'Organization or charity name is required.' });
+  if (!venue)            return res.status(400).json({ error: 'Venue is required.' });
+  if (!location)         return res.status(400).json({ error: 'Location is required.' });
+  if (!phone)            return res.status(400).json({ error: 'A contact phone is required.' });
+  if (!expected)         return res.status(400).json({ error: 'Expected players is required.' });
+
+  // Reject if the user has a pending request already — prevents accidental
+  // duplicate submissions and gives them a clearer next step.
+  const open = db.prepare(`SELECT id FROM tournament_requests
+                           WHERE requester_user_id=? AND status='pending'`).get(req.user.id);
+  if (open) return res.status(409).json({ error: 'You already have a pending request — our team will be in touch shortly.' });
+
+  // Compose the display admin name as "Person (Org)" so the requests
+  // queue shows both at a glance, same convention as /api/auth/signup.
+  const displayName = `${req.user.name} (${orgName.slice(0, 80)})`;
+
+  db.prepare(`INSERT INTO tournament_requests
+    (tournament_name, event_date, venue, location, contest_type, expected_players,
+     admin_name, admin_email, admin_phone, notes, status, is_charity, requester_user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)`).run(
+    tName, eventDate, venue, location, contestType, expected,
+    displayName, req.user.email, phone, notes, isCharity, req.user.id);
+
+  res.json({ ok: true });
+});
+
+// Has the signed-in personal user already submitted an upgrade request?
+// Drives the CTA on /clubhouse — show "Request access" when null, show
+// "Request pending / approved / declined" when set.
+app.get('/api/users/organizer-request-status', requireUser, (req, res) => {
+  const row = db.prepare(`SELECT id, status, created_at, created_event_id
+                          FROM tournament_requests
+                          WHERE requester_user_id=?
+                          ORDER BY created_at DESC LIMIT 1`).get(req.user.id);
+  res.json({ request: row || null });
 });
 
 // ─── PAGES ───────────────────────────────────────────────────────────────────

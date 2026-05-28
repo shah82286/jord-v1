@@ -361,50 +361,56 @@
                 <label class="switch" title="Add each team's Longest Drive + Closest to Pin scores together for one combined leaderboard."><input type="checkbox" name="combined_scoring"><span class="switch-track"></span><span class="switch-label">Combined scoring</span></label>
               </div>
 
-              <hr class="divider">
-              <h4>Longest Drive — penalty rules</h4>
-              <div class="row gap-4 row-wrap">
-                <label class="switch" title="If enabled, shots that land in the rough are still counted — but with a yardage deduction. If disabled, rough shots score zero."><input type="checkbox" name="allow_rough"><span class="switch-track"></span><span class="switch-label">Allow rough scoring</span></label>
-                <label class="switch" title="If enabled, out-of-bounds and lost balls are still counted — but with a yardage deduction. If disabled, OOB/lost shots score zero."><input type="checkbox" name="allow_oob"><span class="switch-track"></span><span class="switch-label">Allow OOB / lost</span></label>
-              </div>
-              <div class="field-grid">
-                <div class="field">
-                  <label>Rough penalty mode</label>
-                  <select class="select" name="rough_penalty_mode" title="Perpendicular: penalty = exact distance from ball to the nearest fairway edge. Fixed: subtract a set number of yards regardless of position.">
-                    <option value="perpendicular">Perpendicular</option>
-                    <option value="fixed">Fixed yards</option>
-                  </select>
+              <!-- LD settings collapse when has_longest_drive is off (v3.53) -->
+              <div id="ld-settings" data-contest-block="ld">
+                <hr class="divider">
+                <h4>Longest Drive — penalty rules</h4>
+                <div class="row gap-4 row-wrap">
+                  <label class="switch" title="If enabled, shots that land in the rough are still counted — but with a yardage deduction. If disabled, rough shots score zero."><input type="checkbox" name="allow_rough"><span class="switch-track"></span><span class="switch-label">Allow rough scoring</span></label>
+                  <label class="switch" title="If enabled, out-of-bounds and lost balls are still counted — but with a yardage deduction. If disabled, OOB/lost shots score zero."><input type="checkbox" name="allow_oob"><span class="switch-track"></span><span class="switch-label">Allow OOB / lost</span></label>
                 </div>
-                <div class="field">
-                  <label>Rough fixed yards</label>
-                  <input class="input" type="number" name="rough_fixed_yards" min="0" title="Yards subtracted from raw distance when ball lands in rough (Fixed mode only). e.g. enter 10 to subtract 10 yards.">
-                </div>
-                <div class="field">
-                  <label>OOB penalty mode</label>
-                  <select class="select" name="oob_penalty_mode" title="Half hole: penalty = 50% of the total hole distance (e.g. 150 yds on a 300 yd hole). Fixed: subtract a set number of yards.">
-                    <option value="half_hole">Half hole (50%)</option>
-                    <option value="fixed">Fixed yards</option>
-                  </select>
-                </div>
-                <div class="field">
-                  <label>OOB fixed yards</label>
-                  <input class="input" type="number" name="oob_fixed_yards" min="0" title="Yards subtracted from raw distance for OOB or lost balls (Fixed mode only).">
-                </div>
-                <div class="field">
-                  <label>Hole distance (yards)</label>
-                  <input class="input" type="number" name="hole_distance_yards" min="0" value="300" title="Measure the straight-line distance from the tee box to the pin in yards. Used to calculate the 'half hole' OOB penalty. Walk it off or use a rangefinder on the day.">
-                  <div class="hint">Measure tee-to-pin with a rangefinder, or look it up from course data.</div>
-                  <button type="button" class="btn btn-ghost" style="margin-top:6px;font-size:12px;padding:5px 10px" onclick="lookupHoleDistance()">🔍 Look up from course data</button>
+                <div class="field-grid">
+                  <div class="field">
+                    <label>Rough penalty mode</label>
+                    <select class="select" name="rough_penalty_mode" title="Perpendicular: penalty = exact distance from ball to the nearest fairway edge. Fixed: subtract a set number of yards regardless of position.">
+                      <option value="perpendicular">Perpendicular</option>
+                      <option value="fixed">Fixed yards</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>Rough fixed yards</label>
+                    <input class="input" type="number" name="rough_fixed_yards" min="0" title="Yards subtracted from raw distance when ball lands in rough (Fixed mode only). e.g. enter 10 to subtract 10 yards.">
+                  </div>
+                  <div class="field">
+                    <label>OOB penalty mode</label>
+                    <select class="select" name="oob_penalty_mode" title="Half hole: penalty = 50% of the total hole distance (e.g. 150 yds on a 300 yd hole). Fixed: subtract a set number of yards.">
+                      <option value="half_hole">Half hole (50%)</option>
+                      <option value="fixed">Fixed yards</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>OOB fixed yards</label>
+                    <input class="input" type="number" name="oob_fixed_yards" min="0" title="Yards subtracted from raw distance for OOB or lost balls (Fixed mode only).">
+                  </div>
+                  <div class="field">
+                    <label>Hole distance (yards)</label>
+                    <input class="input" type="number" name="hole_distance_yards" min="0" value="300" title="Measure the straight-line distance from the tee box to the pin in yards. Used to calculate the 'half hole' OOB penalty. Walk it off or use a rangefinder on the day.">
+                    <div class="hint">Measure tee-to-pin with a rangefinder, or look it up from course data.</div>
+                    <button type="button" class="btn btn-ghost" style="margin-top:6px;font-size:12px;padding:5px 10px" onclick="lookupHoleDistance()">🔍 Look up from course data</button>
+                  </div>
                 </div>
               </div>
 
-              <hr class="divider">
-              <h4>Closest to Pin — penalty rules</h4>
-              <div class="field-grid">
-                <div class="field">
-                  <label>Off-green penalty (feet)</label>
-                  <input class="input" type="number" name="cp_off_green_penalty_ft" min="0" value="0" title="Feet added to a player's pin distance if their ball does not land on the green. 0 = no penalty.">
-                  <div class="hint">Added to distance when ball is off the green. 0 = off-green shots count at their raw distance.</div>
+              <!-- CTP settings collapse when has_closest_pin is off (v3.53) -->
+              <div id="ctp-settings" data-contest-block="ctp">
+                <hr class="divider">
+                <h4>Closest to Pin — penalty rules</h4>
+                <div class="field-grid">
+                  <div class="field">
+                    <label>Off-green penalty (feet)</label>
+                    <input class="input" type="number" name="cp_off_green_penalty_ft" min="0" value="0" title="Feet added to a player's pin distance if their ball does not land on the green. 0 = no penalty.">
+                    <div class="hint">Added to distance when ball is off the green. 0 = off-green shots count at their raw distance.</div>
+                  </div>
                 </div>
               </div>
 
@@ -1622,7 +1628,29 @@
     for (const k of ['rough_fixed_yards', 'oob_fixed_yards', 'hole_distance_yards', 'cp_off_green_penalty_ft']) f[k].value = currentEvent[k] || 0;
     /* Admin-only zone view toggles default to all on when opening editor */
     document.querySelectorAll('[data-admin-zone-toggle]').forEach(cb => { cb.checked = true; });
+    // Sync the LD/CTP collapse state based on the contest toggles loaded
+    // from the event row.
+    updateContestVisibility();
   }
+
+  // Show/hide the LD and CTP "penalty rules" blocks based on whether
+  // the contest is enabled. Keeps the settings form focused — an event
+  // running only CTP doesn't need rough/OOB penalty knobs on screen.
+  function updateContestVisibility() {
+    const f = $('#form-settings');
+    if (!f) return;
+    const ldOn  = !!(f.has_longest_drive && f.has_longest_drive.checked);
+    const ctpOn = !!(f.has_closest_pin   && f.has_closest_pin.checked);
+    const ldBlock  = document.getElementById('ld-settings');
+    const ctpBlock = document.getElementById('ctp-settings');
+    if (ldBlock)  ldBlock.style.display  = ldOn  ? '' : 'none';
+    if (ctpBlock) ctpBlock.style.display = ctpOn ? '' : 'none';
+  }
+  document.addEventListener('change', e => {
+    if (e.target && (e.target.name === 'has_longest_drive' || e.target.name === 'has_closest_pin')) {
+      updateContestVisibility();
+    }
+  });
 
   /* Look up a hole's real tee-to-pin yardage from golfcourseapi.com and drop it
      into the Hole distance field. Wired via inline onclick on the Settings tab. */

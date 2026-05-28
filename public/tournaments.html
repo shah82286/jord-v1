@@ -175,6 +175,8 @@ function renderHome() {
       <button class="btn btn-accent btn-xl" id="create">＋ Create a game</button>
     </div></div>
 
+    <div id="upgradeCard"></div>
+
     <h2 class="sec-head">Your games</h2>
     <div id="trnList" class="tile-grid"></div>
 
@@ -185,8 +187,122 @@ function renderHome() {
     <div id="coursePanel"></div>
     <div id="courseList" class="tile-grid"></div>`;
   renderTrnList(); renderCourseList();
+  // Only personal users (not admins) see the upgrade card. Admins already
+  // have organizer powers.
+  if (HAS_USER_TOKEN && !HAS_ADMIN_TOKEN) renderUpgradeCard();
   $('#create').onclick = () => go('new/type');
   $('#addCourse').onclick = toggleCoursePanel;
+}
+
+/* ─── Organizer-upgrade CTA + modal (v3.53) ─────────────────────────
+   Shown only to signed-in personal users. The card changes state based
+   on whether they have a pending / approved / declined request on file:
+     • none      → "Request access" button
+     • pending   → "Request pending — we're reviewing" + disabled action
+     • accepted  → "Approved — open admin console" linking to /admin
+     • rejected  → "Declined. Reach out if you have questions."           */
+async function renderUpgradeCard() {
+  let r = null;
+  try {
+    const data = await JORD.api('/api/users/organizer-request-status');
+    r = data && data.request;
+  } catch { /* not signed in or error — skip the card */ }
+  const card = $('#upgradeCard');
+  if (!card) return;
+  let body, btn;
+  if (!r) {
+    body = `<strong>Running a charity tournament or corporate event?</strong>
+      <p style="font-size:14px;color:var(--ink-2);margin:6px 0 var(--s-2)">Branded event site at /e/your-slug, online registration via Stripe, check-in + pairings + scoring on event day. Our team reviews each request to keep the platform clean.</p>`;
+    btn = `<button class="btn btn-primary" id="btnUpgrade">Request organizer access →</button>`;
+  } else if (r.status === 'pending') {
+    body = `<strong>⏳ Request in review</strong>
+      <p style="font-size:14px;color:var(--ink-2);margin:6px 0 var(--s-2)">Our team is vetting your organizer request. We'll email you when we've decided — usually within a couple of business days.</p>`;
+    btn = '';
+  } else if (r.status === 'accepted') {
+    body = `<strong>✅ You're approved as an organizer</strong>
+      <p style="font-size:14px;color:var(--ink-2);margin:6px 0 var(--s-2)">Sign in at the admin console with your existing email + password. Same login as here.</p>`;
+    btn = `<a class="btn btn-primary" href="/admin">Open admin console →</a>`;
+  } else if (r.status === 'rejected') {
+    body = `<strong>Request declined</strong>
+      <p style="font-size:14px;color:var(--ink-2);margin:6px 0 var(--s-2)">Our team didn't approve this request. Reply to the email you received, or reach out to support@jordgolf.com for more details.</p>`;
+    btn = '';
+  } else {
+    return;
+  }
+  card.innerHTML = `<div class="card" style="margin:var(--s-4) 0;background:linear-gradient(135deg,rgba(184,136,77,.06),rgba(184,136,77,.02));border-color:rgba(184,136,77,.30)">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--s-3);flex-wrap:wrap">
+      <div style="flex:1;min-width:240px">${body}</div>
+      <div>${btn}</div>
+    </div>
+  </div>`;
+  if (!r) {
+    const b = $('#btnUpgrade');
+    if (b) b.onclick = openUpgradeModal;
+  }
+}
+
+function openUpgradeModal() {
+  const orgInput      = JORD.el('input', { class: 'input', id: 'up-org',      placeholder: 'e.g. Fairway Fund' });
+  const tnameInput    = JORD.el('input', { class: 'input', id: 'up-tname',    placeholder: 'Fall Charity Classic' });
+  const dateInput     = JORD.el('input', { class: 'input', id: 'up-date',     type: 'date' });
+  const venueInput    = JORD.el('input', { class: 'input', id: 'up-venue',    placeholder: 'Pebble Beach Golf Links' });
+  const locationInput = JORD.el('input', { class: 'input', id: 'up-location', placeholder: 'Pebble Beach, CA' });
+  const phoneInput    = JORD.el('input', { class: 'input', id: 'up-phone',    type: 'tel', placeholder: '+1 555 000 0000' });
+  const playersInput  = JORD.el('input', { class: 'input', id: 'up-players',  type: 'number', min: '1', max: '1000', placeholder: '72' });
+  const contestSelect = JORD.el('select', { class: 'input', id: 'up-contest' });
+  contestSelect.innerHTML = `
+    <option value="both">Both LD &amp; CTP</option>
+    <option value="ld">Longest Drive only</option>
+    <option value="ctp">Closest to Pin only</option>`;
+  const charityCheck  = JORD.el('input', { type: 'checkbox', id: 'up-charity' });
+  const notesArea     = JORD.el('textarea', { class: 'textarea', id: 'up-notes', rows: '3', placeholder: 'Anything else we should know?' });
+
+  const body = JORD.el('div', { class: 'col gap-3' },
+    JORD.el('p', { class: 'small', style: { color: 'var(--ink-2)' } },
+      "Tell us about the event you want to run. Our team reviews each request to make sure it's a legit charity/corporate event before we grant organizer access."),
+    JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Organization or charity *'), orgInput),
+    JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Tournament name (optional)'), tnameInput),
+    JORD.el('div', { class: 'row gap-2' },
+      JORD.el('div', { class: 'field', style: { flex: 1 } }, JORD.el('label', null, 'Event date'), dateInput),
+      JORD.el('div', { class: 'field', style: { flex: 1 } }, JORD.el('label', null, 'Expected players *'), playersInput),
+    ),
+    JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Venue *'), venueInput),
+    JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Location (city, state) *'), locationInput),
+    JORD.el('div', { class: 'row gap-2' },
+      JORD.el('div', { class: 'field', style: { flex: 1 } }, JORD.el('label', null, 'Contact phone *'), phoneInput),
+      JORD.el('div', { class: 'field', style: { flex: 1 } }, JORD.el('label', null, 'Contest type'), contestSelect),
+    ),
+    JORD.el('label', { class: 'row gap-2', style: { alignItems: 'center', cursor: 'pointer' } },
+      charityCheck, JORD.el('span', null, 'This is a 501(c)(3) charity event')),
+    JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Notes'), notesArea),
+  );
+
+  const submitBtn = JORD.el('button', { class: 'btn btn-primary', type: 'button' }, 'Submit request');
+  const m = JORD.modal({ title: 'Request organizer access', body, footer: submitBtn, lg: true });
+
+  submitBtn.addEventListener('click', async () => {
+    submitBtn.disabled = true; submitBtn.textContent = 'Submitting…';
+    try {
+      await JORD.api('/api/users/request-organizer-upgrade', { method: 'POST', body: {
+        org_name:        orgInput.value.trim(),
+        tournament_name: tnameInput.value.trim(),
+        event_date:      dateInput.value || '',
+        venue:           venueInput.value.trim(),
+        location:        locationInput.value.trim(),
+        phone:           phoneInput.value.trim(),
+        expected_players: Number(playersInput.value) || 0,
+        contest_type:    contestSelect.value,
+        is_charity:      charityCheck.checked ? 1 : 0,
+        notes:           notesArea.value.trim(),
+      }});
+      m.close();
+      JORD.success('Request submitted — our team will be in touch.');
+      renderUpgradeCard();
+    } catch (e) {
+      JORD.error(e.message || 'Submit failed');
+      submitBtn.disabled = false; submitBtn.textContent = 'Submit request';
+    }
+  });
 }
 
 function renderTrnList() {

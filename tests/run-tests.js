@@ -446,6 +446,33 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
 }
 
+console.log('\n📨 Organizer-upgrade requests + LD/CTP collapse (v3.53)\n');
+{
+  test('tournament_requests.requester_user_id column migrated',
+    () => assert(src.includes('ALTER TABLE tournament_requests ADD COLUMN requester_user_id'), 'Missing requester_user_id'));
+  test('POST /api/users/request-organizer-upgrade endpoint registered',
+    () => assert(src.includes("app.post('/api/users/request-organizer-upgrade'"), 'Missing endpoint'));
+  test('GET /api/users/organizer-request-status endpoint registered',
+    () => assert(src.includes("app.get('/api/users/organizer-request-status'"), 'Missing status endpoint'));
+  test('Upgrade endpoint rejects duplicate pending requests',
+    () => assert(src.includes('already have a pending request'), 'Dedupe missing'));
+  test('Accept flow reuses user password hash when linked to personal user',
+    () => assert(src.includes('requester_user_id') && src.includes('personal.password_hash'), 'Password mirror missing'));
+  const fs = require('fs');
+  const tourHtml = fs.readFileSync('./public/tournaments.html', 'utf8');
+  test('Clubhouse home shows upgrade CTA for personal users',
+    () => assert(tourHtml.includes('renderUpgradeCard') && tourHtml.includes('openUpgradeModal'), 'Upgrade CTA not wired'));
+  test('Upgrade modal posts to the request endpoint',
+    () => assert(tourHtml.includes('/api/users/request-organizer-upgrade'), 'Modal not hitting endpoint'));
+  const adminHtml = fs.readFileSync('./public/admin.html', 'utf8');
+  test('Admin event editor wraps LD settings for collapse',
+    () => assert(adminHtml.includes('id="ld-settings"'), 'LD settings block missing wrapper'));
+  test('Admin event editor wraps CTP settings for collapse',
+    () => assert(adminHtml.includes('id="ctp-settings"'), 'CTP settings block missing wrapper'));
+  test('Admin editor toggles contest blocks based on switches',
+    () => assert(adminHtml.includes('updateContestVisibility'), 'Visibility handler missing'));
+}
+
 console.log('\n🚪 Auth chooser + self-service organizer signup (v3.52)\n');
 {
   test('POST /api/auth/signup endpoint registered',
