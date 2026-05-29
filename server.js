@@ -7364,6 +7364,76 @@ app.post('/api/users/request-organizer-upgrade', requireUser, (req, res) => {
   res.json({ ok: true });
 });
 
+// ─── SUPER ADMIN: personal-user management (v3.55) ───────────────────
+// Super admins can see every personal user in the system, manually create
+// accounts (helpful for users who hit a wall on self-service), reset
+// passwords, and disable accounts. None of these endpoints accept user
+// tokens — only super admin token.
+
+app.get('/api/admin/users', requireAuth, requireSuper, (req, res) => {
+  const q = String(req.query.q || '').trim().toLowerCase();
+  const rows = q
+    ? db.prepare(`SELECT id, name, email, handicap_index, created_at
+                  FROM users
+                  WHERE LOWER(email) LIKE ? OR LOWER(name) LIKE ?
+                  ORDER BY created_at DESC LIMIT 200`).all(`%${q}%`, `%${q}%`)
+    : db.prepare(`SELECT id, name, email, handicap_index, created_at
+                  FROM users
+                  ORDER BY created_at DESC LIMIT 200`).all();
+  // Counts so the queue-style header can show "32 personal users · 5 created this week".
+  const total = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+  const lastWeek = db.prepare(`SELECT COUNT(*) AS n FROM users
+                               WHERE created_at >= datetime('now','-7 days')`).get().n;
+  res.json({ users: rows, total, last_week: lastWeek });
+});
+
+app.post('/api/admin/users', requireAuth, requireSuper, (req, res) => {
+  const { name, email, password, handicap_index } = req.body || {};
+  if (!name || !email || !password) return res.status(400).json({ error: 'Name, email, and password are required.' });
+  if (String(password).length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ error: 'Email address looks invalid.' });
+  const e = String(email).toLowerCase().trim();
+  if (db.prepare('SELECT id FROM users WHERE email=?').get(e)) {
+    return res.status(409).json({ error: 'That email is already registered.' });
+  }
+  let hcp = null;
+  if (handicap_index !== null && handicap_index !== undefined && handicap_index !== '') {
+    const n = Number(handicap_index);
+    if (Number.isFinite(n) && n >= -10 && n <= 54) hcp = n;
+  }
+  const id = uid('USR');
+  db.prepare('INSERT INTO users (id,name,email,password_hash,handicap_index) VALUES (?,?,?,?,?)')
+    .run(id, String(name).trim().slice(0, 120), e, hashPassword(password), hcp);
+  res.json({ id, name: String(name).trim(), email: e, handicap_index: hcp });
+});
+
+// Reset a user's password to a value the super admin sets. The most
+// common case: a user calls support saying they forgot their password
+// and the super admin wants to hand them a new one over the phone.
+app.post('/api/admin/users/:id/reset-password', requireAuth, requireSuper, (req, res) => {
+  const { password } = req.body || {};
+  if (!password || String(password).length < 8) {
+    return res.status(400).json({ error: 'New password must be at least 8 characters.' });
+  }
+  const u = db.prepare('SELECT id FROM users WHERE id=?').get(req.params.id);
+  if (!u) return res.status(404).json({ error: 'User not found' });
+  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hashPassword(password), req.params.id);
+  // Invalidate any open sessions so the user has to sign in again.
+  db.prepare('DELETE FROM user_sessions WHERE user_id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// Delete a personal-user account entirely. The user_sessions FK cascades;
+// rounds they created keep working (tournaments.user_id stays as an
+// orphaned reference rather than cascading the whole game).
+app.delete('/api/admin/users/:id', requireAuth, requireSuper, (req, res) => {
+  const u = db.prepare('SELECT id FROM users WHERE id=?').get(req.params.id);
+  if (!u) return res.status(404).json({ error: 'User not found' });
+  db.prepare('DELETE FROM user_sessions WHERE user_id=?').run(req.params.id);
+  db.prepare('DELETE FROM users WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
 // Has the signed-in personal user already submitted an upgrade request?
 // Drives the CTA on /clubhouse — show "Request access" when null, show
 // "Request pending / approved / declined" when set.
@@ -7379,6 +7449,7 @@ app.get('/api/users/organizer-request-status', requireUser, (req, res) => {
 const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'about.html', '/signup': 'signup.html',
   '/admin': 'admin.html',
   '/admin/admins':   'admin/admins.html',
+  '/admin/users':    'admin/users.html',
   '/admin/reps':     'admin/reps.html',
   '/admin/backups':  'admin/backups.html',
   '/admin/global':   'admin/global.html',

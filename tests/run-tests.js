@@ -446,6 +446,41 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
 }
 
+console.log('\n👤 Personal-user management + signup UX fixes (v3.55)\n');
+{
+  test('GET /api/admin/users endpoint registered',
+    () => assert(src.includes("app.get('/api/admin/users'") && src.includes('requireSuper'), 'List endpoint missing or not super-only'));
+  test('POST /api/admin/users (manual create) registered',
+    () => assert(/app\.post\('\/api\/admin\/users',\s*requireAuth,\s*requireSuper/.test(src), 'Create endpoint missing'));
+  test('POST /api/admin/users/:id/reset-password registered',
+    () => assert(src.includes("/reset-password'") && src.includes('UPDATE users SET password_hash'), 'Reset endpoint missing'));
+  test('Reset invalidates open user sessions',
+    () => assert(/DELETE FROM user_sessions WHERE user_id=\?/.test(src), 'Sessions not invalidated on reset'));
+  test('DELETE /api/admin/users/:id registered',
+    () => assert(src.includes("app.delete('/api/admin/users/:id'"), 'Delete endpoint missing'));
+  test('Search filters by name OR email LIKE',
+    () => assert(src.includes('LOWER(email) LIKE') && src.includes('LOWER(name) LIKE'), 'Search not wired'));
+  const fs = require('fs');
+  test('/admin/users page route registered',
+    () => assert(src.includes("'/admin/users':"), 'Page route missing'));
+  test('public/admin/users.html exists',
+    () => assert(fs.existsSync('./public/admin/users.html'), 'Page file missing'));
+  const usersHtml = fs.readFileSync('./public/admin/users.html', 'utf8');
+  test('Users page has search, create, reset, delete handlers',
+    () => assert(usersHtml.includes('openCreateModal') && usersHtml.includes('openResetModal') && usersHtml.includes('deleteUser'), 'Handlers missing'));
+  const loginHtml = fs.readFileSync('./public/login.html', 'utf8');
+  test('Login chooser defaults to signup mode for new visitors',
+    () => assert(loginHtml.includes("renderPersonalForm('signup')") && loginHtml.includes("renderOrganizerForm('signup')"), 'Chooser still defaulting to login'));
+  test('Successful signup sets a session-storage welcome flag',
+    () => assert(loginHtml.includes("'jord_just_signed_up'"), 'Welcome flag missing'));
+  const tourHtml = fs.readFileSync('./public/tournaments.html', 'utf8');
+  test('Clubhouse shows welcome toast on first paint after signup',
+    () => assert(tourHtml.includes("jord_just_signed_up") && tourHtml.includes("welcome to the Clubhouse"), 'Welcome toast missing'));
+  const editorHtml = fs.readFileSync('./public/admin/editor.html', 'utf8');
+  test('Admin nav links to Personal Users page',
+    () => assert(editorHtml.includes('id="btn-manage-users"') && editorHtml.includes('/admin/users'), 'Nav link missing'));
+}
+
 console.log('\n🎛 LD/CTP module gating (v3.54)\n');
 {
   const fs = require('fs');

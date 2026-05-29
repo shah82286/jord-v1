@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Personal users · JORD Admin</title>
+  <link rel="stylesheet" href="/css/jord.css" />
+  <style>
+    .pu-wrap { max-width:1100px; margin:0 auto; padding:var(--s-5) var(--s-4) var(--s-7); }
+    .pu-head { display:flex; justify-content:space-between; align-items:flex-end;
+      gap:var(--s-3); flex-wrap:wrap; margin-bottom:var(--s-4); }
+    .pu-head .eyebrow { font-size:11px; letter-spacing:.22em; text-transform:uppercase;
+      color:var(--ink-3); font-weight:700; }
+    .pu-head h1 { font-family:var(--font-display); font-size:clamp(1.7rem,4vw,2.2rem);
+      letter-spacing:-0.02em; line-height:1.1; margin:6px 0 4px; }
+
+    .pu-stats { display:grid; gap:var(--s-3); margin-bottom:var(--s-4);
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); }
+    .pu-stat { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg);
+      padding:var(--s-3) var(--s-4); }
+    .pu-stat .k { font-size:11px; letter-spacing:.18em; text-transform:uppercase;
+      color:var(--ink-3); font-weight:700; }
+    .pu-stat .v { font-family:var(--font-display); font-size:1.9rem; line-height:1.1; margin-top:4px; }
+
+    .pu-toolbar { display:flex; justify-content:space-between; align-items:center;
+      gap:var(--s-3); flex-wrap:wrap; padding:var(--s-3) 0; }
+    .pu-toolbar .search { flex:1; max-width:380px; }
+    .pu-toolbar .search input { width:100%; padding:9px 12px; font-size:14px;
+      border:1px solid var(--border); border-radius:var(--r-md); background:var(--bg); color:var(--ink); }
+
+    .pu-table-wrap { background:var(--surface); border:1px solid var(--border);
+      border-radius:var(--r-lg); overflow:hidden; }
+    .pu-table { width:100%; border-collapse:collapse; }
+    .pu-table th { text-align:left; font-size:11px; letter-spacing:.10em; text-transform:uppercase;
+      color:var(--ink-3); font-weight:700; padding:12px 14px; border-bottom:1px solid var(--border);
+      background:var(--surface-2); position:sticky; top:0; }
+    .pu-table td { padding:12px 14px; border-bottom:1px solid var(--border); font-size:14px; }
+    .pu-table tr:last-child td { border-bottom:none; }
+    .pu-table .name strong { display:block; }
+    .pu-table .name .email { color:var(--ink-3); font-size:12px; margin-top:2px; }
+    .pu-table .actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+    .pu-table .actions .btn { font-size:12px; padding:6px 10px; }
+    @media (max-width: 640px) {
+      .pu-table th.hide-mobile, .pu-table td.hide-mobile { display:none; }
+      .pu-table .actions .btn-label { display:none; }
+    }
+    .empty { padding:60px 20px; text-align:center; color:var(--ink-3); }
+
+    /* Modal */
+    .modal-overlay { position:fixed; inset:0; background:rgba(20,19,18,.55); backdrop-filter:blur(2px);
+      display:none; align-items:flex-start; justify-content:center; z-index:50; padding:var(--s-3); overflow-y:auto; }
+    .modal-overlay.open { display:flex; }
+    .modal { background:var(--bg); border-radius:var(--r-lg); width:100%; max-width:520px;
+      padding:var(--s-4); border:1px solid var(--border); box-shadow:0 10px 40px rgba(0,0,0,.20); margin:var(--s-3) 0; }
+    .modal h2 { font-family:var(--font-display); font-size:1.4rem; margin-bottom:8px; }
+    .modal .sub { color:var(--ink-2); font-size:14px; margin-bottom:var(--s-3); }
+    .modal label { display:block; font-size:12px; font-weight:600; color:var(--ink-2);
+      letter-spacing:.06em; text-transform:uppercase; margin-bottom:6px; }
+    .modal input { width:100%; padding:11px 13px; border:1px solid var(--border); border-radius:var(--r-md);
+      background:var(--surface); color:var(--ink); font-size:15px; font-family:inherit; }
+    .modal .field { margin-bottom:var(--s-3); }
+    .modal .row { display:grid; grid-template-columns:1fr 1fr; gap:var(--s-2); }
+    @media (max-width: 480px) { .modal .row { grid-template-columns:1fr; } }
+    .modal .actions { display:flex; gap:var(--s-2); justify-content:flex-end;
+      padding-top:var(--s-3); border-top:1px solid var(--border); margin-top:var(--s-3); flex-wrap:wrap; }
+  </style>
+</head>
+<body>
+<main class="pu-wrap" id="view"><p class="mini">Loading…</p></main>
+
+<div class="modal-overlay" id="create-modal">
+  <div class="modal">
+    <h2>Create personal user</h2>
+    <div class="sub">Use this when someone needs help signing up — say, during a phone-call onboarding. They get the credentials you set here.</div>
+    <div class="row">
+      <div class="field">
+        <label>Name *</label>
+        <input type="text" id="c-name" maxlength="120" required />
+      </div>
+      <div class="field">
+        <label>Email *</label>
+        <input type="email" id="c-email" required />
+      </div>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label>Password * (≥ 8 chars)</label>
+        <input type="text" id="c-password" required minlength="8" />
+      </div>
+      <div class="field">
+        <label>Handicap index</label>
+        <input type="number" step="0.1" id="c-hcp" placeholder="optional" />
+      </div>
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="c-create">Create user</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="reset-modal">
+  <div class="modal">
+    <h2 id="rm-title">Reset password</h2>
+    <div class="sub" id="rm-sub"></div>
+    <div class="field">
+      <label>New password (≥ 8 chars)</label>
+      <input type="text" id="rm-password" required minlength="8" />
+    </div>
+    <div class="actions">
+      <button class="btn btn-ghost" data-close-modal>Cancel</button>
+      <button class="btn btn-primary" id="rm-go">Reset password</button>
+    </div>
+  </div>
+</div>
+
+<script src="/js/jord.js"></script>
+<script src="/admin/_shared/auth.js"></script>
+<script>
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => r.querySelectorAll(s);
+const esc = JORD.escapeHtml;
+if (!JORD.getToken()) location.href = '/admin';
+
+const state = { users: [], total: 0, lastWeek: 0, q: '', resetTarget: null };
+
+function fmtDate(s) {
+  if (!s) return '—';
+  try {
+    const d = new Date(s);
+    return d.toLocaleDateString(undefined, { month:'short', day:'numeric', year:'numeric' });
+  } catch { return s; }
+}
+
+async function load() {
+  try {
+    const r = await JORD.api('/api/admin/users' + (state.q ? '?q=' + encodeURIComponent(state.q) : ''));
+    state.users = r.users || [];
+    state.total = r.total || 0;
+    state.lastWeek = r.last_week || 0;
+    render();
+  } catch (e) {
+    if (e.status === 401) location.href = '/admin';
+    else if (e.status === 403) $('#view').innerHTML = `<div style="padding:60px 20px;text-align:center"><h1 style="font-family:var(--font-display)">Super admin only</h1><p style="color:var(--ink-2);margin-top:10px">This page lists personal-user accounts; only super admins can see it.</p><a class="btn btn-primary" style="margin-top:var(--s-4)" href="/admin">← Back to admin</a></div>`;
+    else $('#view').innerHTML = `<div class="card"><p style="color:var(--red)">${esc(e.message)}</p></div>`;
+  }
+}
+
+function render() {
+  $('#view').innerHTML = `
+    <div class="pu-head">
+      <div>
+        <a href="/admin" class="pill-link" style="font-size:13px;color:var(--ink-2)">← Back to admin</a>
+        <div class="eyebrow" style="margin-top:6px">JORD Clubhouse</div>
+        <h1>Personal users</h1>
+        <p style="color:var(--ink-2);font-size:14px;margin-top:4px;max-width:520px">Every casual-golfer account that signed up via /login. Create one manually for hand-held onboarding, reset a password over the phone, or delete spam.</p>
+      </div>
+      <div>
+        <button class="btn btn-primary" id="btn-create">+ Create user</button>
+      </div>
+    </div>
+
+    <div class="pu-stats">
+      <div class="pu-stat"><div class="k">Total accounts</div><div class="v">${state.total}</div></div>
+      <div class="pu-stat"><div class="k">Created (last 7 days)</div><div class="v">${state.lastWeek}</div></div>
+    </div>
+
+    <div class="pu-toolbar">
+      <div class="search">
+        <input type="search" id="q" value="${esc(state.q)}" placeholder="Search name or email…" />
+      </div>
+      <div class="mini" style="color:var(--ink-3)">${state.users.length} shown · max 200</div>
+    </div>
+
+    <div class="pu-table-wrap">
+      ${state.users.length === 0 ? '<div class="empty">No users match. Try a different search or click <strong>+ Create user</strong>.</div>' : `
+        <table class="pu-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th class="hide-mobile">Handicap</th>
+              <th class="hide-mobile">Signed up</th>
+              <th style="text-align:right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${state.users.map(u => `
+              <tr>
+                <td class="name"><strong>${esc(u.name || '(no name)')}</strong><span class="email">${esc(u.email)}</span></td>
+                <td class="hide-mobile">${u.handicap_index != null ? u.handicap_index : '—'}</td>
+                <td class="hide-mobile" style="color:var(--ink-3)">${fmtDate(u.created_at)}</td>
+                <td>
+                  <div class="actions">
+                    <button class="btn btn-ghost" data-reset="${esc(u.id)}" data-email="${esc(u.email)}"><span class="btn-label">🔑 Reset password</span><span style="display:none" class="btn-icon-only">🔑</span></button>
+                    <button class="btn btn-ghost" data-delete="${esc(u.id)}" data-email="${esc(u.email)}" style="color:#a33"><span class="btn-label">🗑 Delete</span><span style="display:none" class="btn-icon-only">🗑</span></button>
+                  </div>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `}
+    </div>
+  `;
+
+  $('#btn-create').onclick = openCreateModal;
+  $('#q').addEventListener('input', e => {
+    state.q = e.target.value.trim();
+    clearTimeout(window._puSearchT);
+    window._puSearchT = setTimeout(load, 200);
+  });
+  $$('[data-reset]').forEach(b => b.onclick = () => openResetModal(b.dataset.reset, b.dataset.email));
+  $$('[data-delete]').forEach(b => b.onclick = () => deleteUser(b.dataset.delete, b.dataset.email));
+}
+
+function openCreateModal() {
+  $('#c-name').value = '';
+  $('#c-email').value = '';
+  $('#c-password').value = randomPassword();
+  $('#c-hcp').value = '';
+  $('#create-modal').classList.add('open');
+  setTimeout(() => $('#c-name').focus(), 50);
+}
+function randomPassword() {
+  // 12 random base36 chars — easy to read over the phone, fine until rotation.
+  return Array.from({length: 12}, () => Math.random().toString(36).slice(2, 3)).join('');
+}
+
+$('#c-create').onclick = async () => {
+  const btn = $('#c-create');
+  btn.disabled = true; btn.textContent = 'Creating…';
+  try {
+    const body = {
+      name: $('#c-name').value.trim(),
+      email: $('#c-email').value.trim(),
+      password: $('#c-password').value,
+      handicap_index: $('#c-hcp').value ? Number($('#c-hcp').value) : null,
+    };
+    await JORD.api('/api/admin/users', { method: 'POST', body });
+    closeModals();
+    await load();
+    JORD.success('User created — share the credentials with them via your preferred channel.');
+  } catch (e) {
+    alert(e.message || 'Could not create user');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Create user';
+  }
+};
+
+function openResetModal(id, email) {
+  state.resetTarget = id;
+  $('#rm-title').textContent = 'Reset password';
+  $('#rm-sub').textContent = `New password for ${email} — they\'ll be signed out of every device.`;
+  $('#rm-password').value = randomPassword();
+  $('#reset-modal').classList.add('open');
+  setTimeout(() => $('#rm-password').select(), 50);
+}
+
+$('#rm-go').onclick = async () => {
+  if (!state.resetTarget) return;
+  const btn = $('#rm-go');
+  btn.disabled = true; btn.textContent = 'Resetting…';
+  try {
+    await JORD.api(`/api/admin/users/${state.resetTarget}/reset-password`, {
+      method: 'POST',
+      body: { password: $('#rm-password').value },
+    });
+    closeModals();
+    JORD.success('Password reset — share the new one with the user.');
+  } catch (e) {
+    alert(e.message || 'Reset failed');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Reset password';
+  }
+};
+
+async function deleteUser(id, email) {
+  if (!confirm(`Delete the account for ${email}? They'll have to sign up again to use the Clubhouse.`)) return;
+  try {
+    await JORD.api(`/api/admin/users/${id}`, { method: 'DELETE' });
+    await load();
+    JORD.success('Account deleted.');
+  } catch (e) { alert(e.message || 'Delete failed'); }
+}
+
+function closeModals() { $$('.modal-overlay.open').forEach(m => m.classList.remove('open')); }
+$$('[data-close-modal]').forEach(b => b.onclick = closeModals);
+$$('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) closeModals(); }));
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModals(); });
+
+ADMIN.requireAuth({ adminOrSuper: true }).then(load);
+</script>
+</body>
+</html>

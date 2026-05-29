@@ -330,6 +330,7 @@
           <button class="btn btn-ghost hidden" id="btn-manage-requests">📥 Inbound Requests <span id="requests-pending-badge" class="hidden" style="background:var(--primary);color:var(--primary-ink);font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;margin-left:4px"></span></button>
           <button class="btn btn-ghost hidden" id="btn-manage-global">🌍 Global LB</button>
           <button class="btn btn-ghost hidden" id="btn-manage-admins">👤 Manage Admins</button>
+          <a class="btn btn-ghost hidden" id="btn-manage-users" href="/admin/users">👥 Personal Users</a>
           <button class="btn btn-ghost hidden" id="btn-manage-backups">💾 Backups</button>
           <a class="btn btn-ghost" href="/admin/shop">🛒 JORD Shop</a>
           <button class="btn btn-primary" id="btn-new-event">＋ New event</button>
@@ -944,7 +945,7 @@
     }
     // Show super-admin-only buttons
     if (currentAdmin?.role === 'super') {
-      ['#btn-manage-admins', '#btn-manage-global', '#btn-manage-requests', '#btn-manage-backups'].forEach(sel => {
+      ['#btn-manage-admins', '#btn-manage-users', '#btn-manage-global', '#btn-manage-requests', '#btn-manage-backups'].forEach(sel => {
         const btn = $(sel);
         if (btn) btn.classList.remove('hidden');
       });

@@ -96,9 +96,13 @@ document.getElementById('topbar').appendChild(
     try { await JORD.api('/api/auth/me'); return location.replace(nextUrl('/admin')); }
     catch { JORD.clearToken && JORD.clearToken(); }
   }
+  // Default to "Create account" mode since these deep links typically
+  // arrive from landing-page "Sign up" buttons (new-visitor intent).
+  // Existing users land here because they're not signed in — the form
+  // still has a one-click tab to switch to Sign in.
   const t = forcedTrack();
-  if (t === 'personal')  return renderPersonalForm('login');
-  if (t === 'organizer') return renderOrganizerForm('login');
+  if (t === 'personal')  return renderPersonalForm('signup');
+  if (t === 'organizer') return renderOrganizerForm('signup');
   renderChooser();
 })();
 
@@ -133,8 +137,10 @@ function renderChooser() {
       const url = new URL(location.href);
       url.searchParams.set('track', t);
       history.replaceState(null, '', url.toString());
-      if (t === 'personal')  renderPersonalForm('login');
-      if (t === 'organizer') renderOrganizerForm('login');
+      // Default to "Create account" since the chooser is the new-visitor
+      // entry point. Existing users can still click the "Sign in" tab.
+      if (t === 'personal')  renderPersonalForm('signup');
+      if (t === 'organizer') renderOrganizerForm('signup');
     };
   });
 }
@@ -232,6 +238,9 @@ function wirePersonal(initialMode) {
         { method:'POST', body: mode==='login' ? { email, password } : { name, email, password, handicap_index } }
       );
       JORD.setUserToken(r.token);
+      // Flag so /clubhouse shows a welcome toast on first paint after
+      // signup. Cleared by the destination page.
+      if (mode === 'signup') sessionStorage.setItem('jord_just_signed_up', 'personal');
       location.replace(nextUrl('/clubhouse'));
     } catch (e) {
       errBox.textContent = e.message || 'Something went wrong.';
@@ -334,6 +343,7 @@ function wireOrganizer(initialMode) {
         { method:'POST', body: mode==='login' ? { email, password } : { name, email, password, org_name } }
       );
       JORD.setToken(r.token);
+      if (mode === 'signup') sessionStorage.setItem('jord_just_signed_up', 'organizer');
       location.replace(nextUrl('/admin'));
     } catch (e) {
       errBox.textContent = e.message || 'Something went wrong.';

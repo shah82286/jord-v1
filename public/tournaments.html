@@ -972,8 +972,15 @@ function openEditModal(t) {
 
 /* ─── boot ─────────────────────────────────────────────────────────── */
 async function init() {
-  try { await loadAll(); route(); }
-  catch(e){
+  try {
+    await loadAll();
+    route();
+    // Welcome toast for users who just signed up — flag set by /login.
+    if (sessionStorage.getItem('jord_just_signed_up') === 'personal') {
+      sessionStorage.removeItem('jord_just_signed_up');
+      JORD.success('Account created — welcome to the Clubhouse! Start your first game with + Create a game.');
+    }
+  } catch(e){
     if (e.status === 401) {
       // Stale token — drop both and route to /login so the next sign-in
       // can be either user or admin.

@@ -778,6 +778,11 @@
       const userEl = $('#topbar-user');
       if (userEl) userEl.textContent = currentAdmin.name + (currentAdmin.role === 'super' ? ' · Super' : '');
     }
+    // Welcome toast for self-service organizers who just signed up.
+    if (sessionStorage.getItem('jord_just_signed_up') === 'organizer') {
+      sessionStorage.removeItem('jord_just_signed_up');
+      setTimeout(() => JORD.success('Organizer account ready — create your first event with + New event.'), 200);
+    }
     // Show super-admin-only buttons
     if (currentAdmin?.role === 'super') {
       ['#btn-manage-admins', '#btn-manage-global', '#btn-manage-requests', '#btn-manage-backups'].forEach(sel => {

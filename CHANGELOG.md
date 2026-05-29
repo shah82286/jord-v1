@@ -2,6 +2,68 @@
 
 ---
 
+## v3.55.0 — 2026-05-28
+### Session 72 — Signup UX fix + personal-user admin tool
+
+Two user-reported issues:
+
+1. **"I tried to create one but no account was made — didn't even have to
+   set a password."** Root cause: the chooser tile opened the form in
+   **Sign in** mode, so a new visitor filled in email + password, hit
+   the (sign-in!) submit button, and got "wrong email or password" with
+   no account creation. The "Create account" tab was a click away but
+   they never noticed.
+2. **"I want to be able to make users now for the clubhouse — what else
+   needs to be done?"** No admin tool existed to list, create, or
+   reset personal-user accounts. Built one.
+
+#### What changed
+- **Chooser defaults to signup, not sign-in.** Clicking either tile
+  (or using the `?track=` deep link) now opens the form in **Create
+  account** mode. Existing users can still click the **Sign in** tab.
+  Reasoning: anyone arriving at the chooser is new — existing users
+  get auto-redirected by the boot logic before they see the chooser
+  at all.
+- **Welcome toast after signup.** `sessionStorage.jord_just_signed_up`
+  set by `/login` on successful signup; cleared by
+  `/clubhouse` (personal) and `/admin` (organizer) on first paint,
+  which shows: "Account created — welcome to the Clubhouse! Start
+  your first game with + Create a game." (or the organizer
+  equivalent).
+- **Backend: super-admin personal-user management** (4 endpoints,
+  all `requireAuth + requireSuper`):
+  - `GET  /api/admin/users` — paginated list (max 200) with optional
+    `?q=` substring search across name + email. Returns `total` and
+    `last_week` count for the dashboard header.
+  - `POST /api/admin/users` — manual create (name, email, password
+    ≥ 8 chars, optional handicap). Same validations as the public
+    `/api/users/signup`, just no auto-session.
+  - `POST /api/admin/users/:id/reset-password` — set a new password.
+    Side-effect: **deletes all open `user_sessions`** so the user has
+    to sign back in.
+  - `DELETE /api/admin/users/:id` — full account delete. Tournaments
+    they hosted stay (the `user_id` becomes an orphan reference).
+- **New page `/admin/users`** (super admin only):
+  - Stat strip — total accounts + last 7 days.
+  - Search bar (200ms debounce, server-side filtering).
+  - Table with name, email, handicap, signed-up date, per-row actions
+    (🔑 Reset password, 🗑 Delete).
+  - "+ Create user" button opens a modal with a pre-filled random
+    password (12 chars, base-36) the super admin can read over the
+    phone or paste into a chat.
+  - Reset modal same pattern: pre-filled new password, one-click reset.
+- **Nav link** — main admin events page (`/admin/events/:id`) header
+  gets a "👥 Personal Users" button visible only to super admins.
+
+#### Tested
+- **400/400 unit tests pass** (+13 new) covering: all four endpoints,
+  super-only enforcement, search wiring, session invalidation on
+  reset, page-route registration, page file existence, table handlers
+  + modals, chooser default-to-signup, welcome flag round-trip, admin
+  nav link.
+
+---
+
 ## v3.54.0 — 2026-05-26
 ### Session 71 — Full LD/CTP module gating
 
