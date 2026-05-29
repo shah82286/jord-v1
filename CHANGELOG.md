@@ -2,6 +2,48 @@
 
 ---
 
+## v3.57.0 — 2026-05-28
+### Session 74 — Personal users can actually reach the Clubhouse
+
+User reported that signup + sign-in were still broken after the v3.56
+deploy. Re-tracing the flow surfaced a deeper bug: **once a personal
+user signed in, `/clubhouse` immediately bounced them back to
+`/login`**, so from the user's POV nothing happened.
+
+**Root cause:** `/api/courses` (and `/api/courses/:id`) were gated by
+`requireAuth`, which only accepts admin tokens. The Clubhouse's
+`loadAll()` calls `/api/courses` on every boot. A signed-in personal
+user hit 401, the page's 401 handler cleared **both** tokens and ran
+`location.href = '/login'`. Net effect: sign-up succeeds, token gets
+issued, then 1.5s later both tokens are gone and we're back at /login
+with no error visible — exactly matching the user's "I can't create a
+new account and login" complaint.
+
+**Fix:** swap `requireAuth` → `requireUserOrAdmin` on the two read-only
+course endpoints used by the Clubhouse. Mutations (POST/DELETE/import)
+stay admin-only — adding courses from a personal account is a separate
+UX problem worth tackling later.
+
+Also made the "That email is already registered" error on the
+signup form actionable. The error box now includes an inline
+**Sign in with this email →** button that flips the form to Sign in
+mode and keeps the email + password the user already typed. Cuts the
+"oops, I already have an account" case from a four-click escape hatch
+(read error → switch tab → re-type email → re-type password) to one
+click.
+
+### Files
+- [server.js](server.js) — GET `/api/courses` and GET `/api/courses/:id` now use `requireUserOrAdmin`
+- [public/login.html](public/login.html) — actionable 409 in personal + organizer signup forms; new `.auth-err button.link` style
+- [tests/manual/test-already-registered.js](tests/manual/test-already-registered.js) — Puppeteer trace: seed account → duplicate signup → click inline "Sign in with this email" → land on /clubhouse
+- [tests/manual/test-fresh-signup.js](tests/manual/test-fresh-signup.js) — Puppeteer trace: chooser → personal tile → fill signup → /clubhouse (no bounce)
+
+### Tests
+- 405/405 unit + integration passing
+- Manual: both new Puppeteer scripts pass; verified the new account persists in localStorage and the user stays on /clubhouse
+
+---
+
 ## v3.56.0 — 2026-05-28
 ### Session 73 — Unified sign-in (chooser is for signup, not sign-in)
 

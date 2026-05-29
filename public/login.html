@@ -23,6 +23,8 @@
   .auth-err { background:#fdecec; color:var(--danger); border:1px solid #f5c6c6; border-radius:var(--r-sm);
     padding:10px 12px; font-size:13.5px; margin-bottom:var(--s-3); display:none; }
   .auth-err.show { display:block; }
+  .auth-err a, .auth-err button.link { color:var(--danger); text-decoration:underline; font-weight:600;
+    background:none; border:none; padding:0; font:inherit; cursor:pointer; }
   .auth-foot { text-align:center; margin-top:var(--s-4); font-size:13px; color:var(--ink-3); }
   .auth-foot a { color:var(--ink-2); }
 
@@ -328,8 +330,18 @@ function wirePersonal(initialMode) {
       if (mode === 'signup') sessionStorage.setItem('jord_just_signed_up', 'personal');
       location.replace(nextUrl('/clubhouse'));
     } catch (e) {
-      errBox.textContent = e.message || 'Something went wrong.';
-      errBox.classList.add('show');
+      // 409 on signup = email already has an account. Offer a one-tap
+      // switch to Sign in that preserves what they already typed —
+      // most users in this state just want to sign in with the same creds.
+      if (mode === 'signup' && e.status === 409) {
+        errBox.innerHTML = `${esc(e.message || 'That email is already registered')} <button type="button" class="link" id="errSwitch">Sign in with this email →</button>`;
+        errBox.classList.add('show');
+        const sw = document.getElementById('errSwitch');
+        if (sw) sw.onclick = () => { setMode('login'); $('#email').value = email; $('#password').value = password; $('#password').focus(); };
+      } else {
+        errBox.textContent = e.message || 'Something went wrong.';
+        errBox.classList.add('show');
+      }
       btn.disabled = false; btn.textContent = orig;
     }
   });
@@ -431,8 +443,15 @@ function wireOrganizer(initialMode) {
       if (mode === 'signup') sessionStorage.setItem('jord_just_signed_up', 'organizer');
       location.replace(nextUrl('/admin'));
     } catch (e) {
-      errBox.textContent = e.message || 'Something went wrong.';
-      errBox.classList.add('show');
+      if (mode === 'signup' && e.status === 409) {
+        errBox.innerHTML = `${esc(e.message || 'That email is already registered')} <button type="button" class="link" id="orgErrSwitch">Sign in with this email →</button>`;
+        errBox.classList.add('show');
+        const sw = document.getElementById('orgErrSwitch');
+        if (sw) sw.onclick = () => { setMode('login'); $('#orgEmail').value = email; $('#orgPassword').value = password; $('#orgPassword').focus(); };
+      } else {
+        errBox.textContent = e.message || 'Something went wrong.';
+        errBox.classList.add('show');
+      }
       btn.disabled = false; btn.textContent = orig;
     }
   });

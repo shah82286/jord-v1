@@ -4513,7 +4513,7 @@ function broadcastRound(roundId) {
 
 // --- course endpoints --------------------------------------------------------
 
-app.get('/api/courses', requireAuth, (req, res) => {
+app.get('/api/courses', requireUserOrAdmin, (req, res) => {
   res.json(db.prepare('SELECT * FROM courses ORDER BY name').all());
 });
 
@@ -4560,7 +4560,7 @@ app.post('/api/courses', requireAuth, requireAdminOrSuper, (req, res) => {
   res.json({ id: insertCourse(c, req.admin.id) });
 });
 
-app.get('/api/courses/:id', requireAuth, (req, res) => {
+app.get('/api/courses/:id', requireUserOrAdmin, (req, res) => {
   const course = loadCourseFull(req.params.id);
   if (!course) return res.status(404).json({ error: 'Course not found' });
   res.json(course);
