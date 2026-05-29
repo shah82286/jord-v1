@@ -446,6 +446,30 @@ console.log('\n🌐 Time Zone + Cart Numbers (v3.38)\n');
     () => assert(tzLookup(41.8781, -87.6298) === 'America/Chicago', `got ${tzLookup(41.8781, -87.6298)}`));
 }
 
+console.log('\n🔀 Unified sign-in (?intent=signin skips the chooser) (v3.56)\n');
+{
+  const fs = require('fs');
+  const loginHtml = fs.readFileSync('./public/login.html', 'utf8');
+  test('Login page exposes renderUnifiedSignIn()',
+    () => assert(loginHtml.includes('function renderUnifiedSignIn'), 'Unified form function missing'));
+  test('?intent=signin skips the chooser',
+    () => assert(loginHtml.includes("intentParam() === 'signin'") && loginHtml.includes('renderUnifiedSignIn()'), 'Intent param not honored'));
+  test('Unified form tries /api/users/login first, falls back to /api/auth/login',
+    () => {
+      const fn = loginHtml.slice(loginHtml.indexOf('renderUnifiedSignIn'));
+      assert(fn.indexOf('/api/users/login') < fn.indexOf('/api/auth/login'), 'Login order wrong');
+      assert(fn.includes('eUser.status !== 401'), 'Fallback condition missing');
+    });
+  test('Unified form sets right token + redirects per match',
+    () => {
+      const fn = loginHtml.slice(loginHtml.indexOf('renderUnifiedSignIn'));
+      assert(fn.includes('setUserToken') && fn.includes("'/clubhouse'"), 'Personal redirect missing');
+      assert(fn.includes('setToken')     && fn.includes("'/admin'"),     'Admin redirect missing');
+    });
+  test('Chooser has Already-have-account → /login?intent=signin link',
+    () => assert(/Already have an account\?[^<]*<a href="\/login\?intent=signin">/.test(loginHtml), 'Sign-in link missing from chooser'));
+}
+
 console.log('\n👤 Personal-user management + signup UX fixes (v3.55)\n');
 {
   test('GET /api/admin/users endpoint registered',
@@ -547,8 +571,8 @@ console.log('\n🚪 Auth chooser + self-service organizer signup (v3.52)\n');
   test('Login page has organizer form posting to /api/auth/signup',
     () => assert(loginHtml.includes('/api/auth/signup') && loginHtml.includes('renderOrganizerForm'), 'Organizer form missing'));
   const landingHtml = fs.readFileSync('./public/landing.html', 'utf8');
-  test('Landing nav Sign in points at /login (the chooser)',
-    () => assert(/<a href="\/login" class="nav-link">Sign in<\/a>/.test(landingHtml), 'Landing Sign in still admin-only'));
+  test('Landing nav Sign in points at the unified sign-in form (skips chooser)',
+    () => assert(/<a href="\/login\?intent=signin" class="nav-link">Sign in<\/a>/.test(landingHtml), 'Landing Sign in should bypass the chooser'));
 }
 
 console.log('\n💬 Banter chat (v3.51)\n');

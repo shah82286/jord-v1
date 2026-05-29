@@ -77,6 +77,12 @@ function forcedTrack() {
   const t = new URLSearchParams(location.search).get('track');
   return t === 'personal' || t === 'organizer' ? t : null;
 }
+function intentParam() {
+  // `signin` (from landing-page Sign-in link) skips the chooser and shows
+  // a single unified sign-in form. Anything else falls through to the
+  // chooser (which is the right entry point for new sign-ups).
+  return new URLSearchParams(location.search).get('intent');
+}
 
 document.getElementById('topbar').appendChild(
   JORD.renderTopbar('Sign in', JORD.el('a',{class:'btn btn-ghost',href:'/'},'← Home')));
@@ -96,6 +102,10 @@ document.getElementById('topbar').appendChild(
     try { await JORD.api('/api/auth/me'); return location.replace(nextUrl('/admin')); }
     catch { JORD.clearToken && JORD.clearToken(); }
   }
+  // Sign-in intent (from landing nav "Sign in" link) → skip the chooser
+  // entirely and show a single unified sign-in form. Cleaner for the
+  // returning-user path.
+  if (intentParam() === 'signin') return renderUnifiedSignIn();
   // Default to "Create account" mode since these deep links typically
   // arrive from landing-page "Sign up" buttons (new-visitor intent).
   // Existing users land here because they're not signed in — the form
@@ -105,6 +115,78 @@ document.getElementById('topbar').appendChild(
   if (t === 'organizer') return renderOrganizerForm('signup');
   renderChooser();
 })();
+
+// ── Unified sign-in form (?intent=signin) ──────────────────────────
+// One form for returning users. The submit handler tries personal-user
+// login first (most common case), then admin login if that returns 401.
+// User never has to know which "side" their account is on.
+function renderUnifiedSignIn() {
+  $('#root').innerHTML = `
+    <div class="card auth-card">
+      <div class="auth-eyebrow">JORD Golf</div>
+      <h1>Welcome <em>back</em></h1>
+      <p class="auth-sub">Sign in with your email and password. We'll figure out which side of JORD you're on.</p>
+
+      <form id="signinForm" novalidate>
+        <div class="field">
+          <label for="email">Email</label>
+          <input class="input input-lg" id="email" type="email" autocomplete="email" inputmode="email" required />
+        </div>
+        <div class="field">
+          <label for="password">Password</label>
+          <input class="input input-lg" id="password" type="password" autocomplete="current-password" required />
+        </div>
+        <div class="auth-err" id="err"></div>
+        <button class="btn btn-primary btn-xl btn-block" id="submitBtn" type="submit">Sign in</button>
+      </form>
+
+      <p class="auth-foot" style="margin-top:var(--s-4)">
+        New here? <a href="/login">Create an account →</a><br>
+        <a href="/" style="margin-top:8px;display:inline-block">← Back to JORD Golf</a>
+      </p>
+    </div>
+  `;
+  setTimeout(() => $('#email').focus(), 50);
+
+  $('#signinForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const email = $('#email').value.trim();
+    const password = $('#password').value;
+    const errBox = $('#err');
+    errBox.classList.remove('show');
+    if (!email || !password) {
+      errBox.textContent = 'Email and password are required.';
+      errBox.classList.add('show');
+      return;
+    }
+    const btn = $('#submitBtn'); const orig = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Signing in…';
+
+    // Try personal user first (most common case). On 401, try admin login.
+    // Any other error (network, 5xx) bubbles up to the user as-is.
+    try {
+      try {
+        const r = await JORD.api('/api/users/login', { method:'POST', body:{ email, password } });
+        JORD.setUserToken(r.token);
+        return location.replace(nextUrl('/clubhouse'));
+      } catch (eUser) {
+        if (eUser.status !== 401) throw eUser;
+        try {
+          const r = await JORD.api('/api/auth/login', { method:'POST', body:{ email, password } });
+          JORD.setToken(r.token);
+          return location.replace(nextUrl('/admin'));
+        } catch (eAdmin) {
+          if (eAdmin.status !== 401) throw eAdmin;
+          throw new Error('Wrong email or password. Need an account? Tap "Create an account" below.');
+        }
+      }
+    } catch (e) {
+      errBox.textContent = e.message || 'Something went wrong.';
+      errBox.classList.add('show');
+      btn.disabled = false; btn.textContent = orig;
+    }
+  });
+}
 
 // ── Chooser ──────────────────────────────────────────────────────────
 function renderChooser() {
@@ -128,7 +210,10 @@ function renderChooser() {
         <div class="arrow">Sign in or sign up →</div>
       </button>
     </div>
-    <p class="chooser-foot"><a href="/">← Back to JORD Golf</a></p>
+    <p class="chooser-foot">
+      Already have an account? <a href="/login?intent=signin">Sign in →</a>
+      <br><a href="/" style="margin-top:6px;display:inline-block">← Back to JORD Golf</a>
+    </p>
   `;
   document.querySelectorAll('[data-track]').forEach(b => {
     b.onclick = () => {

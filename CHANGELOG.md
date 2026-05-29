@@ -2,6 +2,55 @@
 
 ---
 
+## v3.56.0 — 2026-05-28
+### Session 73 — Unified sign-in (chooser is for signup, not sign-in)
+
+User reported the chooser-after-clicking-Sign-In friction:
+> "When I signed in to the personal version this is what screen it
+> popped to after I clicked sign in" — and the screenshot was the
+> "What brings you here?" chooser.
+
+The chooser is great for new visitors who genuinely don't know which
+path to pick. But for a returning user who clicked "Sign in", being
+asked "What brings you here?" is friction — they already know.
+
+#### What changed
+- **New `renderUnifiedSignIn()` form** on `/login`. Single email +
+  password field, no chooser, no personal/organizer toggle. The
+  submit handler tries `/api/users/login` first (most common
+  case), then falls back to `/api/auth/login` on 401. Whichever
+  succeeds → set the right token → redirect to `/clubhouse` or
+  `/admin`. Errors that aren't 401 (network, 5xx) propagate as-is.
+- **`?intent=signin` URL param** routes to the unified form,
+  skipping the chooser. The chooser is now only reached by
+  visitors who explicitly click "Sign up" (or land on bare
+  `/login` with no intent).
+- **Landing nav repointed** — "Sign in" now → `/login?intent=signin`
+  (unified form, returning-user path). "Sign up" stays at
+  `/login` (chooser → tile → signup form, new-visitor path).
+- **Cross-links between flows:**
+  - On the unified sign-in form: *"New here? Create an account →"*
+    drops the intent param and goes back to the chooser.
+  - On the chooser: *"Already have an account? Sign in →"* adds
+    `?intent=signin` and lands on the unified form.
+
+#### Why this works
+The two flows have different mental models:
+- **Sign up:** the user IS deciding personal vs organizer. The
+  chooser is the right tool — it asks the question they need
+  answered.
+- **Sign in:** the user already HAS an account. Asking which kind
+  they have is friction; the backend can just figure it out from
+  the email.
+
+#### Tested
+- **405/405 unit tests pass** (+5 new) covering: unified form
+  function existence, intent-param routing, login attempt order
+  (users first, admins fallback), correct token + redirect per
+  match type, cross-links between flows.
+
+---
+
 ## v3.55.0 — 2026-05-28
 ### Session 72 — Signup UX fix + personal-user admin tool
 
