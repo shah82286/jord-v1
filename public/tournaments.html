@@ -92,19 +92,33 @@
     background:var(--surface-2); color:var(--ink-3); padding:2px 6px; border-radius:8px; letter-spacing:.04em; }
   .fmt-card .badge.manual { background:#FFF1D6; color:#7A5400; }
   .fmt-card .badge.soon   { background:var(--surface-2); color:var(--ink-3); }
-  /* Hover/tap description bubble */
+  /* Description bubble — appears only on hover OR keyboard-focus.
+   * The previously-selected card no longer sticks the bubble open, since
+   * a perma-bubble on the selected card was always-on and noisy. */
   .fmt-card .fc-bubble {
-    position:absolute; bottom: calc(100% + 8px); left:50%; transform: translateX(-50%) translateY(4px);
-    width:240px; background:var(--ink); color:var(--surface);
-    border-radius:var(--r-sm); padding:10px 12px; font-size:12.5px; font-weight:400; line-height:1.45;
-    z-index:60; box-shadow:0 12px 28px rgba(0,0,0,.25); text-align:left; pointer-events:none;
-    opacity:0; transition: opacity .16s ease, transform .16s ease;
+    position:absolute; bottom: calc(100% + 10px); left:50%; transform: translateX(-50%) translateY(4px);
+    width:240px;
+    background:var(--surface);
+    color:var(--ink);
+    border:1px solid var(--border-2);
+    border-radius:var(--r-md, var(--r-sm));
+    padding:11px 13px; font-size:12.5px; font-weight:400; line-height:1.5;
+    z-index:60;
+    box-shadow:0 14px 32px rgba(26,26,26,.16), 0 2px 6px rgba(26,26,26,.08);
+    text-align:left; pointer-events:none;
+    opacity:0; transition: opacity .18s ease, transform .18s ease;
   }
+  .fmt-card .fc-bubble strong { color:var(--ink); font-weight:700; letter-spacing:-.005em; }
+  .fmt-card .fc-bubble em { color:var(--accent); font-style:italic; font-weight:500; }
+  /* Tiny tail — paints the cream tip on top of the matching border so the seam disappears. */
+  .fmt-card .fc-bubble::before,
   .fmt-card .fc-bubble::after {
-    content:''; position:absolute; top:100%; left:50%; transform:translateX(-50%);
-    border:6px solid transparent; border-top-color:var(--ink);
+    content:''; position:absolute; left:50%; transform:translateX(-50%);
+    border:7px solid transparent;
   }
-  .fmt-card:hover .fc-bubble, .fmt-card:focus-within .fc-bubble, .fmt-card.is-sel .fc-bubble {
+  .fmt-card .fc-bubble::before { top:100%; border-top-color:var(--border-2); }
+  .fmt-card .fc-bubble::after  { top: calc(100% - 1px); border-top-color:var(--surface); }
+  .fmt-card:hover .fc-bubble, .fmt-card:focus-within .fc-bubble {
     opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto;
   }
   .fmt-card.disabled:hover .fc-bubble { opacity:0; }
@@ -680,7 +694,7 @@ function renderFormatPicker() {
       // Inline description bubble (replaces the old single bottom desc block —
       // descriptions now live on the card you're hovering, so you can compare).
       const bubble = `<div class="fc-bubble"><strong>${esc(f.name)} · ${esc(f.sub)}</strong><br>${esc(f.desc)}${
-        f.manualScoring && !f.scored ? '<br><br><em style="color:#FFD79B">Manual scoring for now — you enter points per hole. Auto-leaderboard coming in v3.60.</em>' : ''
+        f.manualScoring && !f.scored ? '<br><br><em>Manual scoring for now — you enter points per hole. Auto-leaderboard coming in v3.60.</em>' : ''
       }</div>`;
       return `<div class="fmt-card ${ok?'':'disabled'} ${w.format===f.id?'is-sel':''}" data-f="${ok?f.id:''}" tabindex="${ok?0:-1}">
         ${badge}

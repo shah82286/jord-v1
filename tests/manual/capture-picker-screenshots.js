@@ -51,8 +51,10 @@ const password = 'TestPass1234';
     process.exit(0);
   }
 
-  // Scroll the picker into view
+  // Scroll the picker into view + park the cursor far off the grid so no card
+  // sits in a :hover state when the screenshot fires.
   await page.evaluate(() => { const el = document.querySelector('#fmtPicker'); if (el) el.scrollIntoView({ block: 'start' }); });
+  await page.mouse.move(2, 2);
   await new Promise(r => setTimeout(r, 200));
   await page.screenshot({ path: path.join(SHOTS, '20-picker-default.png'), fullPage: false });
   console.log('1. default picker (Stroke Net selected) with wagering panel hidden');
@@ -70,12 +72,15 @@ const password = 'TestPass1234';
   await page.screenshot({ path: path.join(SHOTS, '21-picker-hover-skins.png'), fullPage: false });
   console.log('2. hover bubble on Skins');
 
-  // Click Skins → wagering panel appears
+  // Click Skins → wagering panel appears. Park cursor off the grid before
+  // the snap so the bubble doesn't reappear from a leftover hover.
   await page.evaluate(() => {
+    document.querySelectorAll('.hover-shot').forEach(c => c.classList.remove('hover-shot'));
     const cards = Array.from(document.querySelectorAll('.fmt-card'));
     const skins = cards.find(c => c.querySelector('.nm')?.textContent === 'Skins');
     if (skins) skins.click();
   });
+  await page.mouse.move(2, 2);
   await new Promise(r => setTimeout(r, 400));
   await page.screenshot({ path: path.join(SHOTS, '22-picker-skins-wager.png'), fullPage: false });
   console.log('3. Skins selected → wagering panel ($/skin)');

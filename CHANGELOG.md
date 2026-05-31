@@ -2,6 +2,36 @@
 
 ---
 
+## v3.59.1 — 2026-05-30
+### Session 76 (cont.) — Picker bubble polish
+
+User feedback on the v3.59 picker:
+> "Right now the Bubble with information is always up at least on one.
+> Lets make it only if clicked or hovered over. Also, Make the box a
+> little more matching with our current UI"
+
+**Bubble is now hover/focus-only.** Removed the `.fmt-card.is-sel
+.fc-bubble` rule that was keeping the description bubble pinned open
+on the currently-selected card. The bubble now only appears while
+the card is being hovered or has keyboard focus.
+
+**Restyled to match the JORD palette.** Dropped the dark-ink tooltip
+look (out of place in our cream/saffron UI) for a soft card-style
+bubble: cream background, ink text, hairline border-2 outline,
+double-tail arrow that paints over the seam for a clean tip, and a
+soft drop shadow. The italic "Manual scoring for now…" line now
+uses the saffron accent instead of an inline `#FFD79B`.
+
+### Files
+- [public/tournaments.html](public/tournaments.html) — `.fc-bubble` palette + visibility rules
+- [tests/manual/capture-picker-screenshots.js](tests/manual/capture-picker-screenshots.js) — parks the puppeteer cursor at (2,2) before each shot so unhovered states actually look unhovered
+
+### Tests
+- 408/408 unit + integration passing
+- Manual: re-captured all 6 picker screenshots — default + selected states confirm no perma-bubble; hover state confirmed working
+
+---
+
 ## v3.59.0 — 2026-05-30
 ### Session 76 — New-game menu rework: more games, hover bubbles, wagering settings
 
