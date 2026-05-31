@@ -2,6 +2,43 @@
 
 ---
 
+## v3.59.3 — 2026-05-31
+### Session 76 (cont.) — Topbar brand link goes to user dashboard, not landing
+
+User reported:
+> "When you click Clubhouse in the upper left make it go back to their
+> user profile not the main page. Just make sure all the backs and
+> functional buttons are done correctly so that the site functions like
+> it should"
+
+The JORD logo + page-title strip in the topbar was a hard-coded
+`<a href="/">`, so a signed-in user clicking it dumped them on the
+public landing page instead of their dashboard. Now the brand link
+auto-resolves based on auth state:
+
+- Signed-in personal user → `/clubhouse`
+- Signed-in admin → `/admin`
+- Anonymous → `/` (landing)
+
+A `homeHref` option on `JORD.renderTopbar()` lets specific pages
+override this if needed (e.g. branded charity event microsites that
+pin the logo to their own URL).
+
+Verified with a 3-step Puppeteer trace
+([tests/manual/test-brand-link.js](tests/manual/test-brand-link.js)):
+anonymous `/login` → brand = `/`; signed-in `/clubhouse` → brand =
+`/clubhouse`; signed-in `/account` → brand = `/clubhouse`.
+
+### Files
+- [public/js/jord.js](public/js/jord.js) — `renderTopbar` reads tokens to pick the right homeHref
+- [tests/manual/test-brand-link.js](tests/manual/test-brand-link.js) — regression test
+
+### Tests
+- 409/409 unit + integration passing
+- Manual: brand-link regression passes
+
+---
+
 ## v3.59.2 — 2026-05-31
 ### Session 76 (cont.) — Vegas wizard 401 fix + format verification harness
 

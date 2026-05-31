@@ -253,9 +253,19 @@
   const JORD_LOGO     = '/img/logos/logo-script-black.png';
   const JORD_LOGO_INV = '/img/logos/logo-script-white.png';
 
-  APP.renderTopbar = function (subtitle = '', right = null, { dark = false } = {}) {
+  APP.renderTopbar = function (subtitle = '', right = null, { dark = false, homeHref } = {}) {
     const logoSrc = dark ? JORD_LOGO_INV : JORD_LOGO;
-    const homeHref = '/';
+    // The brand link auto-resolves to the caller's "home base":
+    //   signed-in personal user → /clubhouse (their dashboard)
+    //   signed-in admin          → /admin
+    //   anonymous visitor        → /  (landing page)
+    // Callers can override via the options object if they need a specific
+    // destination — e.g. branded charity event pages may pin it to their site.
+    if (!homeHref) {
+      const hasUser  = APP.getUserToken && APP.getUserToken();
+      const hasAdmin = APP.getToken && APP.getToken();
+      homeHref = hasUser ? '/clubhouse' : hasAdmin ? '/admin' : '/';
+    }
     // If a branded (charity) logo is already set, show it in place of the JORD mark.
     const branded = !!APP._brandLogo;
     const logo = APP.el('img', {
