@@ -94,6 +94,47 @@ function courseHcp(handicapIndex, allowance) {
 // one foursome so we exercise the engines at realistic scale (a Vegas
 // tournament might have 8 pairs round-robin, a Best Ball team event might
 // have 4 teams of 4, etc.).
+/** Fabricate sample hole_events so BBB / Dots / Snake leaderboards show
+ *  meaningful output in the verification harness. Deterministic from `seed`.
+ *  Returns [] for any format that doesn't need events. */
+function fabricateEventsFor(fmt, entries, settings, seed) {
+  if (!['bbb', 'dots', 'snake'].includes(fmt.engine)) return [];
+  const rand = rng(seed + 7331);
+  const events = [];
+  if (fmt.engine === 'bbb') {
+    // Rotate winners through bingo/bango/bongo. Lower-handicap players win
+    // bingo/bango more often (first on green / closest to pin); higher-
+    // handicap players occasionally luck into a bongo (first to hole out).
+    for (const h of STANDARD_HOLES) {
+      const bingoIdx = Math.floor(rand() * entries.length);
+      const bangoIdx = Math.floor(rand() * entries.length);
+      const bongoIdx = Math.floor(rand() * entries.length);
+      events.push({ hole_number: h.hole_number, entry_id: entries[bingoIdx].entryId, event_key: 'bingo' });
+      events.push({ hole_number: h.hole_number, entry_id: entries[bangoIdx].entryId, event_key: 'bango' });
+      events.push({ hole_number: h.hole_number, entry_id: entries[bongoIdx].entryId, event_key: 'bongo' });
+    }
+  } else if (fmt.engine === 'dots') {
+    const eventList = Array.isArray(settings?.events) ? settings.events : [];
+    // Drop a handful of random dots across the round so the leaderboard has signal.
+    for (let i = 0; i < entries.length * 4; i++) {
+      const player = entries[Math.floor(rand() * entries.length)];
+      const ev     = eventList[Math.floor(rand() * eventList.length)];
+      const hole   = STANDARD_HOLES[Math.floor(rand() * STANDARD_HOLES.length)];
+      if (ev) events.push({ hole_number: hole.hole_number, entry_id: player.entryId, event_key: ev.key });
+    }
+  } else if (fmt.engine === 'snake') {
+    // 2-3 three-putts during the round; whoever 3-putts last holds the snake.
+    const n = 2 + Math.floor(rand() * 2);
+    for (let i = 0; i < n; i++) {
+      const player = entries[Math.floor(rand() * entries.length)];
+      const hole   = STANDARD_HOLES[Math.floor(rand() * STANDARD_HOLES.length)];
+      events.push({ hole_number: hole.hole_number, entry_id: player.entryId, event_key: 'three_putt',
+                    created_at: 'h' + String(hole.hole_number).padStart(2, '0') + '_' + i });
+    }
+  }
+  return events;
+}
+
 function rosterForFormat(fmt) {
   // Sixes is fundamentally a 4-player rotation — engine requires exactly 4.
   if (fmt.id === 'sixes') {
@@ -187,9 +228,9 @@ function describeScoring(fmt) {
     // via the legacy engine names but we keep these strings for safety.
     case 'chapman':    return 'Pinehurst alternate-shot pair (one ball)';
     case 'foursomes_stroke': return 'Alt-shot one ball stroke play';
-    case 'bbb':        return 'Points: 🟢 bingo + 🎯 bango + 🥁 bongo (per-hole events — UI coming v3.62)';
-    case 'dots':       return 'Points per event (greenie / sandy / fish — UI coming v3.62)';
-    case 'snake':      return '3-putt holder pays penalty (per-hole event — UI coming v3.62)';
+    case 'bbb':        return 'Points: 🟢 bingo + 🎯 bango + 🥁 bongo (tap each hole on the scorecard)';
+    case 'dots':       return 'Points per event (greenie / sandy / fish — tap each player on the scorecard)';
+    case 'snake':      return '3-putt holder pays penalty (tap 3-putters on the scorecard)';
   }
   return fmt.engine;
 }
@@ -206,14 +247,21 @@ function simulateFormat(fmt, seed = 42) {
     return buildEntry(p, fmt, holes, seed + nameSeed);
   });
 
+  // For event-based engines (BBB / Dots / Snake), fabricate some sample
+  // hole_events so the simulator's leaderboard isn't an empty all-zeros
+  // sheet. Deterministic from the seed; rotates winners hole-by-hole.
+  const settings = formats.defaultSettings(fmt.id);
+  const fakeEvents = fabricateEventsFor(fmt, entries, settings, seed);
+
   // Build the leaderboard via the real scoring engine (or null for non-scored).
   let leaderboard = null;
   if (fmt.scored) {
     const opts = {
       format: fmt.id,
-      format_settings: formats.defaultSettings(fmt.id),
+      format_settings: settings,
       multipliers: fmt.engine === 'duplicate'
         ? holes.map((_, i) => [1, 1, 2, 1, 3, 1, 1, 2, 1, 1, 1, 3, 1, 1, 2, 1, 1, 2][i] || 1) : null,
+      holeEvents: fakeEvents,
     };
     leaderboard = scoring.buildLeaderboard(entries, opts);
   }

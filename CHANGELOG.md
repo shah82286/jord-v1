@@ -2,6 +2,78 @@
 
 ---
 
+## v3.62.0 — 2026-05-31
+### Session 78 (cont.) — Last 3 MANUAL formats auto-tally (BBB / Dots / Snake)
+
+User asked to clear every remaining MANUAL badge. The last three —
+Bingo Bango Bongo, Dots / Garbage, Snake — fundamentally need a per-
+hole event input (the strokes alone don't tell us "who got the
+greenie" or "who 3-putted"). Built the foundation + capture UI +
+engines in one pass.
+
+### Data + API
+New `hole_events` table — one row per occurrence:
+```
+hole_events (id, round_id, entry_id, hole_number, event_key, created_at)
+```
+Three endpoints:
+- `GET    /api/rounds/:roundId/hole-events`
+- `POST   /api/rounds/:roundId/hole-events`
+- `DELETE /api/rounds/:roundId/hole-events/:id`
+
+The tournament-delete cascade now also wipes hole_events for the
+round.
+
+### Engines
+Three new builders in `lib/scoring.js`:
+- `buildBBB`   — counts bingo/bango/bongo events per player × point
+  values from `pts_bingo` / `pts_bango` / `pts_bongo`
+- `buildDots`  — sums event point values per player from the configured
+  `events` list (greenie / sandy / fish / birdie / eagle etc.)
+- `buildSnake` — finds the most-recent 3-putter (the snake holder) and
+  applies the `snake_penalty` as a negative total
+
+`roundScoringOpts()` now fetches hole_events for every round so any
+side-bet on these engines also gets fed.
+
+### Scorecard UI
+A new "side events" panel renders below the score-entry rows when the
+round's primary format OR any side-bet uses an event-based engine:
+- **BBB**: three rows of player pills — Bingo / Bango / Bongo. Picking
+  a different player flips the winner for that hole.
+- **Snake**: one row of player pills — toggle "3-putt" on or off.
+- **Dots**: per-player row of event chips (Greenie / Sandy / Birdie /
+  Eagle / Polly / Arnie / Fish). Tap to add, tap again to remove the
+  most-recent one. Counter (`×2`) shows on repeats.
+
+Each tap POSTs to `/api/rounds/:id/hole-events` and the live SSE
+re-broadcasts the leaderboard. No round-tripping the whole scorecard.
+
+### Catalog
+- `bingo_bango_bongo`: scored:true
+- `dots`: scored:true
+- `snake`: scored:true
+
+The MANUAL badge is gone for every format in the catalog. 28 / 28
+auto-scored.
+
+### Files
+- [server.js](server.js) — new `hole_events` table + 3 endpoints, `roundScoringOpts` fetches events, delete cascade wipes events
+- [lib/scoring.js](lib/scoring.js) — `buildBBB`, `buildDots`, `buildSnake`, dispatcher hookup, side-bet engine receives events too
+- [lib/formats.js](lib/formats.js) — BBB / Dots / Snake `scored: true`
+- [public/scorecard.html](public/scorecard.html) — `renderEvents()`, `addHoleEvent()` / `removeHoleEvent()`, `setSingleWinner()`, init fetches events + active-engine list from the tournament
+- [tests/sim/simulator.js](tests/sim/simulator.js) — `fabricateEventsFor()` generates deterministic sample events so the verification harness shows realistic BBB / Dots / Snake leaderboards
+- [tests/sim/format-verification-report.txt](tests/sim/format-verification-report.txt) — refreshed; zero MANUAL formats
+- [tests/manual/test-event-engines.js](tests/manual/test-event-engines.js) — E2E: signup → BBB round → 9 hole events → SSE leaderboard math verified
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: BBB E2E passes (Alice=1, Bob=3, Cam=4, Drew=1 with the
+  hand-computed scenario); Snake holder at -$20, others $0; Dots
+  point totals computed from configured event values
+
+---
+
 ## v3.61.0 — 2026-05-31
 ### Session 78 — Auto-tally for 4 of the 7 manual formats
 

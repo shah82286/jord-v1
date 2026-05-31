@@ -324,6 +324,20 @@ try { db.exec("ALTER TABLE tournaments ADD COLUMN format_settings TEXT"); } catc
 // format (e.g. Stroke Play Net + Skins side-bet). JSON array of
 // [{ format_id, settings: {...} }]; an empty/null value means no side-bets.
 try { db.exec("ALTER TABLE tournaments ADD COLUMN side_bets TEXT"); } catch {}
+// v3.62 — per-hole side-game events (who got the bingo / bango / bongo,
+// who 3-putted, who got the greenie). One row per event occurrence.
+// Snake / BBB / Dots engines read this table to compute their leaderboards.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS hole_events (
+    id          TEXT PRIMARY KEY,
+    round_id    TEXT NOT NULL,
+    entry_id    TEXT NOT NULL,
+    hole_number INTEGER NOT NULL,
+    event_key   TEXT NOT NULL,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_hole_events_round ON hole_events(round_id);
+`);
 
 // Personal → organizer upgrade requests (v3.53): a signed-in personal
 // user can submit a request to JORD to be approved as an organizer.
@@ -4454,11 +4468,17 @@ function roundScoringOpts(round) {
     if (row && row.format_settings) fs = safeJSON(row.format_settings);
     if (row && row.side_bets)       sb = safeJSON(row.side_bets) || [];
   }
+  // Per-hole events table (v3.62) — fuel for BBB / Dots / Snake engines.
+  // Cheap query; always pulled so any side-bet on those engines works too.
+  const holeEvents = db.prepare(
+    'SELECT * FROM hole_events WHERE round_id=? ORDER BY hole_number, created_at'
+  ).all(round.id);
   return {
     format: round.format,
     multipliers: round.hole_multipliers ? JSON.parse(round.hole_multipliers) : null,
     format_settings: fs,
     side_bets: sb,
+    holeEvents,
   };
 }
 
@@ -4860,6 +4880,7 @@ const deleteRoundChildren = db.transaction((roundId) => {
   db.prepare('DELETE FROM round_teams   WHERE round_id=?').run(roundId);
   db.prepare('DELETE FROM score_groups  WHERE round_id=?').run(roundId);
   try { db.prepare('DELETE FROM hole_scores WHERE round_id=?').run(roundId); } catch {}
+  try { db.prepare('DELETE FROM hole_events WHERE round_id=?').run(roundId); } catch {}
   db.prepare('DELETE FROM rounds WHERE id=?').run(roundId);
 });
 const deleteTournamentCascade = db.transaction((tournamentId) => {
@@ -5397,6 +5418,40 @@ app.get('/api/rounds/:roundId', (req, res) => {
 });
 
 // Batch score upsert from the score-entry page (also the offline-sync target).
+// Hole events (v3.62) — public-write because they're entered from the same
+// share-link scorecard that anonymous scorers use. The (round_id, entry_id,
+// hole_number, event_key) tuple is the natural key — duplicate inserts are
+// allowed (a player can have multiple of the same event on one hole — e.g.
+// two birdies isn't a thing, but two "fish" / water-balls is plausible).
+app.get('/api/rounds/:roundId/hole-events', (req, res) => {
+  const rows = db.prepare(
+    'SELECT * FROM hole_events WHERE round_id=? ORDER BY hole_number, created_at'
+  ).all(req.params.roundId);
+  res.json({ events: rows });
+});
+
+app.post('/api/rounds/:roundId/hole-events', (req, res) => {
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
+  if (!round) return res.status(404).json({ error: 'Round not found' });
+  const { entry_id, hole_number, event_key } = req.body || {};
+  if (!entry_id || !hole_number || !event_key) {
+    return res.status(400).json({ error: 'entry_id, hole_number, event_key required' });
+  }
+  const id = uid('EVT');
+  db.prepare(
+    'INSERT INTO hole_events (id,round_id,entry_id,hole_number,event_key) VALUES (?,?,?,?,?)'
+  ).run(id, round.id, String(entry_id), Number(hole_number), String(event_key).slice(0, 40));
+  broadcastRound(round.id);
+  res.json({ id });
+});
+
+app.delete('/api/rounds/:roundId/hole-events/:id', (req, res) => {
+  const r = db.prepare('DELETE FROM hole_events WHERE id=? AND round_id=?')
+    .run(req.params.id, req.params.roundId);
+  if (r.changes) broadcastRound(req.params.roundId);
+  res.json({ ok: true });
+});
+
 app.post('/api/rounds/:roundId/scores', (req, res) => {
   const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
   if (!round) return res.status(404).json({ error: 'Round not found' });

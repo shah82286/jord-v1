@@ -73,6 +73,19 @@
   .hole-dots span.done { background:var(--primary); color:var(--primary-ink); border-color:var(--primary); }
   .hole-dots span.current { outline:2px solid var(--accent); }
   .gate { text-align:center; padding:var(--s-8) var(--s-4); }
+
+  /* Per-hole side-event capture (v3.62) — used by Snake / BBB / Dots. */
+  .events-panel { margin-top:var(--s-3); padding:14px 12px; background:#FFFCF2;
+    border:1px solid var(--accent); border-radius:var(--r-lg); }
+  .events-panel h3 { font-family:var(--font-display); font-size:0.95rem; margin:0 0 8px; letter-spacing:-.005em; }
+  .events-panel .ev-row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom:6px; }
+  .events-panel .ev-row .ev-lbl { font-size:13px; font-weight:600; min-width:70px; }
+  .events-panel .ev-pick { display:flex; flex-wrap:wrap; gap:4px; }
+  .events-panel .ev-btn { padding:6px 10px; border-radius:var(--r-pill); font-size:12.5px; font-weight:600;
+    border:1px solid var(--border-2); background:var(--surface); cursor:pointer; }
+  .events-panel .ev-btn:hover { border-color:var(--accent); }
+  .events-panel .ev-btn.is-on { background:var(--ink); color:var(--surface); border-color:var(--ink); }
+  .events-panel .ev-section + .ev-section { margin-top:10px; padding-top:10px; border-top:1px dashed var(--border); }
 </style>
 </head>
 <body>
@@ -91,6 +104,14 @@ const state = {
   hole:1,
   scores:{},           // { entryId: { hole: strokes } }
   dirty:new Set(),     // "entryId|hole"
+  // v3.62 — per-hole side-game events. eventsByHole[hole][entryId] is an
+  // array of { id, event_key } records. Used to render the toggle UI and
+  // tally Snake / BBB / Dots locally without re-fetching.
+  eventsByHole:{},
+  // The active scoring engines that need event capture for THIS round —
+  // populated after we load tournament metadata + side-bets.
+  eventEngines:[],     // e.g. ['bbb'] or ['dots','snake']
+  dotsEvents:null,     // setting list for Dots, if it's an active engine
 };
 let syncTimer=null;
 
@@ -193,11 +214,12 @@ function render() {
       <button id="next" ${hole>=last?'disabled':''}>›</button>
     </div>
     <div id="players"></div>
+    <div id="events"></div>
     <div class="sync-note" id="syncNote"></div>`;
 
   $('#prev').onclick=()=>{ state.hole=Math.max(first,hole-1); render(); };
   $('#next').onclick=()=>{ state.hole=Math.min(last,hole+1); render(); };
-  renderDots(); renderPlayers(); renderSyncNote();
+  renderDots(); renderPlayers(); renderEvents(); renderSyncNote();
 }
 
 function renderDots() {
@@ -206,6 +228,122 @@ function renderDots() {
     return `<span class="${done?'done':''} ${h.hole_number===state.hole?'current':''}" data-h="${h.hole_number}">${h.hole_number}</span>`;
   }).join('');
   $('#dots').querySelectorAll('[data-h]').forEach(s=>s.onclick=()=>{ state.hole=+s.dataset.h; render(); });
+}
+
+// ── Per-hole side events (Snake / BBB / Dots) ──────────────────────
+// Quick-tap UI shown below the per-player score rows. Persists each event
+// to /api/rounds/:id/hole-events. Multi-select where it makes sense
+// (a player can have multiple Dots events on one hole).
+function eventsForCurrentHole() {
+  return state.eventsByHole[state.hole] || {};
+}
+function hasEventEngine(key) { return state.eventEngines.includes(key); }
+
+async function addHoleEvent(entryId, eventKey) {
+  try {
+    const r = await JORD.api(`/api/rounds/${roundId}/hole-events`, {
+      method: 'POST',
+      body: { entry_id: entryId, hole_number: state.hole, event_key: eventKey },
+    });
+    const list = state.eventsByHole[state.hole] || (state.eventsByHole[state.hole] = {});
+    const slot = list[entryId] || (list[entryId] = []);
+    slot.push({ id: r.id, event_key: eventKey });
+    renderEvents();
+  } catch (e) { JORD.error && JORD.error(e.message || 'Could not save event'); }
+}
+async function removeHoleEvent(entryId, eventId) {
+  try {
+    await JORD.api(`/api/rounds/${roundId}/hole-events/${eventId}`, { method: 'DELETE' });
+    const slot = state.eventsByHole[state.hole]?.[entryId] || [];
+    const i = slot.findIndex(ev => ev.id === eventId);
+    if (i >= 0) slot.splice(i, 1);
+    renderEvents();
+  } catch (e) { JORD.error && JORD.error(e.message || 'Could not remove event'); }
+}
+// Single-winner events (Bingo/Bango/Bongo): clear any existing winner on this
+// hole for the event, then set the new one. The 'select-one-of-N' pattern.
+async function setSingleWinner(eventKey, entryId) {
+  const list = state.eventsByHole[state.hole] || {};
+  for (const [eid, slot] of Object.entries(list)) {
+    for (const ev of slot.slice()) {
+      if (ev.event_key === eventKey) await removeHoleEvent(eid, ev.id);
+    }
+  }
+  if (entryId) await addHoleEvent(entryId, eventKey);
+}
+
+function renderEvents() {
+  const wrap = document.getElementById('events');
+  if (!wrap) return;
+  if (!state.eventEngines.length) { wrap.innerHTML = ''; return; }
+  const evs = eventsForCurrentHole();
+  // Helper — was this player tagged with `key` on the current hole?
+  const has = (entryId, key) => (evs[entryId] || []).some(ev => ev.event_key === key);
+  // Count of `key` events for this player on this hole (Dots can repeat).
+  const countOf = (entryId, key) => (evs[entryId] || []).filter(ev => ev.event_key === key).length;
+  const eventId = (entryId, key) => (evs[entryId] || []).find(ev => ev.event_key === key)?.id;
+
+  const sections = [];
+
+  if (hasEventEngine('bbb')) {
+    const pick = (key, label) => `
+      <div class="ev-row">
+        <span class="ev-lbl">${label}</span>
+        <div class="ev-pick">
+          ${state.entries.map(e => `<button class="ev-btn ${has(e.id, key)?'is-on':''}" data-bbb="${key}" data-eid="${e.id}">${esc(e.player_name.split(' ')[0])}</button>`).join('')}
+        </div>
+      </div>`;
+    sections.push(`<div class="ev-section"><h3>Bingo Bango Bongo</h3>
+      ${pick('bingo', '🟢 Bingo')}
+      ${pick('bango', '🎯 Bango')}
+      ${pick('bongo', '🥁 Bongo')}
+    </div>`);
+  }
+
+  if (hasEventEngine('snake')) {
+    sections.push(`<div class="ev-section"><h3>🐍 Snake — three-putt</h3>
+      <div class="ev-row"><span class="ev-lbl">3-putt:</span>
+        <div class="ev-pick">
+          ${state.entries.map(e => `<button class="ev-btn ${has(e.id, 'three_putt')?'is-on':''}" data-snake="${e.id}">${esc(e.player_name.split(' ')[0])}</button>`).join('')}
+        </div>
+      </div>
+    </div>`);
+  }
+
+  if (hasEventEngine('dots') && state.dotsEvents && state.dotsEvents.length) {
+    const rows = state.entries.map(e => `
+      <div class="ev-row">
+        <span class="ev-lbl">${esc(e.player_name.split(' ')[0])}</span>
+        <div class="ev-pick">
+          ${state.dotsEvents.map(ev => `
+            <button class="ev-btn ${has(e.id, ev.key)?'is-on':''}" data-dot="${ev.key}" data-eid="${e.id}" title="${esc(ev.label)} (${ev.points} pts)">
+              ${esc(ev.label.split(' ')[0])}${countOf(e.id, ev.key) > 1 ? ` ×${countOf(e.id, ev.key)}` : ''}
+            </button>`).join('')}
+        </div>
+      </div>`).join('');
+    sections.push(`<div class="ev-section"><h3>🎰 Dots</h3>${rows}</div>`);
+  }
+
+  wrap.innerHTML = `<div class="events-panel">${sections.join('')}</div>`;
+
+  // Wire BBB single-winner picks
+  wrap.querySelectorAll('[data-bbb]').forEach(b => b.onclick = () =>
+    setSingleWinner(b.dataset.bbb, has(b.dataset.eid, b.dataset.bbb) ? null : b.dataset.eid));
+  // Wire Snake toggles (per-player on/off)
+  wrap.querySelectorAll('[data-snake]').forEach(b => b.onclick = () => {
+    const id = b.dataset.snake;
+    const existing = eventId(id, 'three_putt');
+    if (existing) removeHoleEvent(id, existing);
+    else addHoleEvent(id, 'three_putt');
+  });
+  // Wire Dots toggles (multi-add: each tap adds another; long-press to remove)
+  wrap.querySelectorAll('[data-dot]').forEach(b => b.onclick = () => {
+    const id = b.dataset.eid, key = b.dataset.dot;
+    // Toggle: if already tagged, remove the most recent; else add one.
+    const existing = eventId(id, key);
+    if (existing) removeHoleEvent(id, existing);
+    else addHoleEvent(id, key);
+  });
 }
 
 function renderPlayers() {
@@ -256,6 +394,43 @@ async function init() {
 
   state.round=data.round; state.tournament=data.tournament;
   state.course=data.course; state.entries=data.entries;
+
+  // v3.62 — determine which event-based engines are active for this round.
+  // The primary format's engine + every side-bet's engine count. If any of
+  // them is bbb / dots / snake, the side-events panel is shown on the
+  // scorecard. Also pull the Dots event list so the buttons match the
+  // organizer's configured points.
+  try {
+    const trn = await JORD.api('/api/tournaments/'+data.round.tournament_id);
+    const engines = new Set();
+    const primaryFmt = data.round.format;
+    const primaryEng = ({
+      stroke_gross:'stroke', stroke_net:'stroke', stableford:'stableford',
+      skins:'skins', erado:'erado', duplicate:'duplicate',
+      bingo_bango_bongo:'bbb', dots:'dots', snake:'snake',
+    })[primaryFmt] || primaryFmt;
+    if (['bbb','dots','snake'].includes(primaryEng)) engines.add(primaryEng);
+    for (const sb of (trn.side_bets || [])) {
+      const sbEng = ({ bingo_bango_bongo:'bbb', dots:'dots', snake:'snake', skins:'skins' })[sb.format_id];
+      if (['bbb','dots','snake'].includes(sbEng)) engines.add(sbEng);
+    }
+    state.eventEngines = [...engines];
+    // Dots event roster — primary or side-bet settings, whichever owns Dots.
+    if (engines.has('dots')) {
+      const settings = primaryFmt === 'dots' ? (trn.format_settings || {})
+        : (trn.side_bets || []).find(sb => sb.format_id === 'dots')?.settings || {};
+      state.dotsEvents = Array.isArray(settings.events) ? settings.events : [];
+    }
+    // Pull current hole events so the toggle buttons render in the right state.
+    const evRes = await fetch(`/api/rounds/${roundId}/hole-events`).then(r => r.json()).catch(() => ({events:[]}));
+    const byHole = {};
+    for (const ev of (evRes.events || [])) {
+      const h = byHole[ev.hole_number] = byHole[ev.hole_number] || {};
+      const slot = h[ev.entry_id] = h[ev.entry_id] || [];
+      slot.push({ id: ev.id, event_key: ev.event_key });
+    }
+    state.eventsByHole = byHole;
+  } catch { /* non-fatal — scorecard still works without events */ }
 
   if (data.round.status==='setup'){ renderGate('This round hasn’t started yet','⛳'); return; }
   if (data.round.status==='ended'){ renderGate('This round has ended','🏁'); }

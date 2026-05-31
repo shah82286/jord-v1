@@ -169,8 +169,8 @@
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔔  Bingo Bango Bongo · Points per hole
-    tier=individual  engine=bbb  MANUAL
-    scoring: Points: 🟢 bingo + 🎯 bango + 🥁 bongo (per-hole events — UI coming v3.62)
+    tier=individual  engine=bbb  AUTO-SCORED
+    scoring: Points: 🟢 bingo + 🎯 bango + 🥁 bongo (tap each hole on the scorecard)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   settings: {"pts_bingo":1,"pts_bango":1,"pts_bongo":1,"value_per_point":0}
   Alex (4.0)                            gross  75 / net  71 (-1)
@@ -181,12 +181,20 @@
   Finn (16.5)                           gross  78 / net  61 (-11)
   Grace (22.0)                          gross  86 / net  64 (-8)
   Hank (10.0)                           gross  79 / net  69 (-3)
-  manual scoring — leaderboard tally is hand-entered (auto-tally engine coming in v3.60)
+  leaderboard (scoreType=points):
+     1. Erin (8.0)         15
+     2. Alex (4.0)         8
+     2. Finn (16.5)        8
+     4. Cam (18.0)         6
+     4. Drew (24.0)        6
+     6. Hank (10.0)        5
+     7. Grace (22.0)       4
+     8. Brooke (12.5)      2
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎰  Dots · Garbage
-    tier=individual  engine=dots  MANUAL
-    scoring: Points per event (greenie / sandy / fish — UI coming v3.62)
+    tier=individual  engine=dots  AUTO-SCORED
+    scoring: Points per event (greenie / sandy / fish — tap each player on the scorecard)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   settings: {"events":[{"key":"greenie","label":"Greenie (on green in regulation closest to pin)","points":1},{"key":"sandy","label":"Sandy (par or better after a bunker shot)","points":1},{"key":"birdie","label":"Birdie","points":2},{"key":"eagle","label":"Eagle","points":4},{"key":"polly","label":"Polly (par after hitting a tree / cart path)","points":1},{"key":"arnie","label":"Arnie (par without hitting the fairway)","points":1},{"key":"fish","label":"Fish (a water-ball penalty)","points":-1}],"value_per_point":0}
   Alex (4.0)                            gross  75 / net  71 (-1)
@@ -197,12 +205,20 @@
   Finn (16.5)                           gross  78 / net  61 (-11)
   Grace (22.0)                          gross  86 / net  64 (-8)
   Hank (10.0)                           gross  79 / net  69 (-3)
-  manual scoring — leaderboard tally is hand-entered (auto-tally engine coming in v3.60)
+  leaderboard (scoreType=points):
+     1. Erin (8.0)         13
+     2. Cam (18.0)         12
+     3. Brooke (12.5)      10
+     4. Grace (22.0)       8
+     5. Alex (4.0)         3
+     6. Finn (16.5)        1
+     7. Drew (24.0)        0
+     8. Hank (10.0)        —
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🐍  Snake · Three-putt penalty
-    tier=individual  engine=snake  MANUAL
-    scoring: 3-putt holder pays penalty (per-hole event — UI coming v3.62)
+    tier=individual  engine=snake  AUTO-SCORED
+    scoring: 3-putt holder pays penalty (tap 3-putters on the scorecard)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   settings: {"snake_penalty":20}
   Alex (4.0)                            gross  75 / net  71 (-1)
@@ -213,7 +229,15 @@
   Finn (16.5)                           gross  78 / net  61 (-11)
   Grace (22.0)                          gross  86 / net  64 (-8)
   Hank (10.0)                           gross  79 / net  69 (-3)
-  manual scoring — leaderboard tally is hand-entered (auto-tally engine coming in v3.60)
+  leaderboard (scoreType=snake):
+     1. Alex (4.0)         0
+     1. Brooke (12.5)      0
+     1. Cam (18.0)         0
+     1. Drew (24.0)        0
+     1. Finn (16.5)        0
+     1. Grace (22.0)       0
+     1. Hank (10.0)        0
+     8. Erin (8.0)         -20
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔥  Better Ball · Stroke Play
