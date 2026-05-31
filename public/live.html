@@ -209,9 +209,17 @@ function render() {
   if (lb && lb.scoreType === 'match') return renderMatch(r, lb);
   const st = lb ? lb.scoreType : 'topar';
   const lowWins = st === 'topar';
-  const unit = st==='skins' ? 'skins' : st==='points' ? 'pts' : '';
-  const headLabel = st==='skins' ? 'Skins' : st==='points' ? 'Points' : 'Total';
-  const subLabel = st==='skins' ? 'Skins won' : st==='points' ? 'Stableford — points' : 'Strokes to par';
+  // Vegas signed-margin: positive total = team ahead, negative = behind
+  const unit = st==='skins' ? 'skins' : st==='points' || st==='vegas' ? 'pts' : '';
+  const headLabel = st==='skins' ? 'Skins' : st==='vegas' ? 'Vegas' : st==='points' ? 'Points' : 'Total';
+  const subLabel = st==='skins' ? 'Skins won' : st==='vegas' ? 'Vegas — pair margin' : st==='points' ? 'Stableford — points' : 'Strokes to par';
+  // Money-style hint shown beneath the leaderboard when wagering is on.
+  const fs = state.format_settings || {};
+  const moneyNote = (() => {
+    if (st === 'skins' && fs.value_per_skin) return `$${Number(fs.value_per_skin).toFixed(2)} per skin`;
+    if (st === 'vegas' && fs.value_per_point) return `$${Number(fs.value_per_point).toFixed(2)} per point`;
+    return '';
+  })();
   const rows = lb ? lb.rows : [];
   $('#app').innerHTML = `
     <div class="lb-head">
@@ -220,6 +228,7 @@ function render() {
       <div class="mini">Round ${r.round_number} · ${subLabel}</div>
     </div>
     <div class="lb-controls"><button class="btn btn-ghost" id="tvBtn">${state.tv?'Exit TV':'📺 TV mode'}</button></div>
+    ${moneyNote ? `<div class="mini" style="text-align:center;color:var(--ink-3);margin:8px 0">${esc(moneyNote)}</div>` : ''}
     ${renderTeamSection(st, unit)}
     <div class="lb-row head"><div>Pos</div><div>Player</div><div class="thru">Thru</div>
       <div class="tot">${headLabel}</div></div>
@@ -311,6 +320,9 @@ function apply(payload){
   // when nobody opted into teams or when the format is already team-
   // aggregated (scramble / best ball).
   state.teams = Array.isArray(payload.teams) ? payload.teams : [];
+  // Wagering / point-structure config (Skins $/skin, Vegas $/point, etc.) —
+  // surfaced under the headline so spectators see the stakes.
+  state.format_settings = payload.format_settings || null;
   render();
 }
 

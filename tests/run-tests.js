@@ -216,7 +216,7 @@ test('Skins / Erado / Duplicate are now scored', ()=>
   ['skins','erado','duplicate'].forEach(id=>assert(fmts.isScored(id),id)));
 test('Match play formats are scored', ()=>
   ['match_individual','match_foursome','match_better_ball'].forEach(id=>assert(fmts.isScored(id),id)));
-test('Every catalog format is now playable', ()=>fmts.FORMATS.forEach(f=>assert(f.scored,f.id)));
+test('Every catalog format is now playable', ()=>fmts.FORMATS.forEach(f=>assert(f.scored||f.manualScoring,f.id)));
 
 console.log('\n🏇 Team Handicaps (lib/handicap.js)\n');
 test('2-person scramble 35/15 (8,21 → 6)',          ()=>assert(handicap.teamHandicap([8,21],'scramble2')===6));
@@ -282,6 +282,54 @@ console.log('\n🎲 Exotic Formats — Skins / Erado / Duplicate (lib/scoring.js
   ],{format:'duplicate',multipliers:[3,1,2]});
   test('Duplicate multiplies Stableford points per hole (9+2+6=17)', ()=>
     assert(du.scoreType==='points' && du.rows[0].total===17));
+
+  // ── Vegas (v3.59) ─────────────────────────────────────────────────────
+  // Hole 1: Pair A (4,6) = 46; Pair B (5,5) = 55; A wins by 9 points.
+  // Hole 2: Pair A (5,5) = 55; Pair B (4,4) = 44; B wins by 11 points.
+  // Hole 3: Pair A (4,5) = 45; Pair B (5,5) = 55; A wins by 10 points.
+  // Pair A: +9 -11 +10 = +8 margin (own 19, opp 11).
+  const h3v = [
+    {hole_number:1, par:4, stroke_index:1},
+    {hole_number:2, par:4, stroke_index:2},
+    {hole_number:3, par:4, stroke_index:3},
+  ];
+  const vg = scoring.buildLeaderboard([
+    {entryId:'A1', playerName:'A1', teamId:'PA', teamName:'A', courseHandicap:0, holes:h3v, scores:{1:4,2:5,3:4}},
+    {entryId:'A2', playerName:'A2', teamId:'PA', teamName:'A', courseHandicap:0, holes:h3v, scores:{1:6,2:5,3:5}},
+    {entryId:'B1', playerName:'B1', teamId:'PB', teamName:'B', courseHandicap:0, holes:h3v, scores:{1:5,2:4,3:5}},
+    {entryId:'B2', playerName:'B2', teamId:'PB', teamName:'B', courseHandicap:0, holes:h3v, scores:{1:5,2:4,3:5}},
+  ], { format:'vegas', format_settings: { flip_birdie:false } });
+  test('Vegas: combined-pair scoring with margin to the winning pair', () =>
+    assert(vg.scoreType === 'vegas'
+        && vg.rows.length === 2
+        && vg.rows.find(r => r.teamName === 'A').total === 8
+        && vg.rows.find(r => r.teamName === 'B').total === -8
+        && vg.rows.find(r => r.teamName === 'A').score === 19,
+      'Vegas margin/score mismatch: ' + JSON.stringify(vg.rows)));
+  // Birdie flip — Pair A birdies hole 1 (one player on 3 vs par 4). Without
+  // flip on, A wins big. With flip on, B must put HIGHER score first → 65
+  // instead of 56, so the margin swings further. Verify the flip changes
+  // the outcome.
+  const h1v = [{hole_number:1, par:4, stroke_index:1}];
+  const vgNoFlip = scoring.buildLeaderboard([
+    {entryId:'A1', teamName:'A', teamId:'PA', playerName:'A1', courseHandicap:0, holes:h1v, scores:{1:3}},  // birdie
+    {entryId:'A2', teamName:'A', teamId:'PA', playerName:'A2', courseHandicap:0, holes:h1v, scores:{1:6}},
+    {entryId:'B1', teamName:'B', teamId:'PB', playerName:'B1', courseHandicap:0, holes:h1v, scores:{1:5}},
+    {entryId:'B2', teamName:'B', teamId:'PB', playerName:'B2', courseHandicap:0, holes:h1v, scores:{1:6}},
+  ], { format:'vegas', format_settings:{ flip_birdie:false } });
+  // No flip: A = 36, B = 56 → A wins by 20
+  const vgFlip = scoring.buildLeaderboard([
+    {entryId:'A1', teamName:'A', teamId:'PA', playerName:'A1', courseHandicap:0, holes:h1v, scores:{1:3}},
+    {entryId:'A2', teamName:'A', teamId:'PA', playerName:'A2', courseHandicap:0, holes:h1v, scores:{1:6}},
+    {entryId:'B1', teamName:'B', teamId:'PB', playerName:'B1', courseHandicap:0, holes:h1v, scores:{1:5}},
+    {entryId:'B2', teamName:'B', teamId:'PB', playerName:'B2', courseHandicap:0, holes:h1v, scores:{1:6}},
+  ], { format:'vegas', format_settings:{ flip_birdie:true } });
+  // Flip on: A birdied, so B must put high first → 65; A = 36; A wins by 29
+  test('Vegas: birdie flip rule pushes the opponent into a bigger margin', () => {
+    const a1 = vgNoFlip.rows.find(r => r.teamName === 'A').total;
+    const a2 = vgFlip.rows.find(r => r.teamName === 'A').total;
+    return assert(a1 === 20 && a2 === 29, `no-flip A=${a1}, flip A=${a2}`);
+  });
 }
 
 console.log('\n🏆 Team Exotics — Low Scratch/Net + Irish Rumble (lib/scoring.js)\n');
@@ -625,7 +673,7 @@ console.log('\n👥 Team side-bet groupings (v3.50)\n');
   test('buildTeamStandings helper defined in server',
     () => assert(src.includes('function buildTeamStandings('), 'Team aggregator missing'));
   test('Leaderboard payload includes teams[]',
-    () => assert(/return\s*\{\s*round,\s*leaderboard:\s*lb,\s*holes,\s*teams\s*\}/.test(src), 'teams missing from payload'));
+    () => assert(/return\s*\{\s*round,\s*leaderboard:\s*lb,\s*holes,\s*teams[,\s}]/.test(src), 'teams missing from payload'));
   const fs = require('fs');
   const wizardHtml = fs.readFileSync('./public/tournaments.html', 'utf8');
   test('Wizard player form has Team field',

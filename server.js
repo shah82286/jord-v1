@@ -317,6 +317,9 @@ try { db.exec("ALTER TABLE registration_packages ADD COLUMN image_data TEXT"); }
 // rounds keep working.
 try { db.exec("ALTER TABLE tournaments ADD COLUMN user_id TEXT"); } catch {}
 try { db.exec("ALTER TABLE round_entries ADD COLUMN user_id TEXT"); } catch {}
+// v3.59 — wagering / point-structure config per format. JSON blob; shape
+// depends on the chosen format (see lib/formats.js settings schemas).
+try { db.exec("ALTER TABLE tournaments ADD COLUMN format_settings TEXT"); } catch {}
 
 // Personal → organizer upgrade requests (v3.53): a signed-in personal
 // user can submit a request to JORD to be approved as an organizer.
@@ -4437,9 +4440,18 @@ function holeMultipliers(formatId) {
 
 // Scoring options for a round (format + any frozen multipliers).
 function roundScoringOpts(round) {
+  // Fetch the parent tournament's wagering / point-structure settings so the
+  // engine can honor them (Vegas uses value_per_point and flip_birdie;
+  // Skins uses value_per_skin for the leaderboard payload).
+  let fs = null;
+  if (round.tournament_id) {
+    const row = db.prepare('SELECT format_settings FROM tournaments WHERE id=?').get(round.tournament_id);
+    if (row && row.format_settings) fs = safeJSON(row.format_settings);
+  }
   return {
     format: round.format,
     multipliers: round.hole_multipliers ? JSON.parse(round.hole_multipliers) : null,
+    format_settings: fs,
   };
 }
 
@@ -4513,7 +4525,16 @@ function roundLeaderboardPayload(roundId) {
   // a team label and the format isn't already team-aggregated.
   const fmt = formats.getFormat(round.format);
   const teams = buildTeamStandings(lb.rows || [], fmt);
-  return { round, leaderboard: lb, holes, teams };
+  // Surface the per-format wagering / point-structure config alongside the
+  // leaderboard so live.html / leaderboard.html can show "$X per skin", etc.
+  let format_settings = null;
+  if (tour && tour.format_settings) format_settings = safeJSON(tour.format_settings);
+  // (The earlier query only pulled flights_* — re-query if we need the JSON column.)
+  if (!format_settings) {
+    const row = db.prepare('SELECT format_settings FROM tournaments WHERE id=?').get(round.tournament_id);
+    if (row && row.format_settings) format_settings = safeJSON(row.format_settings);
+  }
+  return { round, leaderboard: lb, holes, teams, format_settings };
 }
 
 // SSE for live leaderboard / scorecard — keyed by round id.
@@ -4627,7 +4648,10 @@ app.get('/api/tournaments', requireUserOrAdmin, (req, res) => {
   } else {
     rows = db.prepare('SELECT * FROM tournaments WHERE user_id=? ORDER BY created_at DESC').all(req.user.id);
   }
-  for (const t of rows) t.rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
+  for (const t of rows) {
+    t.rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
+    if (t.format_settings) t.format_settings = safeJSON(t.format_settings);
+  }
   res.json(rows);
 });
 
@@ -4642,34 +4666,77 @@ app.get('/api/tournaments/mine', requireUser, (req, res) => {
        OR e.user_id = ?
     ORDER BY t.created_at DESC
   `).all(req.user.id, req.user.id);
-  for (const t of rows) t.rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
+  for (const t of rows) {
+    t.rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
+    if (t.format_settings) t.format_settings = safeJSON(t.format_settings);
+  }
   res.json({ tournaments: rows });
 });
 
 app.post('/api/tournaments', requireUserOrAdmin, (req, res) => {
   const { name, type, course_id, round_date, format, holes_segment,
-          flights_enabled, num_flights } = req.body || {};
+          flights_enabled, num_flights, format_settings } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
-  const fmt  = scoring.SUPPORTED_FORMATS.includes(format) ? format : 'stroke_gross';
+  // Allow any pickable format (auto-scored OR manual-scoring) — both are
+  // valid round configurations even if the leaderboard tally differs.
+  const fmt  = scoring.PICKABLE_FORMATS.includes(format) ? format : 'stroke_gross';
   const tType = ['casual', 'tournament', 'reds_blues'].includes(type) ? type : 'tournament';
   const seg  = ['all', 'front9', 'back9'].includes(holes_segment) ? holes_segment : 'all';
   // flights are a tournament-only feature
   const fe = (tType === 'tournament' && flights_enabled) ? 1 : 0;
   const nf = fe ? Math.max(1, Math.min(5, parseInt(num_flights) || 1)) : 1;
+  // Validate + store the wagering / point-structure config. We only keep
+  // keys that exist in the format's schema (drops unexpected fields).
+  const fs = sanitizeFormatSettings(fmt, format_settings);
   const id = uid('TRN');
   const actor = actorIdentity(req);
   db.prepare(`INSERT INTO tournaments
-    (id,type,name,admin_id,user_id,default_format,share_code,flights_enabled,num_flights)
-    VALUES (?,?,?,?,?,?,?,?,?)`).run(
+    (id,type,name,admin_id,user_id,default_format,share_code,flights_enabled,num_flights,format_settings)
+    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
     id, tType, name,
     actor.kind === 'admin' ? actor.id : null,
     actor.kind === 'user'  ? actor.id : null,
-    fmt, uid('').slice(0, 6), fe, nf);
+    fmt, uid('').slice(0, 6), fe, nf, fs ? JSON.stringify(fs) : null);
   const roundId = uid('RND');
   db.prepare(`INSERT INTO rounds (id,tournament_id,round_number,course_id,round_date,format,holes_segment,hole_multipliers)
     VALUES (?,?,?,?,?,?,?,?)`).run(roundId, id, 1, course_id || null, round_date || null, fmt, seg, holeMultipliers(fmt));
   res.json({ id, round_id: roundId });
 });
+
+function safeJSON(s) { try { return JSON.parse(s); } catch { return {}; } }
+
+// Whitelist + light type-coerce the wagering / point-structure settings against
+// the format's declared schema in lib/formats.js. Returns null when the format
+// has no settings (most stroke-play games).
+function sanitizeFormatSettings(formatId, raw) {
+  const formats = require('./lib/formats');
+  const schema = formats.getSettingsSchema(formatId);
+  if (!schema || !schema.length) return null;
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  for (const s of schema) {
+    let v = src[s.key];
+    if (v === undefined || v === null || v === '') { out[s.key] = s.default; continue; }
+    if (s.type === 'money' || s.type === 'cents' || s.type === 'number') {
+      const n = Number(v);
+      if (!Number.isFinite(n)) { out[s.key] = s.default; continue; }
+      out[s.key] = (s.min != null) ? Math.max(s.min, n) : n;
+    } else if (s.type === 'toggle') {
+      out[s.key] = !!v;
+    } else if (s.type === 'dots_events') {
+      // Array of { key, label, points } — keep only the points.
+      if (!Array.isArray(v)) { out[s.key] = s.default; continue; }
+      out[s.key] = v.filter(e => e && typeof e === 'object' && e.key)
+        .map(e => ({ key: String(e.key).slice(0, 40),
+                     label: String(e.label || e.key).slice(0, 80),
+                     points: Number.isFinite(Number(e.points)) ? Number(e.points) : 0 }));
+    } else {
+      // unknown type — fall back to default
+      out[s.key] = s.default;
+    }
+  }
+  return out;
+}
 
 // Helper — is the principal allowed to edit this tournament?
 //   super admin            → always
@@ -4693,7 +4760,7 @@ app.patch('/api/tournaments/:id', requireUserOrAdmin, (req, res) => {
   const b = req.body || {};
   const upd = {
     name:            b.name            != null ? String(b.name).trim().slice(0, 200) : t.name,
-    default_format:  b.default_format  != null && scoring.SUPPORTED_FORMATS.includes(b.default_format) ? b.default_format : t.default_format,
+    default_format:  b.default_format  != null && scoring.PICKABLE_FORMATS.includes(b.default_format) ? b.default_format : t.default_format,
     type:            b.type            != null && ['casual','tournament','reds_blues'].includes(b.type) ? b.type : t.type,
     flights_enabled: b.flights_enabled != null ? (b.flights_enabled ? 1 : 0) : t.flights_enabled,
     num_flights:     b.num_flights     != null ? Math.max(1, Math.min(5, Number(b.num_flights) || 1)) : t.num_flights,
@@ -4701,6 +4768,20 @@ app.patch('/api/tournaments/:id', requireUserOrAdmin, (req, res) => {
   };
   db.prepare(`UPDATE tournaments SET name=?, default_format=?, type=?, flights_enabled=?, num_flights=?, status=? WHERE id=?`)
     .run(upd.name, upd.default_format, upd.type, upd.flights_enabled, upd.num_flights, upd.status, req.params.id);
+
+  // Format settings: a partial patch is applied against the existing JSON.
+  if (b.format_settings !== undefined) {
+    const prev = t.format_settings ? safeJSON(t.format_settings) : {};
+    const merged = { ...prev, ...(b.format_settings && typeof b.format_settings === 'object' ? b.format_settings : {}) };
+    const clean = sanitizeFormatSettings(upd.default_format, merged);
+    db.prepare('UPDATE tournaments SET format_settings=? WHERE id=?')
+      .run(clean ? JSON.stringify(clean) : null, req.params.id);
+  } else if (b.default_format != null && b.default_format !== t.default_format) {
+    // Format changed but no settings provided — reset to defaults for the new format.
+    const fresh = sanitizeFormatSettings(upd.default_format, {});
+    db.prepare('UPDATE tournaments SET format_settings=? WHERE id=?')
+      .run(fresh ? JSON.stringify(fresh) : null, req.params.id);
+  }
 
   // Round-level fields the user typically wants to edit live.
   if (b.round_date !== undefined || b.course_id !== undefined || b.holes_segment !== undefined) {
@@ -4716,10 +4797,23 @@ app.patch('/api/tournaments/:id', requireUserOrAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/api/tournaments/:id', requireAuth, (req, res) => {
+app.get('/api/tournaments/:id', requireUserOrAdmin, (req, res) => {
   const t = db.prepare('SELECT * FROM tournaments WHERE id=?').get(req.params.id);
   if (!t) return res.status(404).json({ error: 'Tournament not found' });
+  // Admins can see any tournament (super) or only theirs (regular admin);
+  // personal users can see tournaments they created or joined as a player.
+  if (req.admin) {
+    if (req.admin.role !== 'super' && t.admin_id && t.admin_id !== req.admin.id) {
+      return res.status(403).json({ error: 'Not your tournament' });
+    }
+  } else if (req.user) {
+    const owns = t.user_id === req.user.id;
+    const joined = db.prepare(`SELECT 1 FROM round_entries e JOIN rounds r ON r.id=e.round_id
+                               WHERE r.tournament_id=? AND e.user_id=?`).get(t.id, req.user.id);
+    if (!owns && !joined) return res.status(403).json({ error: 'Not your tournament' });
+  }
   t.rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
+  if (t.format_settings) t.format_settings = safeJSON(t.format_settings);
   res.json(t);
 });
 

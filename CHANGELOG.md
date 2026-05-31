@@ -2,6 +2,92 @@
 
 ---
 
+## v3.59.0 — 2026-05-30
+### Session 76 — New-game menu rework: more games, hover bubbles, wagering settings
+
+User feedback on the format picker:
+> "Lets make the logos a little more fun and also lets have a fun description
+> bubble when hovering over. Right now the description is at the bottom of the
+> page. That is useless. Also, if it is possible Add the games that are here
+> and wire up the platform so it does all the scoring for the people. For games
+> [that have] points… make sure that there is a setting that the player or
+> players can set the point structure… Also for games like vegas you should
+> be able to set the dollar or cent amount per point etc."
+
+**Picker redesign.** Each card now has its own emoji (not just one per
+engine — Skins is 💰, Nassau is 🏆, BBB is 🔔, Snake is 🐍, Vegas is 🎲,
+etc.). Hovering a card lifts it, scales/tilts the emoji, and reveals a
+saffron-trimmed description bubble above the card. The dead bottom
+description block is gone — every card has its own bubble. Mobile keeps
+2-up grid with narrower bubbles.
+
+**8 new games in the catalog** (per the user's reference article):
+
+| Game | Tier | Settings | Status |
+|---|---|---|---|
+| Nassau | Individual | front_bet, back_bet, total_bet | Manual scoring |
+| Bingo Bango Bongo | Individual | pts_bingo/bango/bongo, value_per_point | Manual scoring |
+| Dots (Garbage) | Individual | events list (editable), value_per_point | Manual scoring |
+| Snake | Individual | snake_penalty | Manual scoring |
+| **Vegas** | Pair | value_per_point, flip_birdie | **Auto-scored** |
+| Chapman / Pinehurst | Pair | — | Manual scoring |
+| Sixes / Round Robin | Pair | — | Manual scoring |
+| Foursomes Stroke | Pair | — | Manual scoring |
+
+Plus `value_per_skin` was added to the existing **Skins** format.
+
+**Wagering & points panel.** When the selected format has a settings
+schema, a saffron-bordered panel renders inline below the picker. Money
+fields show a `$` prefix; toggles (e.g. Vegas's birdie-flip rule)
+render as switches; Dots's event roster is fully editable — rename,
+re-point, remove, or `+ Add event` for custom dots. All values
+round-trip through a new `tournaments.format_settings` JSON column.
+
+**Vegas auto-tally.** A new scoring engine: groups entries into the two
+pairs (by team label), combines each pair's net scores into a 2-digit
+number (lower-first), and awards the difference to whoever's lower per
+hole. Optional birdie-flip rule on by default — if your opponent
+birdies, you must put your HIGHER score first. The leaderboard shows
+the signed margin between the two pairs.
+
+The other 7 new games are **selectable** (pick them in the picker, fill
+out settings, run the round on stroke-play scorecards), but the
+leaderboard tally is recorded manually for now. An orange "MANUAL"
+badge on the card flags this. Each engine has its own
+file → v3.60 will wire BBB / Dots / Snake / Nassau / Chapman / Sixes /
+Foursomes.
+
+### Other changes
+- `GET /api/tournaments/:id` is now `requireUserOrAdmin` (with proper
+  ownership / member check) so personal users can read their own
+  rounds in the Clubhouse instead of 401'ing
+- `roundLeaderboardPayload` now includes `format_settings` so live.html
+  can show "$X.YZ per skin / per point" under the headline
+- `live.html` renders `scoreType: 'vegas'` with the `Vegas — pair margin` caption
+
+### Files
+- [lib/formats.js](lib/formats.js) — per-format emoji, settings schemas, manualScoring flag, 8 new formats, `DOTS_DEFAULTS`, `defaultSettings()` / `isPickable()` helpers
+- [lib/scoring.js](lib/scoring.js) — `buildVegas()` engine, `PICKABLE_FORMATS` export, vegas dispatch
+- [server.js](server.js) — `format_settings` column + sanitizer + round-trip, `roundScoringOpts` threads settings into engine, GET tournament auth widened
+- [public/tournaments.html](public/tournaments.html) — picker redesign (CSS + JS), wagering panel renderer + handlers, `defaultsForFormat()`, per-format emoji
+- [public/live.html](public/live.html) — Vegas scoreType, money note under the headline
+- [tests/run-tests.js](tests/run-tests.js) — Vegas unit tests (basic + birdie flip), relaxed manualScoring + leaderboard payload regex
+- [tests/manual/test-format-picker.js](tests/manual/test-format-picker.js) — Puppeteer smoke test: 10-step catalog + settings round-trip
+- [tests/manual/capture-picker-screenshots.js](tests/manual/capture-picker-screenshots.js) — visual regression screenshots
+
+### Tests
+- 408/408 unit + integration passing
+- Manual: all 10 smoke checks pass; new Vegas engine verified against hand-computed cases (basic margin, birdie flip swing)
+
+### Follow-up (v3.60)
+- Wire auto-tally engines for Nassau (front/back/total bet ledger), BBB
+  (hole-event tracker), Dots (event-points scorecard), Snake (3-putt
+  marker), Chapman, Sixes (rotating-pair rolling totals), Foursomes
+  Stroke (alt-shot validator)
+- Show "$X won" column on leaderboard for Skins/Vegas
+
+---
+
 ## v3.58.0 — 2026-05-30
 ### Session 75 — Log out + personal-user account settings
 

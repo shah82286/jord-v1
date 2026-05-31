@@ -75,19 +75,64 @@
   .pick-card.is-sel .pc-icon { background:var(--accent); }
 
   .fmt-tier-head { font-size:11px; letter-spacing:.16em; text-transform:uppercase; font-weight:700; color:var(--ink-3); margin:var(--s-5) 0 var(--s-2); }
-  .fmt-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--s-3); }
-  .fmt-card { border:2px solid var(--border); border-radius:var(--r-lg); padding:var(--s-4) 12px; background:var(--surface);
-    cursor:pointer; position:relative; text-align:center; transition:transform var(--t-fast), border-color var(--t-fast); }
-  .fmt-card:hover { transform:translateY(-2px); border-color:var(--ink); }
-  .fmt-card.is-sel { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent) inset; }
-  .fmt-card.disabled { opacity:.4; cursor:not-allowed; }
-  .fmt-card.disabled:hover { transform:none; border-color:var(--border); }
-  .fmt-card .fc-emoji { font-size:26px; }
-  .fmt-card .nm { font-weight:700; font-size:15px; margin-top:4px; }
+  .fmt-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:var(--s-3); }
+  .fmt-card { border:2px solid var(--border); border-radius:var(--r-lg); padding:18px 12px 14px; background:var(--surface);
+    cursor:pointer; position:relative; text-align:center;
+    transition: transform var(--t-fast), border-color var(--t-fast), box-shadow var(--t-fast); }
+  .fmt-card:hover { transform:translateY(-3px); border-color:var(--accent); box-shadow:0 8px 24px rgba(26,26,26,.12); }
+  .fmt-card.is-sel { border-color:var(--accent); box-shadow:0 0 0 3px var(--accent) inset; background:#FFFCF2; }
+  .fmt-card.disabled { opacity:.45; cursor:not-allowed; }
+  .fmt-card.disabled:hover { transform:none; border-color:var(--border); box-shadow:none; }
+  .fmt-card .fc-emoji { font-size:36px; line-height:1; transition: transform var(--t-fast); display:block; }
+  .fmt-card:hover .fc-emoji { transform:scale(1.18) rotate(-4deg); }
+  .fmt-card.is-sel .fc-emoji { transform:scale(1.18); }
+  .fmt-card .nm { font-weight:700; font-size:15px; margin-top:8px; }
   .fmt-card .sub { font-size:12px; color:var(--ink-2); }
-  .fmt-card .soon { position:absolute; top:8px; right:8px; font-size:9px; font-weight:700; background:var(--surface-2); color:var(--ink-3); padding:2px 6px; border-radius:8px; }
-  .fmt-desc { margin-top:var(--s-3); padding:12px 14px; background:var(--surface-2);
-    border-radius:var(--r-sm); font-size:13px; color:var(--ink-2); line-height:1.5; }
+  .fmt-card .badge { position:absolute; top:6px; right:6px; font-size:9px; font-weight:700;
+    background:var(--surface-2); color:var(--ink-3); padding:2px 6px; border-radius:8px; letter-spacing:.04em; }
+  .fmt-card .badge.manual { background:#FFF1D6; color:#7A5400; }
+  .fmt-card .badge.soon   { background:var(--surface-2); color:var(--ink-3); }
+  /* Hover/tap description bubble */
+  .fmt-card .fc-bubble {
+    position:absolute; bottom: calc(100% + 8px); left:50%; transform: translateX(-50%) translateY(4px);
+    width:240px; background:var(--ink); color:var(--surface);
+    border-radius:var(--r-sm); padding:10px 12px; font-size:12.5px; font-weight:400; line-height:1.45;
+    z-index:60; box-shadow:0 12px 28px rgba(0,0,0,.25); text-align:left; pointer-events:none;
+    opacity:0; transition: opacity .16s ease, transform .16s ease;
+  }
+  .fmt-card .fc-bubble::after {
+    content:''; position:absolute; top:100%; left:50%; transform:translateX(-50%);
+    border:6px solid transparent; border-top-color:var(--ink);
+  }
+  .fmt-card:hover .fc-bubble, .fmt-card:focus-within .fc-bubble, .fmt-card.is-sel .fc-bubble {
+    opacity:1; transform:translateX(-50%) translateY(0); pointer-events:auto;
+  }
+  .fmt-card.disabled:hover .fc-bubble { opacity:0; }
+  @media (max-width: 640px) {
+    /* on phones, anchor the bubble to the side so it doesn't clip off the screen */
+    .fmt-grid { grid-template-columns: 1fr 1fr; }
+    .fmt-card .fc-bubble { width: 200px; }
+  }
+  /* Wagering & points panel — appears when picked format has a settings schema */
+  .fmt-wager { margin-top:var(--s-3); padding:var(--s-4); background:#FFFCF2;
+    border:1px solid var(--accent); border-radius:var(--r-lg); }
+  .fmt-wager h4 { font-family:var(--font-display); font-size:1.05rem; letter-spacing:-.01em; margin:0 0 4px; }
+  .fmt-wager .sub { font-size:13px; color:var(--ink-2); margin-bottom:var(--s-3); }
+  .fmt-wager .wager-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--s-3); }
+  @media (max-width: 560px) { .fmt-wager .wager-grid { grid-template-columns:1fr; } }
+  .fmt-wager .wager-prefix { position:relative; }
+  .fmt-wager .wager-prefix > input { padding-left:24px; }
+  .fmt-wager .wager-prefix > span.prefix { position:absolute; left:10px; top:50%; transform:translateY(-50%);
+    color:var(--ink-3); font-weight:600; font-size:14px; pointer-events:none; }
+  .fmt-wager .dots-list { display:flex; flex-direction:column; gap:6px; }
+  .fmt-wager .dot-row { display:grid; grid-template-columns: 1fr 70px auto; gap:8px; align-items:center; }
+  .fmt-wager .dot-row input.label-in { font-size:13px; }
+  .fmt-wager .dot-row input.pts-in { text-align:right; }
+  .fmt-wager .dot-row .rm-btn { background:transparent; border:none; color:var(--ink-3); cursor:pointer;
+    width:28px; height:28px; border-radius:50%; font-size:18px; line-height:1; }
+  .fmt-wager .dot-row .rm-btn:hover { background:var(--surface-2); color:var(--danger); }
+  .fmt-wager .toggle-row { display:flex; align-items:center; gap:10px; padding:6px 0; }
+  .fmt-wager .toggle-row input { width:18px; height:18px; accent-color:var(--accent); }
   .wiz-nav { display:flex; justify-content:space-between; gap:var(--s-3); margin-top:var(--s-6); }
   .holes-opt { display:flex; gap:var(--s-2); flex-wrap:wrap; }
   .holes-opt button { flex:1; min-width:110px; padding:18px 10px; font-size:15px; font-weight:700; border-radius:var(--r-lg); }
@@ -132,9 +177,13 @@ if (!HAS_ADMIN_TOKEN && !HAS_USER_TOKEN) {
 
 /* info bubble for a setting label — hover or tap the ⓘ to read what it does */
 const help = txt => `<span class="help-icon" tabindex="0">i<span class="tooltip">${esc(txt)}</span></span>`;
-/* a playful emoji per scoring engine, shown on format cards */
-const FMT_EMOJI = { stroke:'⛳', stableford:'🎯', scramble:'🤝', bestball:'🔥',
-  matchplay:'⚔️', skins:'💰', erado:'✂️', duplicate:'🎲' };
+/* fallback emoji per scoring engine — only used if the format catalog hasn't
+ * set its own emoji (v3.59 added per-format emojis; this is a safety net). */
+const FMT_EMOJI = { stroke:'⛳', stableford:'🏅', scramble:'🤝', bestball:'🔥',
+  matchplay:'⚔️', skins:'💰', erado:'✂️', duplicate:'🎲',
+  vegas:'🎲', nassau:'🏆', bbb:'🔔', dots:'🎰', snake:'🐍',
+  chapman:'🌲', sixes:'🔄', foursomes_stroke:'🔁', lownet:'📊', rumble:'☘️' };
+const fmtEmoji = f => f && (f.emoji || FMT_EMOJI[f.engine] || '⛳');
 
 // Topbar — admins see the Admin link; personal users see Settings + Log out.
 async function _logout() {
@@ -152,8 +201,10 @@ document.getElementById('topbar').appendChild(JORD.renderTopbar('Clubhouse', top
 
 const S = { courses:[], tournaments:[], formats:null, wiz:null };
 
-/* A format is pickable once its scoring engine is wired end-to-end. */
-function pickable(f){ return f.scored; }
+/* A format is pickable when it auto-scores OR uses manual scoring (the
+ * round still saves and runs; the leaderboard just doesn't auto-tally
+ * for the manual ones yet). Both states are valid game configurations. */
+function pickable(f){ return !!(f.scored || f.manualScoring); }
 function findFmt(id){ return S.formats ?
   [...S.formats.individual,...S.formats.pair,...S.formats.team].find(f=>f.id===id) : null; }
 function isTeamFormat(){ const f=findFmt(S.wiz&&S.wiz.format); return !!(f && f.teamSize[1]>1); }
@@ -446,6 +497,7 @@ async function saveManualCourse() {
 function startWizard() {
   S.wiz = { step:'type', type:null, course_id:null, holes_segment:'all',
     name:'', date:new Date().toISOString().slice(0,10), format:'stroke_net',
+    format_settings: defaultsForFormat('stroke_net'),
     flights_enabled:false, num_flights:2, num_rounds:1, players:[], teams:[], reds:[], blues:[] };
 }
 const STEPS = ['type','course','setup','players'];
@@ -617,23 +669,147 @@ function stepSetup() {
 }
 function renderFormatPicker() {
   const w = S.wiz;
-  const sel = [...S.formats.individual,...S.formats.pair,...S.formats.team].find(f=>f.id===w.format);
-  const tier = (label,list) => `<div class="fmt-tier-head">${label}</div><div class="fmt-grid">` +
+  const allFmts = [...S.formats.individual, ...S.formats.pair, ...S.formats.team];
+  const sel = allFmts.find(f => f.id === w.format);
+  const tier = (label, list) => `<div class="fmt-tier-head">${label}</div><div class="fmt-grid">` +
     list.map(f => {
       const ok = pickable(f);
-      return `<div class="fmt-card ${ok?'':'disabled'} ${w.format===f.id?'is-sel':''}" data-f="${ok?f.id:''}">
-        ${ok?'':'<span class="soon">SOON</span>'}
-        <div class="fc-emoji">${FMT_EMOJI[f.engine]||'⛳'}</div>
-        <div class="nm">${esc(f.name)}</div><div class="sub">${esc(f.sub)}</div></div>`;
+      // Badge: "MANUAL" for manual-scoring formats, "SOON" for not-yet-pickable
+      const badge = !ok ? `<span class="badge soon">SOON</span>`
+        : (f.manualScoring && !f.scored ? `<span class="badge manual">MANUAL</span>` : '');
+      // Inline description bubble (replaces the old single bottom desc block —
+      // descriptions now live on the card you're hovering, so you can compare).
+      const bubble = `<div class="fc-bubble"><strong>${esc(f.name)} · ${esc(f.sub)}</strong><br>${esc(f.desc)}${
+        f.manualScoring && !f.scored ? '<br><br><em style="color:#FFD79B">Manual scoring for now — you enter points per hole. Auto-leaderboard coming in v3.60.</em>' : ''
+      }</div>`;
+      return `<div class="fmt-card ${ok?'':'disabled'} ${w.format===f.id?'is-sel':''}" data-f="${ok?f.id:''}" tabindex="${ok?0:-1}">
+        ${badge}
+        <div class="fc-emoji">${fmtEmoji(f)}</div>
+        <div class="nm">${esc(f.name)}</div><div class="sub">${esc(f.sub)}</div>
+        ${bubble}
+      </div>`;
     }).join('') + `</div>`;
   $('#fmtPicker').innerHTML =
     tier('Individual', S.formats.individual) +
     tier('Pair', S.formats.pair) +
     tier('Team', S.formats.team) +
-    (sel ? `<div class="fmt-desc"><strong>${esc(sel.name)} · ${esc(sel.sub)}</strong> — ${esc(sel.desc)}</div>` : '');
+    (sel && sel.settings && sel.settings.length ? renderWagerPanel(sel, w) : '');
   $('#fmtPicker').querySelectorAll('[data-f]').forEach(c => c.onclick = () => {
     if (!c.dataset.f) return;
-    w.format = c.dataset.f; renderWizard();
+    if (c.dataset.f === w.format) return;
+    w.format = c.dataset.f;
+    // Reset format settings to the defaults for the newly picked format.
+    w.format_settings = defaultsForFormat(c.dataset.f);
+    renderWizard();
+  });
+  if (sel && sel.settings && sel.settings.length) wireWagerPanel(sel, w);
+}
+
+// Build the default { key: default } object for a format from S.formats.
+function defaultsForFormat(id) {
+  const allFmts = [...S.formats.individual, ...S.formats.pair, ...S.formats.team];
+  const f = allFmts.find(f => f.id === id);
+  if (!f || !f.settings) return {};
+  const out = {};
+  for (const s of f.settings) {
+    // dots_events is an array — deep-clone the default so edits don't mutate the catalog
+    if (s.type === 'dots_events') out[s.key] = JSON.parse(JSON.stringify(s.default));
+    else out[s.key] = s.default;
+  }
+  return out;
+}
+
+// Render the wagering / points panel for the selected format (inline below picker).
+function renderWagerPanel(fmt, w) {
+  const cfg = (w.format_settings = w.format_settings || defaultsForFormat(fmt.id));
+  const row = (s) => {
+    const val = cfg[s.key];
+    if (s.type === 'money' || s.type === 'cents') {
+      const symbol = s.type === 'cents' ? '¢' : '$';
+      return `<div class="field">
+        <label>${esc(s.label)} ${s.hint?help(s.hint):''}</label>
+        <div class="wager-prefix">
+          <span class="prefix">${symbol}</span>
+          <input class="input" type="number" step="${s.step||0.25}" min="${s.min??0}" data-k="${s.key}" data-t="${s.type}" value="${Number(val)||0}" />
+        </div>
+      </div>`;
+    }
+    if (s.type === 'number') {
+      return `<div class="field">
+        <label>${esc(s.label)} ${s.hint?help(s.hint):''}</label>
+        <input class="input" type="number" step="${s.step||1}" min="${s.min??0}" data-k="${s.key}" data-t="number" value="${Number(val)||0}" />
+      </div>`;
+    }
+    if (s.type === 'toggle') {
+      return `<div class="field" style="grid-column:1/-1">
+        <div class="toggle-row">
+          <input type="checkbox" id="tog_${s.key}" data-k="${s.key}" data-t="toggle" ${val?'checked':''} />
+          <label for="tog_${s.key}" style="cursor:pointer">${esc(s.label)} ${s.hint?help(s.hint):''}</label>
+        </div>
+      </div>`;
+    }
+    if (s.type === 'dots_events') {
+      const rows = (val || []).map((d, i) => `
+        <div class="dot-row" data-i="${i}">
+          <input class="input label-in" data-k="${s.key}" data-fld="label" value="${esc(d.label||d.key)}" />
+          <input class="input pts-in"   data-k="${s.key}" data-fld="points" type="number" step="1" value="${Number(d.points)||0}" />
+          <button type="button" class="rm-btn" data-rm="${i}" data-k="${s.key}" title="Remove">×</button>
+        </div>`).join('');
+      return `<div class="field" style="grid-column:1/-1">
+        <label>${esc(s.label)} ${s.hint?help(s.hint):''}</label>
+        <div class="dots-list" data-list="${s.key}">${rows}</div>
+        <button type="button" class="btn btn-ghost" style="margin-top:8px;padding:6px 12px;font-size:13px" data-add="${s.key}">+ Add event</button>
+      </div>`;
+    }
+    return '';
+  };
+  return `<div class="fmt-wager">
+    <h4>${fmtEmoji(fmt)} ${esc(fmt.name)} — wagering & points</h4>
+    <div class="sub">Defaults are the most common settings. Change anything that fits your group.</div>
+    <div class="wager-grid">${fmt.settings.map(row).join('')}</div>
+  </div>`;
+}
+
+// Wire input handlers for the wagering panel so edits flow into w.format_settings.
+function wireWagerPanel(fmt, w) {
+  const wager = $('#fmtPicker .fmt-wager');
+  if (!wager) return;
+  const cfg = w.format_settings = w.format_settings || defaultsForFormat(fmt.id);
+  // Money / number / toggle scalar fields
+  wager.querySelectorAll('input[data-k]:not(.label-in):not(.pts-in)').forEach(inp => {
+    inp.oninput = () => {
+      const k = inp.dataset.k, t = inp.dataset.t;
+      if (t === 'toggle') cfg[k] = inp.checked;
+      else cfg[k] = Number(inp.value);
+    };
+  });
+  // Dots events: label + points editable, with add / remove
+  wager.querySelectorAll('.dot-row input').forEach(inp => {
+    inp.oninput = () => {
+      const row = inp.closest('.dot-row');
+      const i = +row.dataset.i;
+      const k = inp.dataset.k;
+      const list = cfg[k] || [];
+      if (!list[i]) return;
+      if (inp.dataset.fld === 'points') list[i].points = Number(inp.value) || 0;
+      else list[i].label = inp.value;
+    };
+  });
+  wager.querySelectorAll('[data-rm]').forEach(btn => {
+    btn.onclick = () => {
+      const k = btn.dataset.k;
+      const i = +btn.dataset.rm;
+      (cfg[k] || []).splice(i, 1);
+      renderFormatPicker();
+    };
+  });
+  wager.querySelectorAll('[data-add]').forEach(btn => {
+    btn.onclick = () => {
+      const k = btn.dataset.add;
+      cfg[k] = cfg[k] || [];
+      cfg[k].push({ key: 'custom_' + (cfg[k].length + 1), label: 'New event', points: 1 });
+      renderFormatPicker();
+    };
   });
 }
 
@@ -802,7 +978,8 @@ async function createGame() {
     const trn = await JORD.api('/api/tournaments',{method:'POST',body:{
       name:w.name.trim(), type:w.type, course_id:w.course_id,
       round_date:w.date, format:w.format, holes_segment:w.holes_segment,
-      flights_enabled:w.flights_enabled, num_flights:w.num_flights }});
+      flights_enabled:w.flights_enabled, num_flights:w.num_flights,
+      format_settings: w.format_settings || {} }});
     const roundIds = [trn.round_id];
     const nRounds = (w.type==='tournament' && !isTeamFormat()) ? w.num_rounds : 1;
     for (let i=2; i<=nRounds; i++) {
