@@ -154,6 +154,25 @@
   .fmt-wager .dot-row .rm-btn:hover { background:var(--surface-2); color:var(--danger); }
   .fmt-wager .toggle-row { display:flex; align-items:center; gap:10px; padding:6px 0; }
   .fmt-wager .toggle-row input { width:18px; height:18px; accent-color:var(--accent); }
+
+  /* Side bets panel (v3.60) — layers a second scoring game on top of the primary. */
+  .fmt-sidebets { margin-top:var(--s-3); padding:var(--s-4);
+    background:var(--surface); border:1px dashed var(--accent); border-radius:var(--r-lg); }
+  .fmt-sidebets h4 { font-family:var(--font-display); font-size:1.05rem; letter-spacing:-.01em; margin:0 0 4px; }
+  .fmt-sidebets .sub { font-size:13px; color:var(--ink-2); margin-bottom:var(--s-3); }
+  .fmt-sidebets .sb-list { display:flex; flex-direction:column; gap:var(--s-3); }
+  .fmt-sidebets .sb-row { display:flex; align-items:flex-start; gap:10px; cursor:pointer; padding:8px 10px;
+    border:1px solid var(--border); border-radius:var(--r-sm); background:var(--surface); }
+  .fmt-sidebets .sb-row:hover { border-color:var(--accent); }
+  .fmt-sidebets .sb-row input[type=checkbox] { width:18px; height:18px; accent-color:var(--accent); margin-top:2px; }
+  .fmt-sidebets .sb-emoji { font-size:22px; line-height:1; margin-top:-1px; }
+  .fmt-sidebets .sb-meta { display:flex; flex-direction:column; gap:2px; }
+  .fmt-sidebets .sb-meta .sb-name { font-weight:700; font-size:14px; }
+  .fmt-sidebets .sb-meta .sb-sub  { font-weight:500; color:var(--ink-2); font-size:13px; }
+  .fmt-sidebets .sb-meta .sb-desc { font-size:12.5px; color:var(--ink-2); line-height:1.5; }
+  .fmt-sidebets .sb-settings { margin-top:6px; padding:10px 12px; background:#FFFCF2;
+    border:1px solid var(--accent); border-radius:var(--r-sm); display:grid; grid-template-columns:1fr 1fr; gap:var(--s-3); }
+  @media (max-width: 560px) { .fmt-sidebets .sb-settings { grid-template-columns:1fr; } }
   .wiz-nav { display:flex; justify-content:space-between; gap:var(--s-3); margin-top:var(--s-6); }
   .holes-opt { display:flex; gap:var(--s-2); flex-wrap:wrap; }
   .holes-opt button { flex:1; min-width:110px; padding:18px 10px; font-size:15px; font-weight:700; border-radius:var(--r-lg); }
@@ -536,6 +555,7 @@ function startWizard() {
   S.wiz = { step:'type', type:null, course_id:null, holes_segment:'all',
     name:'', date:new Date().toISOString().slice(0,10), format:'stroke_net',
     format_settings: defaultsForFormat('stroke_net'),
+    side_bets: [],
     flights_enabled:false, num_flights:2, num_rounds:1, players:[], teams:[], reds:[], blues:[] };
 }
 const STEPS = ['type','course','setup','players'];
@@ -731,16 +751,110 @@ function renderFormatPicker() {
     tier('Individual', S.formats.individual) +
     tier('Pair', S.formats.pair) +
     tier('Team', S.formats.team) +
-    (sel && sel.settings && sel.settings.length ? renderWagerPanel(sel, w) : '');
+    (sel && sel.settings && sel.settings.length ? renderWagerPanel(sel, w) : '') +
+    (sel ? renderSideBetsPanel(sel, w) : '');
   $('#fmtPicker').querySelectorAll('[data-f]').forEach(c => c.onclick = () => {
     if (!c.dataset.f) return;
     if (c.dataset.f === w.format) return;
     w.format = c.dataset.f;
-    // Reset format settings to the defaults for the newly picked format.
+    // Reset format settings + side-bets to the defaults for the newly picked format.
     w.format_settings = defaultsForFormat(c.dataset.f);
+    w.side_bets = []; // drop any side-bets that may not compose with the new primary
     renderWizard();
   });
   if (sel && sel.settings && sel.settings.length) wireWagerPanel(sel, w);
+  if (sel) wireSideBetsPanel(sel, w);
+}
+
+// Side-bets the frontend will offer for each primary engine. Mirrors
+// lib/formats.js::compatibleSideBets — keep in sync. Conservative pass:
+// Skins is the only side-bet for now and works on per-hole net engines.
+const SKINS_COMPATIBLE_ENGINES = ['stroke','stableford','scramble','bestball','duplicate','rumble','lownet'];
+function compatibleSideBets(primaryId) {
+  const allFmts = [...S.formats.individual, ...S.formats.pair, ...S.formats.team];
+  const primary = allFmts.find(f => f.id === primaryId);
+  if (!primary) return [];
+  const out = [];
+  const skins = allFmts.find(f => f.id === 'skins');
+  if (skins && SKINS_COMPATIBLE_ENGINES.includes(primary.engine) && primary.id !== 'skins') {
+    out.push(skins);
+  }
+  return out;
+}
+
+// Renders the "Side bets" checkbox section below the wagering panel. Empty
+// string when the primary has no compatible side-bets — picker stays clean.
+function renderSideBetsPanel(fmt, w) {
+  const opts = compatibleSideBets(fmt.id);
+  if (!opts.length) return '';
+  w.side_bets = w.side_bets || [];
+  const activeBy = Object.fromEntries(w.side_bets.map(sb => [sb.format_id, sb]));
+  const row = (sb) => {
+    const active = !!activeBy[sb.id];
+    const cfg = active ? activeBy[sb.id].settings || {} : null;
+    return `
+      <label class="sb-row">
+        <input type="checkbox" data-sb="${sb.id}" ${active?'checked':''} />
+        <span class="sb-emoji">${sb.emoji || '🎲'}</span>
+        <span class="sb-meta"><span class="sb-name">${esc(sb.name)} <span class="sb-sub">· ${esc(sb.sub)}</span></span><span class="sb-desc">${esc(sb.desc)}</span></span>
+      </label>
+      ${active && sb.settings && sb.settings.length ? `
+        <div class="sb-settings" data-sb-cfg="${sb.id}">
+          ${sb.settings.map(s => {
+            const v = cfg[s.key];
+            if (s.type === 'money' || s.type === 'cents') {
+              const symbol = s.type === 'cents' ? '¢' : '$';
+              return `<div class="field">
+                <label>${esc(s.label)}</label>
+                <div class="wager-prefix"><span class="prefix">${symbol}</span>
+                  <input class="input" type="number" step="${s.step||0.25}" min="${s.min??0}" data-sb-k="${sb.id}:${s.key}" data-t="${s.type}" value="${Number(v)||0}" /></div>
+              </div>`;
+            }
+            if (s.type === 'number') {
+              return `<div class="field">
+                <label>${esc(s.label)}</label>
+                <input class="input" type="number" step="${s.step||1}" min="${s.min??0}" data-sb-k="${sb.id}:${s.key}" data-t="number" value="${Number(v)||0}" />
+              </div>`;
+            }
+            return '';
+          }).join('')}
+        </div>` : ''}
+    `;
+  };
+  return `<div class="fmt-sidebets">
+    <h4>🎯 Side bets — layer another game on top</h4>
+    <div class="sub">Pick a second scoring game that runs on the same scorecard. The live leaderboard will show a tab for each game.</div>
+    <div class="sb-list">${opts.map(row).join('')}</div>
+  </div>`;
+}
+
+// Wires the side-bets checkboxes + their per-field inputs into w.side_bets.
+function wireSideBetsPanel(fmt, w) {
+  w.side_bets = w.side_bets || [];
+  const panel = $('#fmtPicker .fmt-sidebets');
+  if (!panel) return;
+  panel.querySelectorAll('input[data-sb]').forEach(cb => {
+    cb.onchange = () => {
+      const id = cb.dataset.sb;
+      const f  = [...S.formats.individual, ...S.formats.pair, ...S.formats.team].find(f => f.id === id);
+      const idx = w.side_bets.findIndex(sb => sb.format_id === id);
+      if (cb.checked && idx === -1) {
+        w.side_bets.push({ format_id: id, settings: defaultsForFormat(id) });
+      } else if (!cb.checked && idx !== -1) {
+        w.side_bets.splice(idx, 1);
+      }
+      renderFormatPicker();
+    };
+  });
+  panel.querySelectorAll('input[data-sb-k]').forEach(inp => {
+    inp.oninput = () => {
+      const [id, key] = inp.dataset.sbK.split(':');
+      const sb = w.side_bets.find(sb => sb.format_id === id);
+      if (!sb) return;
+      sb.settings = sb.settings || {};
+      sb.settings[key] = Number(inp.value);
+    };
+  });
 }
 
 // Build the default { key: default } object for a format from S.formats.
@@ -1017,7 +1131,8 @@ async function createGame() {
       name:w.name.trim(), type:w.type, course_id:w.course_id,
       round_date:w.date, format:w.format, holes_segment:w.holes_segment,
       flights_enabled:w.flights_enabled, num_flights:w.num_flights,
-      format_settings: w.format_settings || {} }});
+      format_settings: w.format_settings || {},
+      side_bets: w.side_bets || [] }});
     const roundIds = [trn.round_id];
     const nRounds = (w.type==='tournament' && !isTeamFormat()) ? w.num_rounds : 1;
     for (let i=2; i<=nRounds; i++) {

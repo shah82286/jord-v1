@@ -355,6 +355,35 @@ console.log('\n🎲 Exotic Formats — Skins / Erado / Duplicate (lib/scoring.js
     const c = vgRR.rows.find(r => r.teamName === 'C').total;
     return assert(a === -3 && b === -30 && c === 33, `A=${a} B=${b} C=${c}`);
   });
+
+  // Multi-format combo (v3.60). Stroke Net primary + Skins side-bet should
+  // return two separate leaderboards in one call.
+  const h3comb = [
+    { hole_number:1, par:4, stroke_index:1 },
+    { hole_number:2, par:4, stroke_index:2 },
+    { hole_number:3, par:4, stroke_index:3 },
+  ];
+  const combo = scoring.buildAllLeaderboards([
+    { entryId:'X', playerName:'X', courseHandicap:0, holes:h3comb, scores:{1:4,2:5,3:4} }, // par, bogey, par
+    { entryId:'Y', playerName:'Y', courseHandicap:0, holes:h3comb, scores:{1:5,2:4,3:5} }, // bogey, par, bogey
+  ], {
+    format: 'stroke_gross',
+    side_bets: [{ format_id:'skins', settings:{ value_per_skin: 5 } }],
+  });
+  test('Combo: primary + side-bet produces two distinct leaderboards', () =>
+    assert(combo.primary && combo.primary.rows.length === 2
+        && Array.isArray(combo.sideBets) && combo.sideBets.length === 1
+        && combo.sideBets[0].formatId === 'skins'
+        && combo.sideBets[0].leaderboard.scoreType === 'skins',
+      'combo shape: ' + JSON.stringify(combo)));
+  test('Combo: Skins side-bet awards 1 skin each on holes 1 and 3 (split), X wins hole 2', () => {
+    const sk = combo.sideBets[0].leaderboard.rows;
+    // X scored 4,5,4; Y scored 5,4,5. Hole 1: X 4 vs Y 5 — X wins (1 skin).
+    // Hole 2: Y 4 vs X 5 — Y wins (1). Hole 3: X 4 vs Y 5 — X wins (1).
+    const x = sk.find(r => r.playerName === 'X').total;
+    const y = sk.find(r => r.playerName === 'Y').total;
+    return assert(x === 2 && y === 1, `X=${x} Y=${y}`);
+  });
 }
 
 console.log('\n🏆 Team Exotics — Low Scratch/Net + Irish Rumble (lib/scoring.js)\n');

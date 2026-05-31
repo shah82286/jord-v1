@@ -2,6 +2,74 @@
 
 ---
 
+## v3.60.0 — 2026-05-31
+### Session 77 (cont.) — Dynamic multi-format combos (Stroke + Skins side bet)
+
+User asked for game combinations:
+> "For the selection of game if there are combinations or able to play
+> multiple for instance doing stroke play or team stroke play and also
+> skins. Right now I would have to create two separate things…
+> Also the leaderboard and scoring should show on the card the
+> multiple games."
+
+User opted for the **schema-driven checkboxes** approach (max
+flexibility) and **tab strip** on the leaderboard.
+
+### Side-bet eligibility (conservative pass)
+A side-bet is a second scoring game that runs on the same scorecard
+as the primary format and produces its own leaderboard. New
+`compatibleSideBets(primaryId)` helper in `lib/formats.js` returns
+the side-bets allowed on top of a given primary.
+
+For v3.60 the only side-bet is **Skins** — it composes with any
+per-hole net-strokes engine (stroke, stableford, scramble, bestball,
+duplicate, rumble, lownet). That covers a typical 16-player stroke-
+play outing where the wager pot is a Skins side-bet.
+
+More side-bets (Vegas as a sub-game on a stroke-play pair tournament,
+Nassau on top of stroke, etc.) will land as their engines move from
+manual scoring to auto-tally in future versions.
+
+### Engine wrapper
+New `scoring.buildAllLeaderboards(entries, opts)` runs the primary
+engine, then each side-bet engine on the same entry set, and returns:
+```
+{ primary: <leaderboard>, sideBets: [{ formatId, leaderboard, settings }] }
+```
+The side-bet re-derives each player's playing handicap under its own
+allowance (e.g. Skins 0.95) when a raw handicap index is available,
+so net math matches a standalone side-bet game.
+
+### Wizard UI
+Below the primary's wagering panel, a new **"Side bets"** card lists
+every compatible side-bet as a checkbox. Checking one opens that
+side-bet's own settings (e.g. `$/skin` for Skins). The wizard sends a
+`side_bets: [{ format_id, settings }]` array along with the regular
+tournament POST.
+
+### Live leaderboard tabs
+When the round has side-bets configured, `/live/:roundId` now shows a
+pill tab strip above the leaderboard with one tab per active scoring
+engine ("Stroke Play • 🎯 Skins · Stroke Play"). Tabs switch the
+visible leaderboard instantly — primary and side-bet both come from
+the same SSE payload. The money-per-unit note ("$10.00 per skin")
+auto-updates based on the active tab's settings.
+
+### Files
+- [lib/formats.js](lib/formats.js) — `compatibleSideBets()`, `SKINS_COMPATIBLE_PRIMARY_ENGINES`
+- [lib/scoring.js](lib/scoring.js) — `buildAllLeaderboards()`
+- [server.js](server.js) — new `tournaments.side_bets` JSON column, `sanitizeSideBets()`, POST/PATCH/GET all parse + sanitize, `roundLeaderboardPayload` returns `{leaderboard, sideBets, …}`
+- [public/tournaments.html](public/tournaments.html) — `renderSideBetsPanel()`, `wireSideBetsPanel()`, `compatibleSideBets()` client helper, wizard sends `side_bets`
+- [public/live.html](public/live.html) — `state.sideBets` + tab strip, `currentBoard()` / `currentSettings()` helpers
+- [tests/run-tests.js](tests/run-tests.js) — `buildAllLeaderboards` unit tests (combo shape, Skins math on a 2-player 3-hole sample)
+- [tests/manual/test-combo-format.js](tests/manual/test-combo-format.js) — full E2E: signup → create combo → post scores → confirm SSE serves both leaderboards
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: 6-step combo E2E passes (signup → side_bets persist → SSE payload has both leaderboards)
+
+---
+
 ## v3.59.4 — 2026-05-31
 ### Session 77 — Delete games/rounds + paper-scorecard shapes
 

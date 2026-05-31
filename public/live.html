@@ -15,6 +15,18 @@
   .lb-head h1 { font-family:var(--font-display); font-size:clamp(1.6rem,5vw,2.4rem); letter-spacing:-0.02em; margin-top:6px; }
   .lb-head .mini { color:var(--ink-2); font-size:13px; margin-top:4px; }
   .lb-controls { display:flex; justify-content:center; margin-bottom:var(--s-4); }
+  /* Multi-leaderboard tab strip — only appears when side-bets are active. */
+  .lb-tabs { display:flex; gap:6px; justify-content:center; flex-wrap:wrap;
+    margin-bottom:var(--s-3); padding:6px;
+    background:var(--surface-2); border-radius:var(--r-pill); }
+  .lb-tab { border:none; background:transparent; cursor:pointer; padding:8px 14px;
+    border-radius:var(--r-pill); font-weight:600; font-size:13px; color:var(--ink-2);
+    transition:background var(--t-fast), color var(--t-fast); }
+  .lb-tab:hover { background:var(--surface); color:var(--ink); }
+  .lb-tab.is-active { background:var(--ink); color:var(--surface); }
+  body.theme-dark .lb-tabs { background:rgba(255,255,255,.06); }
+  body.theme-dark .lb-tab { color:rgba(255,255,255,.7); }
+  body.theme-dark .lb-tab.is-active { background:var(--surface); color:var(--ink); }
   .lb-row { display:grid; grid-template-columns:54px 1fr 64px 78px; gap:var(--s-2); align-items:center;
     padding:14px 16px; border-bottom:1px solid var(--border); }
   .lb-row.head { font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--ink-3);
@@ -102,7 +114,23 @@ const roundId = location.pathname.split('/').pop();
 // `expanded` is the set of entryIds currently showing their hole-by-hole
 // drawer. Tracked here (not by DOM class) so SSE re-renders preserve the
 // open/closed state without flicker.
-const state = { round:null, leaderboard:null, tv:false, holes:[], expanded:new Set(), teams:[] };
+const state = { round:null, leaderboard:null, tv:false, holes:[], expanded:new Set(), teams:[],
+                 sideBets:[], activeTab:'primary' };
+// Which leaderboard is currently visible — the primary or one of the side-bets
+// keyed by 'sb:0', 'sb:1', etc. Defaults to primary.
+function currentBoard() {
+  if (state.activeTab === 'primary' || !state.activeTab) return state.leaderboard;
+  if (state.activeTab.startsWith('sb:')) {
+    const i = +state.activeTab.slice(3);
+    return state.sideBets[i]?.leaderboard || state.leaderboard;
+  }
+  return state.leaderboard;
+}
+function currentSettings() {
+  if (state.activeTab === 'primary' || !state.activeTab) return state.format_settings || {};
+  const i = +state.activeTab.slice(3);
+  return state.sideBets[i]?.settings || {};
+}
 
 function toParText(n){ return n==null?'—':(n===0?'E':(n>0?'+'+n:''+n)); }
 
@@ -202,7 +230,8 @@ function renderTeamSection(scoreType, unit) {
 }
 
 function render() {
-  const r = state.round, lb = state.leaderboard;
+  const r = state.round;
+  const lb = currentBoard();
   if (!r) { $('#app').innerHTML = `<div class="gate"><div style="font-size:48px">🔍</div>
     <h1 style="font-family:var(--font-display)">Round not found</h1></div>`; return; }
 
@@ -214,13 +243,22 @@ function render() {
   const headLabel = st==='skins' ? 'Skins' : st==='vegas' ? 'Vegas' : st==='points' ? 'Points' : 'Total';
   const subLabel = st==='skins' ? 'Skins won' : st==='vegas' ? 'Vegas — pair margin' : st==='points' ? 'Stableford — points' : 'Strokes to par';
   // Money-style hint shown beneath the leaderboard when wagering is on.
-  const fs = state.format_settings || {};
+  const fs = currentSettings();
   const moneyNote = (() => {
     if (st === 'skins' && fs.value_per_skin) return `$${Number(fs.value_per_skin).toFixed(2)} per skin`;
     if (st === 'vegas' && fs.value_per_point) return `$${Number(fs.value_per_point).toFixed(2)} per point`;
     return '';
   })();
   const rows = lb ? lb.rows : [];
+  // Multi-leaderboard tab strip (v3.60). Renders only when side-bets are present.
+  const hasTabs = Array.isArray(state.sideBets) && state.sideBets.length > 0;
+  const tabsHTML = hasTabs ? `
+    <div class="lb-tabs">
+      <button class="lb-tab ${state.activeTab==='primary'?'is-active':''}" data-tab="primary">${esc(state.primaryName || 'Primary')}</button>
+      ${state.sideBets.map((sb, i) => `
+        <button class="lb-tab ${state.activeTab==='sb:'+i?'is-active':''}" data-tab="sb:${i}">${esc(sb.emoji||'🎯')} ${esc(sb.formatName||'Side bet')}</button>
+      `).join('')}
+    </div>` : '';
   $('#app').innerHTML = `
     <div class="lb-head">
       <div class="eyebrow"><span class="live-dot"></span>${r.status==='active'?'Live':esc(r.status)}</div>
@@ -228,12 +266,19 @@ function render() {
       <div class="mini">Round ${r.round_number} · ${subLabel}</div>
     </div>
     <div class="lb-controls"><button class="btn btn-ghost" id="tvBtn">${state.tv?'Exit TV':'📺 TV mode'}</button></div>
+    ${tabsHTML}
     ${moneyNote ? `<div class="mini" style="text-align:center;color:var(--ink-3);margin:8px 0">${esc(moneyNote)}</div>` : ''}
     ${renderTeamSection(st, unit)}
     <div class="lb-row head"><div>Pos</div><div>Player</div><div class="thru">Thru</div>
       <div class="tot">${headLabel}</div></div>
     <div id="rows"></div>`;
   $('#tvBtn').onclick = () => { state.tv=!state.tv; document.body.classList.toggle('theme-dark',state.tv); render(); };
+  // Wire tab clicks
+  if (hasTabs) {
+    document.querySelectorAll('.lb-tab').forEach(btn => {
+      btn.onclick = () => { state.activeTab = btn.dataset.tab; render(); };
+    });
+  }
 
   if (!rows.length) { $('#rows').innerHTML =
     '<p style="text-align:center;color:var(--ink-3);padding:var(--s-6)">No players yet.</p>'; return; }
@@ -312,18 +357,32 @@ function renderMatch(r, lb) {
 function apply(payload){
   state.round = payload.round;
   state.leaderboard = payload.leaderboard;
-  // The round's hole layout (par + stroke index per hole) is broadcast
-  // alongside the leaderboard so the click-to-expand drawer can color-
-  // code scores vs par without a second fetch.
   if (Array.isArray(payload.holes)) state.holes = payload.holes;
-  // Per-team aggregates ("Team A vs Team B" side-bet UX). Empty array
-  // when nobody opted into teams or when the format is already team-
-  // aggregated (scramble / best ball).
   state.teams = Array.isArray(payload.teams) ? payload.teams : [];
-  // Wagering / point-structure config (Skins $/skin, Vegas $/point, etc.) —
-  // surfaced under the headline so spectators see the stakes.
   state.format_settings = payload.format_settings || null;
+  // v3.60 multi-leaderboard: extra games layered on top of the primary.
+  // Each side-bet has its own leaderboard / settings; the tab strip lets
+  // spectators flip between them.
+  state.sideBets = Array.isArray(payload.sideBets) ? payload.sideBets : [];
+  // Pick a friendly name for the primary tab from the round's format id.
+  state.primaryName = primaryNameForFormat(state.round?.format);
   render();
+}
+
+// Map a format id → a short label for the primary tab. We keep this client-
+// side so live.html doesn't need a /api/formats round-trip — it's cosmetic.
+const PRIMARY_NAME_BY_ENGINE = {
+  stroke: 'Stroke Play', stableford: 'Stableford', scramble: 'Scramble',
+  bestball: 'Best Ball', skins: 'Skins', erado: 'Erado', duplicate: 'Duplicate',
+  matchplay: 'Match Play', vegas: 'Vegas', nassau: 'Nassau',
+  lownet: 'Low Scratch/Net', rumble: 'Irish Rumble',
+};
+function primaryNameForFormat(id) {
+  if (!id) return 'Primary';
+  // Engine is mid-segment of the id (e.g. 'stroke_net' → 'stroke').
+  // For ids that don't map cleanly we just title-case the id.
+  const eng = id.split('_')[0];
+  return PRIMARY_NAME_BY_ENGINE[eng] || id.replace(/_/g, ' ');
 }
 
 function connect(){

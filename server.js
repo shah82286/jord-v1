@@ -320,6 +320,10 @@ try { db.exec("ALTER TABLE round_entries ADD COLUMN user_id TEXT"); } catch {}
 // v3.59 — wagering / point-structure config per format. JSON blob; shape
 // depends on the chosen format (see lib/formats.js settings schemas).
 try { db.exec("ALTER TABLE tournaments ADD COLUMN format_settings TEXT"); } catch {}
+// v3.60 — optional list of side-bet formats layered on top of the primary
+// format (e.g. Stroke Play Net + Skins side-bet). JSON array of
+// [{ format_id, settings: {...} }]; an empty/null value means no side-bets.
+try { db.exec("ALTER TABLE tournaments ADD COLUMN side_bets TEXT"); } catch {}
 
 // Personal → organizer upgrade requests (v3.53): a signed-in personal
 // user can submit a request to JORD to be approved as an organizer.
@@ -4442,16 +4446,19 @@ function holeMultipliers(formatId) {
 function roundScoringOpts(round) {
   // Fetch the parent tournament's wagering / point-structure settings so the
   // engine can honor them (Vegas uses value_per_point and flip_birdie;
-  // Skins uses value_per_skin for the leaderboard payload).
-  let fs = null;
+  // Skins uses value_per_skin for the leaderboard payload). Also pulls any
+  // configured side-bets (v3.60) so buildAllLeaderboards can layer them in.
+  let fs = null, sb = [];
   if (round.tournament_id) {
-    const row = db.prepare('SELECT format_settings FROM tournaments WHERE id=?').get(round.tournament_id);
+    const row = db.prepare('SELECT format_settings, side_bets FROM tournaments WHERE id=?').get(round.tournament_id);
     if (row && row.format_settings) fs = safeJSON(row.format_settings);
+    if (row && row.side_bets)       sb = safeJSON(row.side_bets) || [];
   }
   return {
     format: round.format,
     multipliers: round.hole_multipliers ? JSON.parse(round.hole_multipliers) : null,
     format_settings: fs,
+    side_bets: sb,
   };
 }
 
@@ -4509,7 +4516,9 @@ function roundLeaderboardPayload(roundId) {
   const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(roundId);
   if (!round) return null;
   const entries = gatherRoundEntries(roundId);
-  const lb = scoring.buildLeaderboard(entries, roundScoringOpts(round));
+  const opts = roundScoringOpts(round);
+  const multi = scoring.buildAllLeaderboards(entries, opts);
+  const lb = multi.primary;
   const tour = db.prepare('SELECT flights_enabled,num_flights FROM tournaments WHERE id=?')
     .get(round.tournament_id);
   if (tour && tour.flights_enabled && lb.rows && lb.rows.length) {
@@ -4534,7 +4543,17 @@ function roundLeaderboardPayload(roundId) {
     const row = db.prepare('SELECT format_settings FROM tournaments WHERE id=?').get(round.tournament_id);
     if (row && row.format_settings) format_settings = safeJSON(row.format_settings);
   }
-  return { round, leaderboard: lb, holes, teams, format_settings };
+  // v3.60 — side-bet leaderboards layered on top of the primary game.
+  // Apply flights to each side-bet too (same handicap groupings).
+  const sideBets = multi.sideBets || [];
+  if (tour && tour.flights_enabled) {
+    for (const sb of sideBets) {
+      if (sb.leaderboard && sb.leaderboard.rows && sb.leaderboard.rows.length) {
+        scoring.applyFlights(sb.leaderboard, tour.num_flights || 1);
+      }
+    }
+  }
+  return { round, leaderboard: lb, holes, teams, format_settings, sideBets };
 }
 
 // SSE for live leaderboard / scorecard — keyed by round id.
@@ -4651,6 +4670,7 @@ app.get('/api/tournaments', requireUserOrAdmin, (req, res) => {
   for (const t of rows) {
     t.rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
     if (t.format_settings) t.format_settings = safeJSON(t.format_settings);
+    if (t.side_bets)       t.side_bets       = safeJSON(t.side_bets);
   }
   res.json(rows);
 });
@@ -4669,13 +4689,14 @@ app.get('/api/tournaments/mine', requireUser, (req, res) => {
   for (const t of rows) {
     t.rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
     if (t.format_settings) t.format_settings = safeJSON(t.format_settings);
+    if (t.side_bets)       t.side_bets       = safeJSON(t.side_bets);
   }
   res.json({ tournaments: rows });
 });
 
 app.post('/api/tournaments', requireUserOrAdmin, (req, res) => {
   const { name, type, course_id, round_date, format, holes_segment,
-          flights_enabled, num_flights, format_settings } = req.body || {};
+          flights_enabled, num_flights, format_settings, side_bets } = req.body || {};
   if (!name) return res.status(400).json({ error: 'name required' });
   // Allow any pickable format (auto-scored OR manual-scoring) — both are
   // valid round configurations even if the leaderboard tally differs.
@@ -4688,15 +4709,18 @@ app.post('/api/tournaments', requireUserOrAdmin, (req, res) => {
   // Validate + store the wagering / point-structure config. We only keep
   // keys that exist in the format's schema (drops unexpected fields).
   const fs = sanitizeFormatSettings(fmt, format_settings);
+  const sb = sanitizeSideBets(fmt, side_bets);
   const id = uid('TRN');
   const actor = actorIdentity(req);
   db.prepare(`INSERT INTO tournaments
-    (id,type,name,admin_id,user_id,default_format,share_code,flights_enabled,num_flights,format_settings)
-    VALUES (?,?,?,?,?,?,?,?,?,?)`).run(
+    (id,type,name,admin_id,user_id,default_format,share_code,flights_enabled,num_flights,format_settings,side_bets)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?)`).run(
     id, tType, name,
     actor.kind === 'admin' ? actor.id : null,
     actor.kind === 'user'  ? actor.id : null,
-    fmt, uid('').slice(0, 6), fe, nf, fs ? JSON.stringify(fs) : null);
+    fmt, uid('').slice(0, 6), fe, nf,
+    fs ? JSON.stringify(fs) : null,
+    sb.length ? JSON.stringify(sb) : null);
   const roundId = uid('RND');
   db.prepare(`INSERT INTO rounds (id,tournament_id,round_number,course_id,round_date,format,holes_segment,hole_multipliers)
     VALUES (?,?,?,?,?,?,?,?)`).run(roundId, id, 1, course_id || null, round_date || null, fmt, seg, holeMultipliers(fmt));
@@ -4704,6 +4728,23 @@ app.post('/api/tournaments', requireUserOrAdmin, (req, res) => {
 });
 
 function safeJSON(s) { try { return JSON.parse(s); } catch { return {}; } }
+
+// v3.60 — whitelist + coerce side_bets against the primary format's compatible
+// list. Drops any side-bet whose format isn't compatible (e.g. Skins on top of
+// match play, which doesn't compose). Returns a (possibly empty) array.
+function sanitizeSideBets(primaryFormatId, raw) {
+  const formats = require('./lib/formats');
+  if (!Array.isArray(raw) || !raw.length) return [];
+  const allowed = new Set(formats.compatibleSideBets(primaryFormatId).map(f => f.id));
+  const out = [];
+  for (const sb of raw) {
+    if (!sb || typeof sb !== 'object') continue;
+    const id = String(sb.format_id || '');
+    if (!allowed.has(id)) continue;
+    out.push({ format_id: id, settings: sanitizeFormatSettings(id, sb.settings) });
+  }
+  return out;
+}
 
 // Whitelist + light type-coerce the wagering / point-structure settings against
 // the format's declared schema in lib/formats.js. Returns null when the format
@@ -4782,6 +4823,19 @@ app.patch('/api/tournaments/:id', requireUserOrAdmin, (req, res) => {
     db.prepare('UPDATE tournaments SET format_settings=? WHERE id=?')
       .run(fresh ? JSON.stringify(fresh) : null, req.params.id);
   }
+  // Side bets — full replace each PATCH. Changing the primary format also
+  // re-sanitizes the existing side-bets against the new format's compatible
+  // list (drops any that no longer compose).
+  if (b.side_bets !== undefined) {
+    const cleanSb = sanitizeSideBets(upd.default_format, b.side_bets);
+    db.prepare('UPDATE tournaments SET side_bets=? WHERE id=?')
+      .run(cleanSb.length ? JSON.stringify(cleanSb) : null, req.params.id);
+  } else if (b.default_format != null && b.default_format !== t.default_format && t.side_bets) {
+    const prevSb = safeJSON(t.side_bets);
+    const reSb = sanitizeSideBets(upd.default_format, prevSb);
+    db.prepare('UPDATE tournaments SET side_bets=? WHERE id=?')
+      .run(reSb.length ? JSON.stringify(reSb) : null, req.params.id);
+  }
 
   // Round-level fields the user typically wants to edit live.
   if (b.round_date !== undefined || b.course_id !== undefined || b.holes_segment !== undefined) {
@@ -4855,6 +4909,7 @@ app.get('/api/tournaments/:id', requireUserOrAdmin, (req, res) => {
   }
   t.rounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(t.id);
   if (t.format_settings) t.format_settings = safeJSON(t.format_settings);
+  if (t.side_bets)       t.side_bets       = safeJSON(t.side_bets);
   res.json(t);
 });
 
