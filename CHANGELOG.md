@@ -2,6 +2,71 @@
 
 ---
 
+## v3.59.4 — 2026-05-31
+### Session 77 — Delete games/rounds + paper-scorecard shapes
+
+User feedback:
+> "For games and rounds you need to be able to delete them. I noticed
+> for games I created I can't delete. Also … the scorecard as scores
+> are enter should show the proper shapes around the scores for
+> instance birdie circle, square for bogey, etc."
+
+### Delete games + rounds
+The product never had a delete endpoint for tournaments — only the
+underlying course / round-entry deletes existed. Added two new APIs:
+
+- `DELETE /api/tournaments/:id` — cascades through rounds, entries,
+  teams, score groups, hole scores, banter, and tournament requests
+- `DELETE /api/rounds/:roundId` — single-round delete; refuses if
+  it's the only round on the tournament (use the tournament delete
+  instead)
+
+Both use `requireUserOrAdmin` with the same `canEditTournament`
+ownership check as the other write endpoints. **SQLite's
+`PRAGMA foreign_keys` is off in this database**, so the
+`ON DELETE CASCADE` in the schema was a no-op; the cascade is done
+manually inside a single `db.transaction()` so a partial delete
+can't leave orphans.
+
+UI:
+- Clubhouse home: each game tile shows an `×` delete button on hover
+  (top-right corner). Click → confirm → delete → list refreshes.
+- Tournament detail: new red `🗑 Delete` button in the header for the
+  whole game; per-round `🗑` button in the rounds list (only on
+  multi-round tournaments).
+
+### Paper-scorecard shapes
+The scorecard score now wraps the number in the traditional
+paper-scorecard shape:
+- **Eagle (≤ −2)**: double red circle
+- **Birdie (−1)**: single red circle
+- **Par (0)**: no shape (plain number)
+- **Bogey (+1)**: single blue square
+- **Double bogey or worse (+2)**: double blue square
+
+CSS-only (no extra DOM), using `::before` / `::after` outlines on the
+existing `.stepper .val` element. A new `scoreShape(strokes, par)`
+helper picks the class. Left `live.html`'s color-coded hole-grid
+alone because its existing legend reads well at glance distance for
+the leaderboard view — the classic paper shapes belong on the
+score-entry surface.
+
+### Files
+- [server.js](server.js) — `DELETE /api/tournaments/:id`, `DELETE /api/rounds/:roundId`, manual cascade transactions
+- [public/tournaments.html](public/tournaments.html) — tile delete X, per-round delete, header "🗑 Delete" button
+- [public/scorecard.html](public/scorecard.html) — `.s-eagle / s-birdie / s-bogey / s-double` styles + `scoreShape()` helper
+- [tests/manual/test-delete-and-shapes.js](tests/manual/test-delete-and-shapes.js) — 13-step regression: owner delete, 403 for non-owner, all 5 shape classes
+- [tests/manual/capture-v3594-screenshots.js](tests/manual/capture-v3594-screenshots.js) — visual review shots
+
+### Tests
+- 409/409 unit + integration passing
+- Manual: delete cascade + shapes all verified (5 shapes captured)
+
+### Next up
+- v3.60: dynamic multi-format combos (Stroke + Skins, Team Stroke + Vegas side-bet, etc.) — user opted for schema-driven checkboxes path; spec drafting begins next.
+
+---
+
 ## v3.59.3 — 2026-05-31
 ### Session 76 (cont.) — Topbar brand link goes to user dashboard, not landing
 

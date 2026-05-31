@@ -44,6 +44,13 @@
   .tile-course:hover { transform:none; border-color:var(--border); box-shadow:none; }
   .tile-x { position:absolute; top:10px; right:10px; width:30px; height:30px; border-radius:50%;
     border:1px solid var(--border-2); background:var(--surface); cursor:pointer; font-size:13px; }
+  /* Delete X on a game tile — hidden until the tile is hovered so it doesn't
+     compete with the open-the-game tap target. */
+  .tile-del { position:absolute; top:8px; right:8px; width:28px; height:28px; border-radius:50%;
+    border:1px solid var(--border-2); background:var(--surface); color:var(--ink-3); cursor:pointer;
+    font-size:16px; line-height:1; padding:0; display:none; align-items:center; justify-content:center; z-index:1; }
+  .tile:hover .tile-del, .tile:focus-within .tile-del { display:flex; }
+  .tile-del:hover { background:#FDECEC; color:var(--danger); border-color:#f5c6c6; }
   .inline-panel { border:1px solid var(--border); border-radius:var(--r-sm); padding:var(--s-4); background:var(--surface); margin-bottom:var(--s-4); }
   .sc-grid { display:grid; grid-template-columns:repeat(9,1fr); gap:6px; margin:var(--s-3) 0; }
   .sc-grid .h-cell label { font-size:10px; color:var(--ink-3); font-weight:700; display:block; text-align:center; }
@@ -383,6 +390,7 @@ function renderTrnList() {
   const label = t => t.type==='reds_blues' ? 'Reds vs Blues' : t.type==='casual' ? 'Casual round' : 'Tournament';
   el.innerHTML = S.tournaments.map(t => `
     <div class="tile" data-open="${t.id}">
+      <button class="tile-del" data-del="${t.id}" title="Delete game" aria-label="Delete game">×</button>
       <div class="tile-icon">${icon(t)}</div>
       <div class="tile-body">
         <h3>${esc(t.name)}</h3>
@@ -391,7 +399,23 @@ function renderTrnList() {
       </div>
     </div>`).join('') +
     `<div class="tile tile-new" data-new="1"><div>＋<br>New game</div></div>`;
-  el.querySelectorAll('[data-open]').forEach(b => b.onclick = () => go('game/'+b.dataset.open));
+  el.querySelectorAll('[data-open]').forEach(b => b.onclick = (ev) => {
+    // Ignore clicks that came from the delete X on top of the tile.
+    if (ev.target.closest('[data-del]')) return;
+    go('game/'+b.dataset.open);
+  });
+  el.querySelectorAll('[data-del]').forEach(b => b.onclick = async (ev) => {
+    ev.stopPropagation();
+    const t = S.tournaments.find(t => t.id === b.dataset.del);
+    if (!t) return;
+    if (!confirm(`Delete "${t.name}"? This removes the round, all entries, and scores. Cannot be undone.`)) return;
+    try {
+      await JORD.api('/api/tournaments/'+b.dataset.del, { method:'DELETE' });
+      JORD.success && JORD.success('Game deleted');
+      await loadAll();
+      renderHome();
+    } catch (e) { JORD.error && JORD.error(e.message || 'Could not delete'); }
+  });
   el.querySelector('[data-new]').onclick = () => go('new/type');
 }
 
@@ -1046,6 +1070,7 @@ async function openTournament(id) {
           ${shareUrl ? `<a class="btn btn-ghost" href="/round/${esc(t.share_code)}" target="_blank">💬 Banter</a>` : ''}
           <button class="btn btn-ghost" id="btn-edit">✎ Edit game</button>
           ${multi?`<a class="btn btn-accent" href="/tournament/${t.id}" target="_blank">🏆 Tournament leaderboard ↗</a>`:''}
+          <button class="btn btn-ghost" id="btn-del-game" style="color:var(--danger)">🗑 Delete</button>
         </div>
       </div>
     </div>
@@ -1058,6 +1083,15 @@ async function openTournament(id) {
   $('#back').onclick = () => go('');
   if (shareUrl) $('#btn-share').onclick = () => openShareModal(t, shareUrl);
   $('#btn-edit').onclick = () => openEditModal(t);
+  $('#btn-del-game').onclick = async () => {
+    if (!confirm(`Delete "${t.name}"? This removes all rounds, players, and scores. Cannot be undone.`)) return;
+    try {
+      await JORD.api('/api/tournaments/'+t.id, { method:'DELETE' });
+      JORD.success && JORD.success('Game deleted');
+      await loadAll();
+      go('');
+    } catch (e) { JORD.error && JORD.error(e.message || 'Could not delete'); }
+  };
 
   $('#roundList').innerHTML = t.rounds.map(r=>`
     <div class="row-card">
@@ -1068,10 +1102,21 @@ async function openTournament(id) {
         <a class="btn btn-primary" href="/scorecard/${r.id}" target="_blank">📝 Score card ↗</a>
         ${r.status==='active'?`<button class="btn btn-ghost" data-end="${r.id}">End</button>`
           :`<button class="btn btn-ghost" data-start="${r.id}">Start</button>`}
+        ${multi ? `<button class="btn btn-ghost" data-del-round="${r.id}" style="color:var(--danger)">🗑</button>` : ''}
       </div>
     </div>`).join('');
   $('#roundList').querySelectorAll('[data-end]').forEach(b=>b.onclick=()=>setStatus(b.dataset.end,'ended',id));
   $('#roundList').querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>setStatus(b.dataset.start,'active',id));
+  $('#roundList').querySelectorAll('[data-del-round]').forEach(b => b.onclick = async () => {
+    const r = t.rounds.find(r => r.id === b.dataset.delRound);
+    if (!confirm(`Delete Round ${r ? r.round_number : '?'}? Removes that round's players and scores. Cannot be undone.`)) return;
+    try {
+      await JORD.api('/api/rounds/'+b.dataset.delRound, { method:'DELETE' });
+      JORD.success && JORD.success('Round deleted');
+      await loadAll();
+      openTournament(id);
+    } catch (e) { JORD.error && JORD.error(e.message || 'Could not delete round'); }
+  });
 
   const pl = $('#playerList');
   pl.innerHTML = data.entries.length ? data.entries.map(e=>`

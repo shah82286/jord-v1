@@ -4797,6 +4797,47 @@ app.patch('/api/tournaments/:id', requireUserOrAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// Delete a tournament (and everything beneath it). Owner-or-super only.
+// SQLite's PRAGMA foreign_keys is OFF in this DB, so ON DELETE CASCADE on
+// the schema is a no-op — we manually delete child rows in dependency order
+// inside a single transaction.
+const deleteRoundChildren = db.transaction((roundId) => {
+  db.prepare('DELETE FROM round_entries WHERE round_id=?').run(roundId);
+  db.prepare('DELETE FROM round_teams   WHERE round_id=?').run(roundId);
+  db.prepare('DELETE FROM score_groups  WHERE round_id=?').run(roundId);
+  try { db.prepare('DELETE FROM hole_scores WHERE round_id=?').run(roundId); } catch {}
+  db.prepare('DELETE FROM rounds WHERE id=?').run(roundId);
+});
+const deleteTournamentCascade = db.transaction((tournamentId) => {
+  const rounds = db.prepare('SELECT id FROM rounds WHERE tournament_id=?').all(tournamentId);
+  for (const r of rounds) deleteRoundChildren(r.id);
+  // banter_messages + tournament_requests are tournament-scoped, not round-scoped.
+  try { db.prepare('DELETE FROM banter_messages     WHERE tournament_id=?').run(tournamentId); } catch {}
+  try { db.prepare('DELETE FROM tournament_requests WHERE tournament_id=?').run(tournamentId); } catch {}
+  db.prepare('DELETE FROM tournaments WHERE id=?').run(tournamentId);
+});
+
+app.delete('/api/tournaments/:id', requireUserOrAdmin, (req, res) => {
+  const t = db.prepare('SELECT * FROM tournaments WHERE id=?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Tournament not found' });
+  if (!canEditTournament(req, t)) return res.status(403).json({ error: 'Not your tournament' });
+  deleteTournamentCascade(req.params.id);
+  res.json({ ok: true });
+});
+
+// Delete a single round from a multi-round tournament. Refuses if this is
+// the only round — use DELETE /api/tournaments/:id for the whole game.
+app.delete('/api/rounds/:roundId', requireUserOrAdmin, (req, res) => {
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
+  if (!round) return res.status(404).json({ error: 'Round not found' });
+  const t = db.prepare('SELECT * FROM tournaments WHERE id=?').get(round.tournament_id);
+  if (!t || !canEditTournament(req, t)) return res.status(403).json({ error: 'Not your tournament' });
+  const total = db.prepare('SELECT COUNT(*) AS n FROM rounds WHERE tournament_id=?').get(t.id).n;
+  if (total <= 1) return res.status(400).json({ error: 'Only round on the tournament — delete the whole game instead.' });
+  deleteRoundChildren(round.id);
+  res.json({ ok: true });
+});
+
 app.get('/api/tournaments/:id', requireUserOrAdmin, (req, res) => {
   const t = db.prepare('SELECT * FROM tournaments WHERE id=?').get(req.params.id);
   if (!t) return res.status(404).json({ error: 'Tournament not found' });

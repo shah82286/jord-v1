@@ -28,8 +28,41 @@
   .stepper { display:flex; align-items:center; gap:8px; }
   .stepper button { width:40px; height:40px; border-radius:50%; border:1px solid var(--border-2);
     background:var(--surface); font-size:20px; font-weight:700; cursor:pointer; }
-  .stepper .val { width:48px; text-align:center; font-family:var(--font-display); font-size:1.6rem; }
+  .stepper .val { width:48px; height:48px; text-align:center;
+    font-family:var(--font-display); font-size:1.6rem; line-height:48px;
+    display:inline-block; position:relative; box-sizing:border-box; }
   .stepper .val.empty { color:var(--ink-3); }
+
+  /* ── Golf scorecard shapes around the score number ──────────────────
+   * Classic paper-scorecard conventions:
+   *   eagle / albatross (≤ −2) → double circle, red
+   *   birdie       (−1)        → single circle, red
+   *   par          ( 0)        → no shape
+   *   bogey        (+1)        → single square, blue
+   *   double+      (+2 or more) → double square, blue
+   */
+  .stepper .val.s-birdie,
+  .stepper .val.s-eagle  { color:#A12C2C; }
+  .stepper .val.s-bogey,
+  .stepper .val.s-double { color:#1F3F7A; }
+  .stepper .val.s-birdie::before,
+  .stepper .val.s-eagle::before {
+    content:''; position:absolute; inset:5px; border:2px solid currentColor;
+    border-radius:50%; pointer-events:none;
+  }
+  .stepper .val.s-eagle::after {
+    content:''; position:absolute; inset:1px; border:2px solid currentColor;
+    border-radius:50%; pointer-events:none;
+  }
+  .stepper .val.s-bogey::before,
+  .stepper .val.s-double::before {
+    content:''; position:absolute; inset:5px; border:2px solid currentColor;
+    border-radius:3px; pointer-events:none;
+  }
+  .stepper .val.s-double::after {
+    content:''; position:absolute; inset:1px; border:2px solid currentColor;
+    border-radius:3px; pointer-events:none;
+  }
   .vs-par { font-size:11px; font-weight:700; min-width:34px; text-align:center; }
   .vs-par.under { color:#4A7A53; } .vs-par.over { color:var(--danger); }
   .offline-banner { background:var(--danger); color:#fff; text-align:center; padding:8px; font-size:13px; font-weight:600; }
@@ -103,6 +136,22 @@ function setScore(entryId,hole,val) {
   saveLocal(); queueSync();
 }
 function holePar(hole){ const h=state.holes.find(x=>x.hole_number===hole); return h?h.par:4; }
+/** Class name for the paper-scorecard shape around a score:
+ *  s-eagle (≤ −2): double red circle
+ *  s-birdie (−1):   single red circle
+ *  par (0):         no shape
+ *  s-bogey (+1):    single blue square
+ *  s-double (+2+):  double blue square
+ */
+function scoreShape(strokes, par) {
+  if (strokes == null || par == null) return '';
+  const d = strokes - par;
+  if (d <= -2) return 's-eagle';
+  if (d === -1) return 's-birdie';
+  if (d === 1)  return 's-bogey';
+  if (d >= 2)   return 's-double';
+  return '';
+}
 
 /* Strokes a player receives on one hole — WHS stroke-index allocation.
    Matches lib/handicap.js. Positive courseHcp = strokes given to player on
@@ -177,7 +226,7 @@ function renderPlayers() {
       <div class="vs-par ${diff<0?'under':diff>0?'over':''}">${diffTxt}</div>
       <div class="stepper">
         <button data-dec="${e.id}">−</button>
-        <div class="val ${v==null?'empty':''}">${v==null?'–':v}</div>
+        <div class="val ${v==null?'empty':scoreShape(v,par)}">${v==null?'–':v}</div>
         <button data-inc="${e.id}">+</button>
       </div>
     </div>`;
