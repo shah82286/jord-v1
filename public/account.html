@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Account · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  body { min-height: 100dvh; }
+  .acct-wrap { max-width: 880px; margin: 0 auto; padding: var(--s-5) var(--s-4) var(--s-8); }
+  .acct-hero { margin-bottom: var(--s-4); }
+  .acct-hero .eyebrow { font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+  .acct-hero h1 { font-family: var(--font-display); font-size: clamp(1.8rem, 5vw, 2.4rem); letter-spacing: -.02em; margin: 4px 0 4px; }
+  .acct-hero h1 em { font-style: italic; color: var(--accent); }
+  .acct-hero p { color: var(--ink-2); }
+  .card + .card { margin-top: var(--s-4); }
+  .card h2 { font-family: var(--font-display); font-size: 1.3rem; letter-spacing: -.01em; margin: 0 0 4px; }
+  .card .card-sub { color: var(--ink-2); font-size: 14px; margin-bottom: var(--s-3); }
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-3); }
+  @media (max-width: 640px) { .grid-2 { grid-template-columns: 1fr; } }
+  .row-readonly { display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--r-sm); }
+  .row-readonly .val { font-weight: 600; }
+  .row-readonly .btn { padding: 6px 10px; font-size: 13px; }
+  .save-bar { position: sticky; bottom: 0; background: var(--surface);
+    border-top: 1px solid var(--border-2); padding: var(--s-3) var(--s-4);
+    margin: var(--s-4) calc(-1 * var(--s-4)) 0; display: flex; gap: var(--s-3);
+    align-items: center; justify-content: flex-end; }
+  .save-bar .status { margin-right: auto; font-size: 13px; color: var(--ink-2); }
+  .save-bar .status.ok { color: var(--success); }
+  .save-bar .status.err { color: var(--danger); }
+  .acct-toggle { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+  .acct-toggle input { width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer; }
+  .acct-toggle label { cursor: pointer; }
+  .ghin-note { font-size: 12.5px; color: var(--ink-2); background: var(--surface-2);
+    border: 1px dashed var(--border-2); border-radius: var(--r-sm); padding: 10px 12px; margin-top: 8px; line-height: 1.5; }
+  .danger-zone { border-color: #f5c6c6; }
+  .danger-zone h2 { color: var(--danger); }
+  .auth-err { background:#fdecec; color:var(--danger); border:1px solid #f5c6c6;
+    border-radius:var(--r-sm); padding:10px 12px; font-size:13.5px; margin-top: var(--s-2); }
+  .modal-footer .btn + .btn { margin-left: var(--s-2); }
+</style>
+</head>
+<body>
+<div id="topbar"></div>
+<main class="acct-wrap">
+  <div class="acct-hero">
+    <div class="eyebrow">JORD Golf</div>
+    <h1>Your <em>account</em></h1>
+    <p>Tell us a bit about you and your game — handicap, home course, preferred tees. Optional, but it makes pairing and net-scoring smoother.</p>
+  </div>
+  <div id="content"><p class="mini">Loading…</p></div>
+</main>
+
+<script src="/js/jord.js"></script>
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+const esc = JORD.escapeHtml;
+
+// Personal users only. Admins get sent to /admin (they have their own settings flow).
+const HAS_USER_TOKEN = !!(JORD.getUserToken && JORD.getUserToken());
+if (!HAS_USER_TOKEN) {
+  location.href = '/login?next=' + encodeURIComponent(location.pathname);
+}
+
+async function logout() {
+  try { await JORD.api('/api/users/logout', { method: 'POST' }); } catch {}
+  try { JORD.clearUserToken && JORD.clearUserToken(); } catch {}
+  try { JORD.clearToken && JORD.clearToken(); } catch {}
+  location.href = '/';
+}
+
+document.getElementById('topbar').appendChild(
+  JORD.renderTopbar('Account',
+    JORD.el('div', { class: 'inline-buttons', style: { display: 'flex', gap: '8px' } },
+      JORD.el('a',      { class: 'btn btn-ghost', href: '/clubhouse' }, '← Clubhouse'),
+      JORD.el('button', { class: 'btn btn-ghost', type: 'button', on: { click: logout } }, 'Log out'))));
+
+const S = { user: null };
+
+function render(user) {
+  S.user = user;
+  $('#content').innerHTML = `
+    <!-- ── Profile ─────────────────────────────────────────── -->
+    <div class="card">
+      <h2>Profile</h2>
+      <p class="card-sub">The basics. Your name is shown to friends you invite to games.</p>
+      <div class="grid-2">
+        <div class="field">
+          <label for="name">Full name</label>
+          <input class="input input-lg" id="name" value="${esc(user.name||'')}" />
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <div class="row-readonly">
+            <span class="val">${esc(user.email||'')}</span>
+            <button class="btn btn-ghost" id="btnChangeEmail" type="button">Change</button>
+          </div>
+        </div>
+        <div class="field">
+          <label for="phone">Phone</label>
+          <input class="input input-lg" id="phone" type="tel" autocomplete="tel" inputmode="tel" placeholder="(555) 123-4567" value="${esc(user.phone||'')}" />
+        </div>
+        <div class="field">
+          <label for="birth_date">Birth date</label>
+          <input class="input input-lg" id="birth_date" type="date" value="${esc(user.birth_date||'')}" />
+          <div class="hint">Optional. Used for age-bracketed events and to send a birthday round invite once a year.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Address ────────────────────────────────────────── -->
+    <div class="card">
+      <h2>Address</h2>
+      <p class="card-sub">Where to ship physical prizes, sponsor gifts, or merch from JORD events you win. Stored privately; never shared with other golfers.</p>
+      <div class="field">
+        <label for="address_line1">Street</label>
+        <input class="input input-lg" id="address_line1" autocomplete="address-line1" value="${esc(user.address_line1||'')}" />
+      </div>
+      <div class="field">
+        <label for="address_line2">Apartment / suite <span style="font-weight:400;color:var(--ink-3)">— optional</span></label>
+        <input class="input input-lg" id="address_line2" autocomplete="address-line2" value="${esc(user.address_line2||'')}" />
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label for="city">City</label>
+          <input class="input input-lg" id="city" autocomplete="address-level2" value="${esc(user.city||'')}" />
+        </div>
+        <div class="field">
+          <label for="state">State / region</label>
+          <input class="input input-lg" id="state" autocomplete="address-level1" value="${esc(user.state||'')}" />
+        </div>
+        <div class="field">
+          <label for="zip">Postal code</label>
+          <input class="input input-lg" id="zip" autocomplete="postal-code" inputmode="numeric" value="${esc(user.zip||'')}" />
+        </div>
+        <div class="field">
+          <label for="country">Country</label>
+          <input class="input input-lg" id="country" autocomplete="country-name" placeholder="United States" value="${esc(user.country||'')}" />
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Golf ────────────────────────────────────────────── -->
+    <div class="card">
+      <h2>Your golf game</h2>
+      <p class="card-sub">Drives the net-scoring math (handicap), pairing suggestions (home club + tees), and stat tracking.</p>
+      <div class="grid-2">
+        <div class="field">
+          <label for="ghin_id">GHIN number</label>
+          <input class="input input-lg" id="ghin_id" inputmode="numeric" placeholder="e.g. 1234567" value="${esc(user.ghin_id||'')}" />
+          <div class="hint">Your USGA / GHIN ID, if you have one. We'll sync your live handicap once our USGA integration is live.</div>
+        </div>
+        <div class="field">
+          <label for="handicap_index">Handicap index <span style="font-weight:400;color:var(--ink-3)">— manual fallback</span></label>
+          <input class="input input-lg" id="handicap_index" type="number" step="0.1" inputmode="decimal" placeholder="e.g. 12.4" value="${user.handicap_index==null?'':esc(String(user.handicap_index))}" />
+          <div class="hint">Self-reported. Used as your handicap until GHIN sync is live.</div>
+        </div>
+        <div class="field">
+          <label for="home_club">Home club</label>
+          <input class="input input-lg" id="home_club" placeholder="e.g. Pebble Beach" value="${esc(user.home_club||'')}" />
+        </div>
+        <div class="field">
+          <label for="preferred_tee">Preferred tees</label>
+          <select class="input input-lg" id="preferred_tee">
+            <option value="">— pick one —</option>
+            <option value="tips"    ${user.preferred_tee==='tips'?'selected':''}>Championship / Tips</option>
+            <option value="back"    ${user.preferred_tee==='back'?'selected':''}>Back</option>
+            <option value="middle"  ${user.preferred_tee==='middle'?'selected':''}>Middle</option>
+            <option value="forward" ${user.preferred_tee==='forward'?'selected':''}>Forward</option>
+            <option value="senior"  ${user.preferred_tee==='senior'?'selected':''}>Senior</option>
+            <option value="junior"  ${user.preferred_tee==='junior'?'selected':''}>Junior</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="dominant_hand">Dominant hand</label>
+          <select class="input input-lg" id="dominant_hand">
+            <option value="">—</option>
+            <option value="right" ${user.dominant_hand==='right'?'selected':''}>Right-handed</option>
+            <option value="left"  ${user.dominant_hand==='left' ?'selected':''}>Left-handed</option>
+          </select>
+        </div>
+      </div>
+      <div class="ghin-note">
+        <strong>Auto-pulling your GHIN handicap.</strong>
+        The USGA requires partners to go through their Golfer Product Access (GPA) program. We've started that approval — once it's live, save your GHIN# here and your handicap will sync automatically every time the USGA updates it.
+      </div>
+    </div>
+
+    <!-- ── Notifications ─────────────────────────────────── -->
+    <div class="card">
+      <h2>Notifications</h2>
+      <p class="card-sub">When JORD emails you. You can always change these later.</p>
+      <div class="acct-toggle">
+        <input type="checkbox" id="notif_invites" ${user.notif_invites?'checked':''} />
+        <label for="notif_invites">Game invites — when a friend invites you to a round</label>
+      </div>
+      <div class="acct-toggle">
+        <input type="checkbox" id="notif_results" ${user.notif_results?'checked':''} />
+        <label for="notif_results">Round results — your scorecard and net standings after each game</label>
+      </div>
+    </div>
+
+    <!-- ── Security ──────────────────────────────────────── -->
+    <div class="card">
+      <h2>Password</h2>
+      <p class="card-sub">Set a new password. We'll keep you signed in on this device.</p>
+      <button class="btn btn-ghost" id="btnChangePassword" type="button">Change password…</button>
+    </div>
+
+    <!-- ── Save bar ──────────────────────────────────────── -->
+    <div class="save-bar">
+      <div class="status" id="status"></div>
+      <button class="btn btn-primary btn-xl" id="btnSave" type="button">Save changes</button>
+    </div>
+  `;
+
+  $('#btnSave').onclick = save;
+  $('#btnChangeEmail').onclick = openChangeEmail;
+  $('#btnChangePassword').onclick = openChangePassword;
+}
+
+function readForm() {
+  const num = v => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+  const hcpRaw = $('#handicap_index').value.trim();
+  return {
+    name: $('#name').value.trim(),
+    phone: $('#phone').value.trim(),
+    birth_date: $('#birth_date').value || null,
+    handicap_index: hcpRaw === '' ? null : num(hcpRaw),
+    ghin_id: $('#ghin_id').value.trim(),
+    address_line1: $('#address_line1').value.trim(),
+    address_line2: $('#address_line2').value.trim(),
+    city:    $('#city').value.trim(),
+    state:   $('#state').value.trim(),
+    zip:     $('#zip').value.trim(),
+    country: $('#country').value.trim(),
+    home_club: $('#home_club').value.trim(),
+    preferred_tee: $('#preferred_tee').value,
+    dominant_hand: $('#dominant_hand').value,
+    notif_invites: $('#notif_invites').checked ? 1 : 0,
+    notif_results: $('#notif_results').checked ? 1 : 0,
+  };
+}
+
+async function save() {
+  const status = $('#status');
+  const btn = $('#btnSave');
+  status.className = 'status';
+  status.textContent = '';
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Saving…';
+  try {
+    const body = readForm();
+    if (body.name === '') throw new Error('Name is required.');
+    const r = await JORD.api('/api/users/me', { method: 'PATCH', body });
+    S.user = r.user;
+    status.className = 'status ok';
+    status.textContent = 'Saved.';
+    setTimeout(() => { status.textContent = ''; }, 3000);
+  } catch (e) {
+    status.className = 'status err';
+    status.textContent = e.message || 'Could not save.';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
+  }
+}
+
+// ── Email change modal ─────────────────────────────────────────
+function openChangeEmail() {
+  const body = JORD.el('div', {},
+    JORD.el('p', { class: 'mini', style: { marginBottom: 'var(--s-3)' } },
+      'Confirm your current password and the new email you want to use.'),
+    JORD.el('div', { class: 'field' },
+      JORD.el('label', { for: 'ce_pw' }, 'Current password'),
+      JORD.el('input', { class: 'input input-lg', id: 'ce_pw', type: 'password', autocomplete: 'current-password' })),
+    JORD.el('div', { class: 'field' },
+      JORD.el('label', { for: 'ce_email' }, 'New email'),
+      JORD.el('input', { class: 'input input-lg', id: 'ce_email', type: 'email', autocomplete: 'email' })),
+    JORD.el('div', { class: 'auth-err', id: 'ce_err', style: { display: 'none' } }));
+  const submitBtn = JORD.el('button', { class: 'btn btn-primary' }, 'Update email');
+  const cancelBtn = JORD.el('button', { class: 'btn btn-ghost' }, 'Cancel');
+  const footer = JORD.el('div', {}, cancelBtn, submitBtn);
+  const m = JORD.modal({ title: 'Change email', body, footer });
+  cancelBtn.onclick = () => m.close();
+  submitBtn.onclick = async () => {
+    const err = body.querySelector('#ce_err');
+    err.style.display = 'none';
+    const pw = body.querySelector('#ce_pw').value;
+    const newEmail = body.querySelector('#ce_email').value.trim();
+    if (!pw || !newEmail) { err.textContent = 'Both fields are required.'; err.style.display = 'block'; return; }
+    submitBtn.disabled = true; submitBtn.textContent = 'Updating…';
+    try {
+      const r = await JORD.api('/api/users/me/change-email', { method: 'POST', body: { current_password: pw, new_email: newEmail } });
+      m.close();
+      render(r.user);
+      JORD.success && JORD.success('Email updated.');
+    } catch (e) {
+      err.textContent = e.message || 'Could not update email.';
+      err.style.display = 'block';
+      submitBtn.disabled = false; submitBtn.textContent = 'Update email';
+    }
+  };
+}
+
+// ── Password change modal ──────────────────────────────────────
+function openChangePassword() {
+  const body = JORD.el('div', {},
+    JORD.el('p', { class: 'mini', style: { marginBottom: 'var(--s-3)' } },
+      'For your safety, please confirm your current password.'),
+    JORD.el('div', { class: 'field' },
+      JORD.el('label', { for: 'cp_cur' }, 'Current password'),
+      JORD.el('input', { class: 'input input-lg', id: 'cp_cur', type: 'password', autocomplete: 'current-password' })),
+    JORD.el('div', { class: 'field' },
+      JORD.el('label', { for: 'cp_new' }, 'New password'),
+      JORD.el('input', { class: 'input input-lg', id: 'cp_new', type: 'password', autocomplete: 'new-password', minlength: 8 }),
+      JORD.el('div', { class: 'hint' }, 'At least 8 characters.')),
+    JORD.el('div', { class: 'auth-err', id: 'cp_err', style: { display: 'none' } }));
+  const submitBtn = JORD.el('button', { class: 'btn btn-primary' }, 'Update password');
+  const cancelBtn = JORD.el('button', { class: 'btn btn-ghost' }, 'Cancel');
+  const footer = JORD.el('div', {}, cancelBtn, submitBtn);
+  const m = JORD.modal({ title: 'Change password', body, footer });
+  cancelBtn.onclick = () => m.close();
+  submitBtn.onclick = async () => {
+    const err = body.querySelector('#cp_err');
+    err.style.display = 'none';
+    const cur = body.querySelector('#cp_cur').value;
+    const nu  = body.querySelector('#cp_new').value;
+    if (!cur || !nu) { err.textContent = 'Both fields are required.'; err.style.display = 'block'; return; }
+    if (nu.length < 8) { err.textContent = 'New password must be at least 8 characters.'; err.style.display = 'block'; return; }
+    submitBtn.disabled = true; submitBtn.textContent = 'Updating…';
+    try {
+      await JORD.api('/api/users/me/change-password', { method: 'POST', body: { current_password: cur, new_password: nu } });
+      m.close();
+      JORD.success && JORD.success('Password updated.');
+    } catch (e) {
+      err.textContent = e.message || 'Could not update password.';
+      err.style.display = 'block';
+      submitBtn.disabled = false; submitBtn.textContent = 'Update password';
+    }
+  };
+}
+
+(async () => {
+  try {
+    const r = await JORD.api('/api/users/me');
+    render(r.user);
+  } catch (e) {
+    if (e.status === 401) {
+      try { JORD.clearUserToken && JORD.clearUserToken(); } catch {}
+      location.href = '/login';
+    } else {
+      $('#content').innerHTML = `<div class="card"><p style="color:var(--danger)">Could not load your account: ${esc(e.message||'unknown error')}</p></div>`;
+    }
+  }
+})();
+</script>
+</body>
+</html>

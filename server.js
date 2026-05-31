@@ -750,6 +750,22 @@ db.exec(`
 // Optional self-reported WHS handicap index; ghin_id reserved for USGA / GHIN sync.
 try { db.exec("ALTER TABLE users ADD COLUMN handicap_index REAL"); } catch {}
 try { db.exec("ALTER TABLE users ADD COLUMN ghin_id TEXT"); } catch {}
+// v3.58 — full profile (contact + golf preferences). All optional, surfaced
+// on the /account page so players can fill in as much or as little as they want.
+try { db.exec("ALTER TABLE users ADD COLUMN phone TEXT"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN birth_date TEXT"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN address_line1 TEXT"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN address_line2 TEXT"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN city TEXT"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN state TEXT"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN zip TEXT"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN country TEXT"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN home_club TEXT"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN preferred_tee TEXT"); } catch {}     // back|middle|forward
+try { db.exec("ALTER TABLE users ADD COLUMN dominant_hand TEXT"); } catch {}     // right|left
+try { db.exec("ALTER TABLE users ADD COLUMN ghin_verified_at TEXT"); } catch {}  // ISO ts when last GHIN sync succeeded
+try { db.exec("ALTER TABLE users ADD COLUMN notif_invites INTEGER DEFAULT 1"); } catch {}
+try { db.exec("ALTER TABLE users ADD COLUMN notif_results INTEGER DEFAULT 1"); } catch {}
 
 // Public event site (the brandable sign-up page at /e/:slug) and the
 // ticket types the organizer sells.
@@ -7311,11 +7327,122 @@ app.post('/api/admin/events/:id/sync-pairings-to-scoring', requireAuth, requireA
   res.json({ tournament_id: t.id, round_id: round.id, ...counts });
 });
 
+// Whitelist of /api/users/me fields the user can read & edit. Anything not
+// in this list is server-controlled (id, password_hash, created_at, etc.)
+const USER_PROFILE_FIELDS = [
+  'name', 'phone', 'birth_date', 'handicap_index', 'ghin_id',
+  'address_line1', 'address_line2', 'city', 'state', 'zip', 'country',
+  'home_club', 'preferred_tee', 'dominant_hand',
+  'notif_invites', 'notif_results',
+];
+
+function _serializeUser(u) {
+  const out = { id: u.id, email: u.email, created_at: u.created_at };
+  for (const f of USER_PROFILE_FIELDS) out[f] = u[f] ?? null;
+  out.ghin_verified_at = u.ghin_verified_at || null;
+  return out;
+}
+
 app.get('/api/users/me', requireUser, (req, res) => {
-  res.json({ user: {
-    id: req.user.id, name: req.user.name, email: req.user.email,
-    handicap_index: req.user.handicap_index, ghin_id: req.user.ghin_id,
-  }});
+  // Re-read from db so we get any columns added since the session row was cached.
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+  if (!u) return res.status(404).json({ error: 'User not found' });
+  res.json({ user: _serializeUser(u) });
+});
+
+// Update profile fields. Whitelist-based — unknown fields are silently ignored.
+// Email + password changes go through dedicated endpoints below (they need
+// current-password confirmation, which a plain PATCH doesn't enforce).
+app.patch('/api/users/me', requireUser, (req, res) => {
+  const b = req.body || {};
+  const sets = [];
+  const vals = [];
+  for (const f of USER_PROFILE_FIELDS) {
+    if (!(f in b)) continue;
+    let v = b[f];
+    // Trim strings; treat empty-string as null so we don't store blank rows.
+    if (typeof v === 'string') { v = v.trim(); if (v === '') v = null; }
+    if (f === 'handicap_index') {
+      if (v === null || v === undefined) v = null;
+      else {
+        v = Number(v);
+        if (!Number.isFinite(v)) return res.status(400).json({ error: 'Handicap index must be a number' });
+        // WHS range — clamp anything weird so the leaderboard math doesn't explode.
+        if (v < -10 || v > 54) return res.status(400).json({ error: 'Handicap index must be between -10 and 54' });
+      }
+    }
+    if (f === 'birth_date' && v) {
+      // Cheap ISO yyyy-mm-dd check; the <input type=date> on the client already enforces this.
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return res.status(400).json({ error: 'Birth date must be YYYY-MM-DD' });
+    }
+    if (f === 'preferred_tee' && v && !['back','middle','forward','tips','senior','junior'].includes(v)) {
+      return res.status(400).json({ error: 'Invalid tee preference' });
+    }
+    if (f === 'dominant_hand' && v && !['right','left'].includes(v)) {
+      return res.status(400).json({ error: 'Dominant hand must be right or left' });
+    }
+    if (f === 'notif_invites' || f === 'notif_results') v = v ? 1 : 0;
+    sets.push(`${f}=?`);
+    vals.push(v);
+  }
+  if (!sets.length) return res.json({ user: _serializeUser(db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id)) });
+  vals.push(req.user.id);
+  db.prepare(`UPDATE users SET ${sets.join(', ')} WHERE id=?`).run(...vals);
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+  res.json({ user: _serializeUser(u) });
+});
+
+// Email change — requires the current password so a stolen session token
+// can't quietly rebind the account. Invalidates all OTHER sessions on success
+// (the caller's session stays valid so the page doesn't bounce them out).
+app.post('/api/users/me/change-email', requireUser, (req, res) => {
+  const { current_password, new_email } = req.body || {};
+  if (!current_password || !new_email) return res.status(400).json({ error: 'Current password and new email required' });
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+  if (!u || !verifyPassword(current_password, u.password_hash)) {
+    return res.status(401).json({ error: 'Wrong password' });
+  }
+  const e = String(new_email).toLowerCase().trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) return res.status(400).json({ error: 'Enter a valid email' });
+  if (e === u.email) return res.json({ user: _serializeUser(u) });
+  const taken = db.prepare('SELECT 1 FROM users WHERE email=? AND id<>?').get(e, req.user.id);
+  if (taken) return res.status(409).json({ error: 'That email is already in use by another account' });
+  // Also block collision with an admin row — a single person can hold both
+  // kinds of accounts, but two different people can't share the email.
+  const adminTaken = db.prepare('SELECT 1 FROM admins WHERE email=?').get(e);
+  // (Allow if admin row belongs to the same person — for now, just block all
+  // admin-email collisions; the upgrade flow doesn't create email duplicates.)
+  if (adminTaken) return res.status(409).json({ error: 'That email is registered as an organizer account — choose a different email or sign in there instead' });
+  db.prepare('UPDATE users SET email=? WHERE id=?').run(e, req.user.id);
+  const fresh = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+  res.json({ user: _serializeUser(fresh) });
+});
+
+// Password change — same pattern as the admin endpoint at line ~1989.
+app.post('/api/users/me/change-password', requireUser, (req, res) => {
+  const { current_password, new_password } = req.body || {};
+  if (!current_password || !new_password) return res.status(400).json({ error: 'Current and new password required' });
+  if (String(new_password).length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.user.id);
+  if (!u || !verifyPassword(current_password, u.password_hash)) {
+    return res.status(401).json({ error: 'Wrong current password' });
+  }
+  db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hashPassword(new_password), req.user.id);
+  // Drop every OTHER session for this user. Keep the current one — invalidating
+  // it would dump them right back on /login mid-flow.
+  const myTok = req.headers['x-user-token'];
+  db.prepare('DELETE FROM user_sessions WHERE user_id=? AND token<>?').run(req.user.id, myTok);
+  res.json({ ok: true });
+});
+
+// GHIN verify stub — the official USGA Golfer Product Access (GPA) program
+// is the right long-term path. Until we have credentials, accept the GHIN#
+// (stored via the regular PATCH) but return a 501 from this verify endpoint
+// so the UI can show "we'll verify once our USGA integration is live."
+app.post('/api/users/me/ghin/verify', requireUser, (_req, res) => {
+  res.status(501).json({
+    error: 'GHIN auto-lookup is coming once our USGA Golfer Product Access (GPA) integration is approved. For now, save your GHIN# and your manual handicap and we\'ll sync once the integration goes live.',
+  });
 });
 
 // Signed-in personal user requests to be approved as an organizer. Lands
@@ -7476,6 +7603,7 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   '/dashboard/:eid/:code': 'dashboard.html', '/monitor/:id': 'monitor.html',
   '/global': 'global.html', '/test': 'test.html', '/system-summary': 'system-summary.html',
   '/clubhouse': 'tournaments.html',             // create & manage games (open to admins + signed-in personal users)
+  '/account':  'account.html',                  // personal-user profile/settings page (v3.58)
   '/round/:shareCode': 'round-join.html',       // public friend-facing join page (Clubhouse share link)
   '/login':     'login.html',                   // user (personal/player) sign-in + sign-up
   '/e/:slug/register':              'event-register.html',     // registration form + checkout

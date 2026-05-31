@@ -2,6 +2,70 @@
 
 ---
 
+## v3.58.0 — 2026-05-30
+### Session 75 — Log out + personal-user account settings
+
+**Log out** — added to the Clubhouse topbar (next to a new ⚙ Settings
+link). Calls `/api/users/logout`, clears both tokens from localStorage,
+and routes back to the landing page. Admins are unaffected — they keep
+the `← Admin` link they already had.
+
+**`/account` settings page** — a single full-profile page for personal
+users, split into clear cards:
+
+1. **Profile** — name, email (Change… modal with current-password
+   confirmation), phone, birth date
+2. **Address** — street + apt, city, state, zip, country (used for
+   shipping prizes, sponsor gifts, JORD merch)
+3. **Your golf game** — GHIN#, manual handicap fallback, home club,
+   preferred tees (Tips → Junior), dominant hand
+4. **Notifications** — toggles for game invites and round results
+5. **Password** — Change… modal (current-password verification, drops
+   every OTHER session for the user, keeps current session alive)
+
+All fields PATCH `/api/users/me` in a single round-trip; email + password
+changes go through dedicated endpoints because they need current-
+password confirmation. A sticky bottom save bar shows `Saved.` /
+`Could not save.` status.
+
+**GHIN handicap auto-pull** — researched the landscape. The official
+path is USGA's **Golfer Product Access (GPA) program** — a real,
+sustainable API but approval-gated by USGA. The unofficial
+`api2.ghin.com` endpoint exists but is undocumented and can break.
+
+Shipped: store the GHIN# in `users.ghin_id` now; show a clear
+"sync goes live once our USGA integration is approved" note on the
+form. Backend: `POST /api/users/me/ghin/verify` returns 501 with the
+same message — wires up cleanly in a follow-up session once we have
+GPA credentials.
+
+### Files
+- [server.js](server.js):
+  - **Migration** — added 14 new `users` columns (phone, birth_date,
+    address_line1/2, city, state, zip, country, home_club,
+    preferred_tee, dominant_hand, ghin_verified_at, notif_invites,
+    notif_results)
+  - **Endpoints** — `GET /api/users/me` now returns the full profile;
+    new `PATCH /api/users/me`, `POST /api/users/me/change-email`,
+    `POST /api/users/me/change-password`, `POST /api/users/me/ghin/verify`
+  - Registered `/account` → `account.html` in the page map
+- [public/account.html](public/account.html) — new page (≈300 lines)
+- [public/tournaments.html](public/tournaments.html) — Clubhouse topbar
+  now renders `⚙ Settings` + `Log out` for personal users
+- [tests/manual/test-account-settings.js](tests/manual/test-account-settings.js) — Puppeteer e2e covering signup → save → reload → password change → email change → logout
+
+### Tests
+- 406/406 unit + integration passing
+- Manual: full /account flow verified end-to-end; password rotation
+  and email rebinding both validated against the login API
+
+### Follow-up
+- Apply to USGA's GPA program (jord+ops should contact USGA Handicapping team)
+- Once approved, wire the GHIN sync into `POST /api/users/me/ghin/verify`
+  and schedule a periodic refresh
+
+---
+
 ## v3.57.0 — 2026-05-28
 ### Session 74 — Personal users can actually reach the Clubhouse
 

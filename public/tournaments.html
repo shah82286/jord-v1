@@ -136,12 +136,19 @@ const help = txt => `<span class="help-icon" tabindex="0">i<span class="tooltip"
 const FMT_EMOJI = { stroke:'⛳', stableford:'🎯', scramble:'🤝', bestball:'🔥',
   matchplay:'⚔️', skins:'💰', erado:'✂️', duplicate:'🎲' };
 
-// Topbar — admins see the Admin link; personal users see Sign out / profile.
-document.getElementById('topbar').appendChild(
-  JORD.renderTopbar('Clubhouse',
-    HAS_ADMIN_TOKEN
-      ? JORD.el('a',{class:'btn btn-ghost',href:'/admin'},'← Admin')
-      : JORD.el('a',{class:'btn btn-ghost',href:'/login'},'My profile')));
+// Topbar — admins see the Admin link; personal users see Settings + Log out.
+async function _logout() {
+  try { await JORD.api('/api/users/logout', { method:'POST' }); } catch {}
+  try { JORD.clearUserToken && JORD.clearUserToken(); } catch {}
+  try { JORD.clearToken && JORD.clearToken(); } catch {}
+  location.href = '/';
+}
+const topbarRight = HAS_ADMIN_TOKEN
+  ? JORD.el('a',{class:'btn btn-ghost',href:'/admin'},'← Admin')
+  : JORD.el('div',{class:'inline-buttons',style:{display:'flex',gap:'8px'}},
+      JORD.el('a',{class:'btn btn-ghost',href:'/account'},'⚙ Settings'),
+      JORD.el('button',{class:'btn btn-ghost',type:'button',on:{click:_logout}},'Log out'));
+document.getElementById('topbar').appendChild(JORD.renderTopbar('Clubhouse', topbarRight));
 
 const S = { courses:[], tournaments:[], formats:null, wiz:null };
 
