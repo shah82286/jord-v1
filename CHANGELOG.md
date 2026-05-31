@@ -2,6 +2,52 @@
 
 ---
 
+## v3.61.0 — 2026-05-31
+### Session 78 — Auto-tally for 4 of the 7 manual formats
+
+User asked to clear the MANUAL badges and get every game auto-scoring.
+Of the 7 formats that were stuck in manual-scoring mode, 4 are
+score-derivable from the existing per-hole strokes and now have
+auto-tally engines:
+
+- **Alternate Shot (Foursomes Stroke)** — routed through the existing
+  scramble engine. The wizard already creates a single team card per
+  pair (1 ball per team), which is exactly the scramble pattern.
+- **Chapman / Pinehurst** — same routing (1 ball per pair from the
+  2nd shot onward). Uses the foursomes handicap allowance.
+- **Nassau** — new `buildNassau()` engine. Treats the round as three
+  separate matches (front 9 / back 9 / total 18) and reports each
+  side's net winnings using the `front_bet` / `back_bet` / `total_bet`
+  settings. Supports 2 individuals head-to-head OR two 2-player teams
+  for a 2v2 better-ball Nassau.
+- **Sixes / Round Robin** — new `buildSixes()` engine. Requires exactly
+  4 players. Rotates partners every six holes
+  ({A,B} vs {C,D}, then {A,C} vs {B,D}, then {A,D} vs {B,C}) and
+  best-balls within each segment. Leaderboard ranks players by segments
+  won, fewer losses as tie-break.
+
+### Still MANUAL (next round, v3.62)
+- **Snake** — needs per-hole 3-putt input
+- **Bingo Bango Bongo** — needs per-hole "who got bingo / bango / bongo"
+- **Dots / Garbage** — needs per-hole event marks (greenie / sandy / etc.)
+
+These three fundamentally need new input on the scorecard (the strokes
+alone don't tell us "who was first on green"), so they're getting their
+own scorecard event-capture UI + engines in the next pass.
+
+### Files
+- [lib/formats.js](lib/formats.js) — Foursomes/Chapman → engine='scramble', Nassau + Sixes flipped to scored:true
+- [lib/scoring.js](lib/scoring.js) — `buildNassau()`, `buildSixes()`, dispatcher updates
+- [tests/sim/simulator.js](tests/sim/simulator.js) — Sixes uses 4 players, Nassau uses 2; describeScoring() drops "(manual)" tags
+- [tests/sim/format-verification-report.txt](tests/sim/format-verification-report.txt) — refreshed (28 formats, 3 still MANUAL)
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: verification harness shows clean Sixes (Drew wins 3-0 since
+  every pair with him wins) + Nassau (Brooke +$15 across 3 slices) output
+
+---
+
 ## v3.60.0 — 2026-05-31
 ### Session 77 (cont.) — Dynamic multi-format combos (Stroke + Skins side bet)
 

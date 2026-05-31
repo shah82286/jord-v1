@@ -157,24 +157,20 @@
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🏆  Nassau · Front / Back / Total
-    tier=individual  engine=nassau  MANUAL
-    scoring: Three matches: front / back / total (manual)
+    tier=individual  engine=nassau  AUTO-SCORED
+    scoring: Three matches: front 9 / back 9 / total 18
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   settings: {"front_bet":5,"back_bet":5,"total_bet":5}
   Alex (4.0)                            gross  75 / net  71 (-1)
   Brooke (12.5)                         gross  78 / net  66 (-6)
-  Cam (18.0)                            gross  82 / net  65 (-7)
-  Drew (24.0)                           gross  81 / net  58 (-14)
-  Erin (8.0)                            gross  71 / net  63 (-9)
-  Finn (16.5)                           gross  78 / net  62 (-10)
-  Grace (22.0)                          gross  86 / net  65 (-7)
-  Hank (10.0)                           gross  79 / net  69 (-3)
-  manual scoring — leaderboard tally is hand-entered (auto-tally engine coming in v3.60)
+  leaderboard (scoreType=nassau):
+     1. Brooke (12.5)      15
+     2. Alex (4.0)         -15
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔔  Bingo Bango Bongo · Points per hole
     tier=individual  engine=bbb  MANUAL
-    scoring: Points: 🟢 bingo + 🎯 bango + 🥁 bongo (manual)
+    scoring: Points: 🟢 bingo + 🎯 bango + 🥁 bongo (per-hole events — UI coming v3.62)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   settings: {"pts_bingo":1,"pts_bango":1,"pts_bongo":1,"value_per_point":0}
   Alex (4.0)                            gross  75 / net  71 (-1)
@@ -190,7 +186,7 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎰  Dots · Garbage
     tier=individual  engine=dots  MANUAL
-    scoring: Points per event (greenie / sandy / fish — manual)
+    scoring: Points per event (greenie / sandy / fish — UI coming v3.62)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   settings: {"events":[{"key":"greenie","label":"Greenie (on green in regulation closest to pin)","points":1},{"key":"sandy","label":"Sandy (par or better after a bunker shot)","points":1},{"key":"birdie","label":"Birdie","points":2},{"key":"eagle","label":"Eagle","points":4},{"key":"polly","label":"Polly (par after hitting a tree / cart path)","points":1},{"key":"arnie","label":"Arnie (par without hitting the fairway)","points":1},{"key":"fish","label":"Fish (a water-ball penalty)","points":-1}],"value_per_point":0}
   Alex (4.0)                            gross  75 / net  71 (-1)
@@ -206,7 +202,7 @@
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🐍  Snake · Three-putt penalty
     tier=individual  engine=snake  MANUAL
-    scoring: 3-putt holder pays penalty (manual)
+    scoring: 3-putt holder pays penalty (per-hole event — UI coming v3.62)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   settings: {"snake_penalty":20}
   Alex (4.0)                            gross  75 / net  71 (-1)
@@ -322,8 +318,8 @@
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔁  Alternate Shot · Foursomes (Stroke)
-    tier=pair  engine=foursomes_stroke  MANUAL
-    scoring: Alt-shot one ball stroke play (manual)
+    tier=pair  engine=scramble  AUTO-SCORED
+    scoring: Team strokes (one ball)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Alex (4.0)         [Pair A1]          gross  75 / net  71 (-1)
   Brooke (12.5)      [Pair A1]          gross  78 / net  65 (-7)
@@ -341,30 +337,62 @@
   Noah (15.0)        [Pair D1]          gross  79 / net  64 (-8)
   Olive (19.0)       [Pair D2]          gross  81 / net  62 (-10)
   Pete (13.0)        [Pair D2]          gross  82 / net  69 (-3)
-  manual scoring — leaderboard tally is hand-entered (auto-tally engine coming in v3.60)
+  leaderboard (scoreType=topar):
+     1. Drew (24.0)        57 (-15)
+     1. Kai (20.0)         57 (-15)
+     3. Finn (16.5)        61 (-11)
+     4. Olive (19.0)       62 (-10)
+     5. Erin (8.0)         63 (-9)
+     5. Liam (11.0)        63 (-9)
+     7. Cam (18.0)         64 (-8)
+     7. Grace (22.0)       64 (-8)
+     7. Noah (15.0)        64 (-8)
+    10. Brooke (12.5)      65 (-7)
+    11. Jordan (6.0)       66 (-6)
+    12. Hank (10.0)        69 (-3)
+    12. Pete (13.0)        69 (-3)
+    14. Ivy (14.0)         70 (-2)
+    14. Mia (5.5)          70 (-2)
+    16. Alex (4.0)         71 (-1)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🌲  Chapman · Pinehurst
-    tier=pair  engine=chapman  MANUAL
-    scoring: Pinehurst alternate-shot pair (manual)
+    tier=pair  engine=scramble  AUTO-SCORED
+    scoring: Team strokes (one ball)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Alex (4.0)         [Pair A1]          gross  75 / net  73 (+1)
-  Brooke (12.5)      [Pair A1]          gross  78 / net  70 (-2)
-  Cam (18.0)         [Pair A2]          gross  82 / net  71 (-1)
-  Drew (24.0)        [Pair A2]          gross  81 / net  67 (-5)
-  Erin (8.0)         [Pair B1]          gross  71 / net  66 (-6)
-  Finn (16.5)        [Pair B1]          gross  78 / net  68 (-4)
-  Grace (22.0)       [Pair B2]          gross  86 / net  73 (+1)
-  Hank (10.0)        [Pair B2]          gross  79 / net  73 (+1)
-  Ivy (14.0)         [Pair C1]          gross  84 / net  76 (+4)
-  Jordan (6.0)       [Pair C1]          gross  72 / net  68 (-4)
-  Kai (20.0)         [Pair C2]          gross  77 / net  65 (-7)
-  Liam (11.0)        [Pair C2]          gross  74 / net  67 (-5)
-  Mia (5.5)          [Pair D1]          gross  76 / net  72 (E)
-  Noah (15.0)        [Pair D1]          gross  79 / net  70 (-2)
-  Olive (19.0)       [Pair D2]          gross  81 / net  70 (-2)
-  Pete (13.0)        [Pair D2]          gross  82 / net  74 (+2)
-  manual scoring — leaderboard tally is hand-entered (auto-tally engine coming in v3.60)
+  Alex (4.0)         [Pair A1]          gross  75 / net  71 (-1)
+  Brooke (12.5)      [Pair A1]          gross  78 / net  65 (-7)
+  Cam (18.0)         [Pair A2]          gross  82 / net  64 (-8)
+  Drew (24.0)        [Pair A2]          gross  81 / net  57 (-15)
+  Erin (8.0)         [Pair B1]          gross  71 / net  63 (-9)
+  Finn (16.5)        [Pair B1]          gross  78 / net  61 (-11)
+  Grace (22.0)       [Pair B2]          gross  86 / net  64 (-8)
+  Hank (10.0)        [Pair B2]          gross  79 / net  69 (-3)
+  Ivy (14.0)         [Pair C1]          gross  84 / net  70 (-2)
+  Jordan (6.0)       [Pair C1]          gross  72 / net  66 (-6)
+  Kai (20.0)         [Pair C2]          gross  77 / net  57 (-15)
+  Liam (11.0)        [Pair C2]          gross  74 / net  63 (-9)
+  Mia (5.5)          [Pair D1]          gross  76 / net  70 (-2)
+  Noah (15.0)        [Pair D1]          gross  79 / net  64 (-8)
+  Olive (19.0)       [Pair D2]          gross  81 / net  62 (-10)
+  Pete (13.0)        [Pair D2]          gross  82 / net  69 (-3)
+  leaderboard (scoreType=topar):
+     1. Drew (24.0)        57 (-15)
+     1. Kai (20.0)         57 (-15)
+     3. Finn (16.5)        61 (-11)
+     4. Olive (19.0)       62 (-10)
+     5. Erin (8.0)         63 (-9)
+     5. Liam (11.0)        63 (-9)
+     7. Cam (18.0)         64 (-8)
+     7. Grace (22.0)       64 (-8)
+     7. Noah (15.0)        64 (-8)
+    10. Brooke (12.5)      65 (-7)
+    11. Jordan (6.0)       66 (-6)
+    12. Hank (10.0)        69 (-3)
+    12. Pete (13.0)        69 (-3)
+    14. Ivy (14.0)         70 (-2)
+    14. Mia (5.5)          70 (-2)
+    16. Alex (4.0)         71 (-1)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎲  Vegas · Two-pair gambling
@@ -400,26 +428,18 @@
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🔄  Sixes · Round Robin pairs
-    tier=pair  engine=sixes  MANUAL
-    scoring: Rotating-pair best ball every 6 holes (manual)
+    tier=individual  engine=sixes  AUTO-SCORED
+    scoring: Rotating-pair best ball every 6 holes
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Alex (4.0)         [Pair A1]          gross  75 / net  72 (E)
-  Brooke (12.5)      [Pair A1]          gross  78 / net  67 (-5)
-  Cam (18.0)         [Pair A2]          gross  82 / net  67 (-5)
-  Drew (24.0)        [Pair A2]          gross  81 / net  61 (-11)
-  Erin (8.0)         [Pair B1]          gross  71 / net  64 (-8)
-  Finn (16.5)        [Pair B1]          gross  78 / net  64 (-8)
-  Grace (22.0)       [Pair B2]          gross  86 / net  67 (-5)
-  Hank (10.0)        [Pair B2]          gross  79 / net  70 (-2)
-  Ivy (14.0)         [Pair C1]          gross  84 / net  72 (E)
-  Jordan (6.0)       [Pair C1]          gross  72 / net  67 (-5)
-  Kai (20.0)         [Pair C2]          gross  77 / net  60 (-12)
-  Liam (11.0)        [Pair C2]          gross  74 / net  65 (-7)
-  Mia (5.5)          [Pair D1]          gross  76 / net  71 (-1)
-  Noah (15.0)        [Pair D1]          gross  79 / net  66 (-6)
-  Olive (19.0)       [Pair D2]          gross  81 / net  65 (-7)
-  Pete (13.0)        [Pair D2]          gross  82 / net  71 (-1)
-  manual scoring — leaderboard tally is hand-entered (auto-tally engine coming in v3.60)
+  Alex (4.0)                            gross  75 / net  72 (E)
+  Brooke (12.5)                         gross  78 / net  67 (-5)
+  Cam (18.0)                            gross  82 / net  67 (-5)
+  Drew (24.0)                           gross  81 / net  61 (-11)
+  leaderboard (scoreType=sixes):
+     1. Drew (24.0)        3
+     2. Alex (4.0)         1
+     2. Brooke (12.5)      1
+     2. Cam (18.0)         1
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚔️  Match Play · Better Ball

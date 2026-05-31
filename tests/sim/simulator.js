@@ -95,6 +95,21 @@ function courseHcp(handicapIndex, allowance) {
 // tournament might have 8 pairs round-robin, a Best Ball team event might
 // have 4 teams of 4, etc.).
 function rosterForFormat(fmt) {
+  // Sixes is fundamentally a 4-player rotation — engine requires exactly 4.
+  if (fmt.id === 'sixes') {
+    return [
+      profile('Alex (4.0)',     4.0),  profile('Brooke (12.5)', 12.5),
+      profile('Cam (18.0)',    18.0),  profile('Drew (24.0)',   24.0),
+    ];
+  }
+  // Nassau is classically head-to-head; the engine accepts 2 individuals
+  // or 2 pair-teams. We use 2 for the simulator so the leaderboard reads
+  // cleanly.
+  if (fmt.id === 'nassau') {
+    return [
+      profile('Alex (4.0)',     4.0),  profile('Brooke (12.5)', 12.5),
+    ];
+  }
   if (fmt.tier === 'individual') {
     // 8 individual players — covers a typical 2-foursome casual round.
     return [
@@ -165,13 +180,16 @@ function describeScoring(fmt) {
     case 'vegas':      return 'Combined-pair 2-digit margin';
     case 'lownet':     return 'Best gross + best net per hole';
     case 'rumble':     return 'Best 1 / 2 / 3 / all per six-hole stretch';
-    case 'nassau':     return 'Three matches: front / back / total (manual)';
-    case 'bbb':        return 'Points: 🟢 bingo + 🎯 bango + 🥁 bongo (manual)';
-    case 'dots':       return 'Points per event (greenie / sandy / fish — manual)';
-    case 'snake':      return '3-putt holder pays penalty (manual)';
-    case 'chapman':    return 'Pinehurst alternate-shot pair (manual)';
-    case 'sixes':      return 'Rotating-pair best ball every 6 holes (manual)';
-    case 'foursomes_stroke': return 'Alt-shot one ball stroke play (manual)';
+    case 'nassau':     return 'Three matches: front 9 / back 9 / total 18';
+    case 'sixes':      return 'Rotating-pair best ball every 6 holes';
+    // Chapman + Foursomes Stroke route through the scramble engine now (single
+    // team ball per hole, scored as stroke play). They never hit describeScoring
+    // via the legacy engine names but we keep these strings for safety.
+    case 'chapman':    return 'Pinehurst alternate-shot pair (one ball)';
+    case 'foursomes_stroke': return 'Alt-shot one ball stroke play';
+    case 'bbb':        return 'Points: 🟢 bingo + 🎯 bango + 🥁 bongo (per-hole events — UI coming v3.62)';
+    case 'dots':       return 'Points per event (greenie / sandy / fish — UI coming v3.62)';
+    case 'snake':      return '3-putt holder pays penalty (per-hole event — UI coming v3.62)';
   }
   return fmt.engine;
 }
