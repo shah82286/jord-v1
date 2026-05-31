@@ -2,6 +2,81 @@
 
 ---
 
+## v3.59.2 — 2026-05-31
+### Session 76 (cont.) — Vegas wizard 401 fix + format verification harness
+
+Two reports from the user after v3.59:
+> "When I was trying to set up a vegas game it said UNAUTHRIZED."
+> "Build out a Simulator and run real test for all of these formats.
+>  From that I will than go through them 1 by one to see how you did
+>  it and how you scored them."
+
+### Vegas wizard 401 fix
+The wizard for any pair-format game hits three round-level endpoints
+after creating the tournament: `POST /api/rounds/:id/teams`,
+`POST /api/rounds/:id/entries`, and `POST /api/rounds/:id/status`. All
+three were gated `requireAuth, requireAdminOrSuper`, so personal users
+401'd at the first team-formation call. Widened all three to
+`requireUserOrAdmin` with an ownership check — the principal must be
+the admin who created the tournament, or the personal user who owns
+it (`tour.user_id === req.user.id`). Same pattern as v3.57's
+`/api/courses` widen and v3.59's `/api/tournaments/:id` widen.
+
+End-to-end regression test
+([tests/manual/test-vegas-setup.js](tests/manual/test-vegas-setup.js))
+walks a fresh personal-user signup through:
+signup → create Vegas tournament → POST two pair teams → activate
+round → round-trip `format_settings`. All six steps pass.
+
+### Format verification harness
+**Not a shipped feature — a test-only harness.** Lives at
+`tests/sim/simulator.js` (pure function, no DB / no HTTP / no fake
+users) and runs every format in `lib/formats.js` through the real
+`scoring.buildLeaderboard()` at **realistic tournament field sizes**:
+
+- Individual formats: 8 players (2 foursomes worth)
+- Pair formats: 16 players in 8 pairs (round-robin Vegas, Better Ball,
+  etc.)
+- Team formats: 16 players in 4 teams of 4
+
+This catches gaps the old "4 players, 2 pairs" sample couldn't —
+notably the previous Vegas engine had **hard-coded "exactly 2 pairs"**
+and would have rejected any tournament with 4+ pairs. The Vegas
+engine is now N-pair round-robin: every pair plays every other pair
+on every hole, and each pair's leaderboard total is the net margin
+summed across all opponents. A new unit test
+([tests/run-tests.js](tests/run-tests.js)) verifies the 3-pair math
+by hand.
+
+The driver [tests/manual/dump-simulator.js](tests/manual/dump-simulator.js)
+prints a per-format report to the terminal showing:
+
+- The format's tier / engine / scoring rule
+- Default settings applied
+- Per-player gross + net totals
+- Leaderboard JORD computes (auto-scored formats) or a "manual
+  scoring — auto-tally engine coming in v3.60" note
+
+The full report is saved to
+[tests/sim/format-verification-report.txt](tests/sim/format-verification-report.txt)
+for one-by-one review. **No `/simulator` page or `/api/simulate`
+endpoints ship to production** — this is purely a test artifact.
+
+### Files
+- [server.js](server.js) — three rounds endpoints widened to user-or-admin
+- [lib/scoring.js](lib/scoring.js) — `buildVegas` now N-pair round-robin instead of "exactly 2 pairs"
+- [tests/sim/simulator.js](tests/sim/simulator.js) — new test-only sample-round fabricator (8 / 16 / 16-player rosters)
+- [tests/sim/format-verification-report.txt](tests/sim/format-verification-report.txt) — committed report (review-friendly)
+- [tests/manual/dump-simulator.js](tests/manual/dump-simulator.js) — drives the harness
+- [tests/manual/test-vegas-setup.js](tests/manual/test-vegas-setup.js) — Vegas 401 regression
+- [tests/run-tests.js](tests/run-tests.js) — added 3-pair round-robin unit test
+
+### Tests
+- 409/409 unit + integration passing
+- Manual: Vegas setup e2e passes; harness produces all 28 format reports without error
+
+---
+
 ## v3.59.1 — 2026-05-30
 ### Session 76 (cont.) — Picker bubble polish
 

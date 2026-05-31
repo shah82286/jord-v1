@@ -4829,9 +4829,14 @@ app.post('/api/tournaments/:id/rounds', requireAuth, requireAdminOrSuper, (req, 
   res.json({ id: roundId, round_number: next });
 });
 
-app.post('/api/rounds/:roundId/status', requireAuth, requireAdminOrSuper, (req, res) => {
+app.post('/api/rounds/:roundId/status', requireUserOrAdmin, (req, res) => {
   const { status } = req.body || {};
   if (!['setup', 'active', 'ended'].includes(status)) return res.status(400).json({ error: 'bad status' });
+  // Only the tournament owner can flip a round's status.
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
+  if (!round) return res.status(404).json({ error: 'Round not found' });
+  const tour = db.prepare('SELECT * FROM tournaments WHERE id=?').get(round.tournament_id);
+  if (!tour || !canEditTournament(req, tour)) return res.status(403).json({ error: 'Not your tournament' });
   db.prepare('UPDATE rounds SET status=? WHERE id=?').run(status, req.params.roundId);
   broadcastRound(req.params.roundId);
   res.json({ ok: true });
@@ -5006,9 +5011,11 @@ app.post('/api/round-public/:shareCode/banter', (req, res) => {
   res.json(msg);
 });
 
-app.post('/api/rounds/:roundId/entries', requireAuth, requireAdminOrSuper, (req, res) => {
+app.post('/api/rounds/:roundId/entries', requireUserOrAdmin, (req, res) => {
   const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
   if (!round) return res.status(404).json({ error: 'Round not found' });
+  const tour = db.prepare('SELECT * FROM tournaments WHERE id=?').get(round.tournament_id);
+  if (!tour || !canEditTournament(req, tour)) return res.status(403).json({ error: 'Not your tournament' });
   const { name, phone, email, handicap_index, tee_id, group_name } = req.body || {};
   if (!name) return res.status(400).json({ error: 'player name required' });
 
@@ -5049,9 +5056,13 @@ app.post('/api/rounds/:roundId/entries', requireAuth, requireAdminOrSuper, (req,
 });
 
 // Create a team (pair/team formats): players + entries + team handicap.
-app.post('/api/rounds/:roundId/teams', requireAuth, requireAdminOrSuper, (req, res) => {
+app.post('/api/rounds/:roundId/teams', requireUserOrAdmin, (req, res) => {
   const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
   if (!round) return res.status(404).json({ error: 'Round not found' });
+  // Ownership check — the round must belong to a tournament the caller owns
+  // (admins: own it or super; users: created it).
+  const tour = db.prepare('SELECT * FROM tournaments WHERE id=?').get(round.tournament_id);
+  if (!tour || !canEditTournament(req, tour)) return res.status(403).json({ error: 'Not your tournament' });
   const fmt = formats.getFormat(round.format);
   if (!fmt) return res.status(400).json({ error: 'Unknown round format' });
   const { name, players } = req.body || {};

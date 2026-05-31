@@ -330,6 +330,31 @@ console.log('\n🎲 Exotic Formats — Skins / Erado / Duplicate (lib/scoring.js
     const a2 = vgFlip.rows.find(r => r.teamName === 'A').total;
     return assert(a1 === 20 && a2 === 29, `no-flip A=${a1}, flip A=${a2}`);
   });
+
+  // Multi-pair Vegas (round-robin, v3.59.2). Three pairs play one hole. We
+  // pick scores so the margins are easy to verify by hand:
+  //   Pair A: 4 + 6 = 46
+  //   Pair B: 5 + 5 = 55
+  //   Pair C: 3 + 4 = 34
+  // Round-robin per-pair margins (no birdie flip — par is 5 so 3+4 are pars):
+  //   A vs B: A wins 55-46 = 9
+  //   A vs C: C wins 46-34 = 12
+  //   B vs C: C wins 55-34 = 21
+  // Totals: A = +9 - 12 = -3, B = -9 - 21 = -30, C = +12 + 21 = +33.
+  const vgRR = scoring.buildLeaderboard([
+    {entryId:'A1', teamName:'A', teamId:'PA', playerName:'A1', courseHandicap:0, holes:[{hole_number:1, par:5, stroke_index:1}], scores:{1:4}},
+    {entryId:'A2', teamName:'A', teamId:'PA', playerName:'A2', courseHandicap:0, holes:[{hole_number:1, par:5, stroke_index:1}], scores:{1:6}},
+    {entryId:'B1', teamName:'B', teamId:'PB', playerName:'B1', courseHandicap:0, holes:[{hole_number:1, par:5, stroke_index:1}], scores:{1:5}},
+    {entryId:'B2', teamName:'B', teamId:'PB', playerName:'B2', courseHandicap:0, holes:[{hole_number:1, par:5, stroke_index:1}], scores:{1:5}},
+    {entryId:'C1', teamName:'C', teamId:'PC', playerName:'C1', courseHandicap:0, holes:[{hole_number:1, par:5, stroke_index:1}], scores:{1:3}},
+    {entryId:'C2', teamName:'C', teamId:'PC', playerName:'C2', courseHandicap:0, holes:[{hole_number:1, par:5, stroke_index:1}], scores:{1:4}},
+  ], { format:'vegas', format_settings:{ flip_birdie:false } });
+  test('Vegas: round-robin scoring across 3+ pairs sums net margins correctly', () => {
+    const a = vgRR.rows.find(r => r.teamName === 'A').total;
+    const b = vgRR.rows.find(r => r.teamName === 'B').total;
+    const c = vgRR.rows.find(r => r.teamName === 'C').total;
+    return assert(a === -3 && b === -30 && c === 33, `A=${a} B=${b} C=${c}`);
+  });
 }
 
 console.log('\n🏆 Team Exotics — Low Scratch/Net + Irish Rumble (lib/scoring.js)\n');
