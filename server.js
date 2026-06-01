@@ -4471,13 +4471,14 @@ function roundScoreCards(round) {
   const membersByTeam = {};
   if (isTeamCard) {
     const memberRows = db.prepare(`
-      SELECT rtm.team_id, rtm.tee_id, rtm.course_handicap, rtm.position,
+      SELECT rtm.id AS member_id, rtm.team_id, rtm.tee_id, rtm.course_handicap, rtm.position,
              p.id AS player_id, p.name AS player_name, p.handicap_index
       FROM round_team_members rtm
       JOIN players p ON p.id=rtm.player_id
       WHERE rtm.round_id=? ORDER BY rtm.team_id, rtm.position`).all(round.id);
     for (const m of memberRows) {
       (membersByTeam[m.team_id] = membersByTeam[m.team_id] || []).push({
+        id:              m.member_id,
         player_id:       m.player_id,
         player_name:     m.player_name,
         handicap_index:  m.handicap_index,
@@ -5448,6 +5449,119 @@ app.get('/api/tournaments/:id/leaderboard', (req, res) => {
   res.json(t.type === 'reds_blues'
     ? rvbLeaderboard(req.params.id)
     : tournamentLeaderboard(req.params.id));
+});
+
+// Shared helper — who's allowed to mutate this round entry?
+// Same three principals as the existing DELETE: creator admin, host user,
+// or the player removing themselves.
+function _canEditEntry(req, entry, tournament) {
+  const adminTok = req.headers['x-admin-token'];
+  const admin = adminTok ? getSessionAdmin(adminTok) : null;
+  const userTok = req.headers['x-user-token'];
+  const user = userTok ? getSessionUser(userTok) : null;
+  const isCreatorAdmin = admin && (admin.role === 'super' || (tournament && tournament.admin_id === admin.id));
+  const isCreatorUser  = user  && tournament && tournament.user_id === user.id;
+  const isOwnEntry     = user  && entry && entry.user_id === user.id;
+  return isCreatorAdmin || isCreatorUser || isOwnEntry;
+}
+
+// Edit a round entry — change player name, handicap index, or tee. The
+// course handicap is recomputed from the new (handicap_index, tee). Team
+// member breakdowns (round_team_members) are not updated here — use the
+// team-members PATCH endpoint below for that.
+app.patch('/api/rounds/:roundId/entries/:entryId', (req, res) => {
+  const entry = db.prepare('SELECT * FROM round_entries WHERE id=? AND round_id=?')
+    .get(req.params.entryId, req.params.roundId);
+  if (!entry) return res.status(404).json({ error: 'Entry not found' });
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
+  const t = round ? db.prepare('SELECT * FROM tournaments WHERE id=?').get(round.tournament_id) : null;
+  if (!_canEditEntry(req, entry, t)) {
+    return res.status(403).json({ error: 'Sign in as the host (or as the player) to edit this entry' });
+  }
+  const b = req.body || {};
+  // Update the linked players row (name + handicap_index) when supplied.
+  const player = db.prepare('SELECT * FROM players WHERE id=?').get(entry.player_id);
+  const newName  = b.name != null ? String(b.name).trim().slice(0, 120) : null;
+  const newHcp   = b.handicap_index !== undefined ? (b.handicap_index === null || b.handicap_index === '' ? null : Number(b.handicap_index)) : undefined;
+  const newPhone = b.phone != null ? String(b.phone).trim().slice(0, 40) : null;
+  if (newName)  db.prepare('UPDATE players SET name=? WHERE id=?').run(newName, entry.player_id);
+  if (newHcp !== undefined) db.prepare('UPDATE players SET handicap_index=? WHERE id=?').run(newHcp, entry.player_id);
+  if (newPhone != null) db.prepare('UPDATE players SET phone=? WHERE id=?').run(newPhone || null, entry.player_id);
+
+  // Resolve effective tee_id + recompute course_handicap.
+  let teeId = b.tee_id !== undefined ? (b.tee_id || null) : entry.tee_id;
+  let cHcp = entry.course_handicap;
+  const hcpForCalc = newHcp !== undefined ? newHcp : player?.handicap_index;
+  if (hcpForCalc != null) {
+    let teeRow = teeId ? db.prepare('SELECT * FROM course_tees WHERE id=?').get(teeId) : null;
+    if (!teeRow && round.course_id) {
+      teeRow = db.prepare('SELECT * FROM course_tees WHERE course_id=? ORDER BY rowid LIMIT 1').get(round.course_id);
+    }
+    if (teeRow) {
+      const raw = handicap.courseHandicap(hcpForCalc, teeRow.slope_rating, teeRow.course_rating, teeRow.par_total);
+      // Apply the format's playing-handicap allowance (matches the create path).
+      const fmt = formats.getFormat(round.format);
+      cHcp = (raw != null && fmt && typeof fmt.allowance === 'number')
+        ? handicap.playingHandicap(raw, fmt.allowance) : raw;
+      teeId = teeId || teeRow.id;
+    }
+  }
+  db.prepare('UPDATE round_entries SET tee_id=?, course_handicap=? WHERE id=?')
+    .run(teeId, cHcp, req.params.entryId);
+  broadcastRound(req.params.roundId);
+  res.json({ id: req.params.entryId, course_handicap: cHcp });
+});
+
+// Edit a single team member (one-ball formats only). Updates the player row
+// + recomputes course handicap. If the team's combined handicap is derived
+// (scramble2 / scramble4 / foursomes / greensome), also recompute the team
+// card's handicap from the new member set.
+app.patch('/api/rounds/:roundId/team-members/:memberId', (req, res) => {
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
+  if (!round) return res.status(404).json({ error: 'Round not found' });
+  const t = db.prepare('SELECT * FROM tournaments WHERE id=?').get(round.tournament_id);
+  if (!_canEditEntry(req, null, t)) {
+    return res.status(403).json({ error: 'Sign in as the host to edit team members' });
+  }
+  const member = db.prepare('SELECT * FROM round_team_members WHERE id=? AND round_id=?')
+    .get(req.params.memberId, req.params.roundId);
+  if (!member) return res.status(404).json({ error: 'Team member not found' });
+
+  const b = req.body || {};
+  const newName = b.name != null ? String(b.name).trim().slice(0, 120) : null;
+  const newHcp  = b.handicap_index !== undefined ? (b.handicap_index === null || b.handicap_index === '' ? null : Number(b.handicap_index)) : undefined;
+  if (newName) db.prepare('UPDATE players SET name=? WHERE id=?').run(newName, member.player_id);
+  if (newHcp !== undefined) db.prepare('UPDATE players SET handicap_index=? WHERE id=?').run(newHcp, member.player_id);
+
+  // Recompute this member's course_handicap.
+  const player = db.prepare('SELECT * FROM players WHERE id=?').get(member.player_id);
+  let teeId = b.tee_id !== undefined ? (b.tee_id || null) : member.tee_id;
+  let cHcp = member.course_handicap;
+  const hcpForCalc = newHcp !== undefined ? newHcp : player?.handicap_index;
+  if (hcpForCalc != null) {
+    let teeRow = teeId ? db.prepare('SELECT * FROM course_tees WHERE id=?').get(teeId) : null;
+    if (!teeRow && round.course_id) {
+      teeRow = db.prepare('SELECT * FROM course_tees WHERE course_id=? ORDER BY rowid LIMIT 1').get(round.course_id);
+    }
+    if (teeRow) {
+      cHcp = handicap.courseHandicap(hcpForCalc, teeRow.slope_rating, teeRow.course_rating, teeRow.par_total);
+      teeId = teeId || teeRow.id;
+    }
+  }
+  db.prepare('UPDATE round_team_members SET tee_id=?, course_handicap=? WHERE id=?')
+    .run(teeId, cHcp, req.params.memberId);
+
+  // Recompute the team card's handicap from all the team's members.
+  const fmt = formats.getFormat(round.format);
+  if (fmt && typeof fmt.allowance === 'string') {
+    const allMembers = db.prepare('SELECT course_handicap FROM round_team_members WHERE team_id=? ORDER BY position').all(member.team_id);
+    const teamHcp = handicap.teamHandicap(allMembers.map(m => m.course_handicap), fmt.allowance);
+    db.prepare('UPDATE round_teams SET team_handicap=? WHERE id=?').run(teamHcp, member.team_id);
+    db.prepare('UPDATE round_entries SET course_handicap=? WHERE team_id=? AND is_team_card=1')
+      .run(teamHcp, member.team_id);
+  }
+  broadcastRound(req.params.roundId);
+  res.json({ id: req.params.memberId, course_handicap: cHcp });
 });
 
 app.delete('/api/rounds/:roundId/entries/:entryId', (req, res) => {
@@ -7940,6 +8054,7 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   '/e/:slug/donate-item':           'event-donate-item.html',  // public item-intake form (E4)
   '/e/:slug':   'event-site.html',              // public brandable event site (E1)
   '/scorecard/:roundId': 'scorecard.html',     // score entry (public, via link)
+  '/card/:roundId': 'card.html',                // printed-scorecard view (v3.63)
   '/live/:roundId': 'live.html',               // round live leaderboard (public)
   '/tournament/:id': 'tournament-live.html' }; // cumulative tournament leaderboard
 Object.entries(pages).forEach(([route, file]) => {

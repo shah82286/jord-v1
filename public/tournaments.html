@@ -1214,7 +1214,8 @@ async function openTournament(id) {
         <span class="badge ${r.status==='active'?'badge-success':r.status==='ended'?'badge-danger':''}">${esc(r.status)}</span></div>
       <div style="display:flex;gap:var(--s-2);flex-wrap:wrap">
         <a class="btn btn-ghost" href="/live/${r.id}" target="_blank">Live ↗</a>
-        <a class="btn btn-primary" href="/scorecard/${r.id}" target="_blank">📝 Score card ↗</a>
+        <a class="btn btn-ghost" href="/card/${r.id}" target="_blank">📋 Card ↗</a>
+        <a class="btn btn-primary" href="/scorecard/${r.id}" target="_blank">📝 Enter scores ↗</a>
         ${r.status==='active'?`<button class="btn btn-ghost" data-end="${r.id}">End</button>`
           :`<button class="btn btn-ghost" data-start="${r.id}">Start</button>`}
         ${multi ? `<button class="btn btn-ghost" data-del-round="${r.id}" style="color:var(--danger)">🗑</button>` : ''}
@@ -1234,10 +1235,107 @@ async function openTournament(id) {
   });
 
   const pl = $('#playerList');
-  pl.innerHTML = data.entries.length ? data.entries.map(e=>`
-    <div class="row-card"><div><strong>${esc(e.player_name)}</strong>
-      <div class="meta">${e.group_name?esc(e.group_name)+' · ':''}Course handicap: ${e.course_handicap??'—'}</div></div></div>`).join('')
-    : '<p class="mini">No competitors yet.</p>';
+  if (!data.entries.length) { pl.innerHTML = '<p class="mini">No competitors yet.</p>'; return; }
+  // Team-card formats: top row is the team (no direct edit — name lives on
+  // the team row), each member underneath is editable.
+  // Individual / best-ball formats: each entry is itself a player and is
+  // edited directly.
+  pl.innerHTML = data.entries.map(e => {
+    const isTeamCard = Array.isArray(e.members) && e.members.length;
+    const headLine = `<div class="row-card"><div><strong>${esc(e.player_name)}</strong>
+      <div class="meta">${e.group_name && e.group_name !== e.player_name ? esc(e.group_name)+' · ' : ''}Course handicap: ${e.course_handicap??'—'}</div></div>
+      <div class="row gap-2">
+        ${!isTeamCard ? `<button class="btn btn-ghost btn-icon" data-edit-entry="${esc(e.id)}" title="Edit player">✎</button>` : ''}
+        <button class="btn btn-ghost btn-icon" data-del-entry="${esc(e.id)}" title="Remove">✕</button>
+      </div></div>`;
+    if (!isTeamCard) return headLine;
+    const memberLines = e.members.map(m => `
+      <div class="row-card" style="background:var(--surface-2);margin-left:var(--s-4)">
+        <div><strong>${esc(m.player_name)}</strong>
+          <div class="meta">HCP ${m.handicap_index ?? '—'} · CH ${m.course_handicap ?? '—'}</div></div>
+        <button class="btn btn-ghost btn-icon" data-edit-member="${esc(m.id)}" title="Edit ${esc(m.player_name)}">✎</button>
+      </div>`).join('');
+    return headLine + memberLines;
+  }).join('');
+
+  // Wire the action buttons. Each handler grabs the latest entry/member info
+  // from `data` rather than rebuilding state from scratch.
+  const roundId = data.round.id;
+  pl.querySelectorAll('[data-edit-entry]').forEach(b => b.onclick = () => {
+    const entry = data.entries.find(e => e.id === b.dataset.editEntry);
+    if (entry) openEditPlayer({ kind: 'entry', roundId, entry, course: data.course, trnId: t.id });
+  });
+  pl.querySelectorAll('[data-edit-member]').forEach(b => b.onclick = () => {
+    let member = null, parent = null;
+    for (const e of data.entries) {
+      const m = (e.members || []).find(m => m.id === b.dataset.editMember);
+      if (m) { member = m; parent = e; break; }
+    }
+    if (member) openEditPlayer({ kind: 'member', roundId, member, parent, course: data.course, trnId: t.id });
+  });
+  pl.querySelectorAll('[data-del-entry]').forEach(b => b.onclick = async () => {
+    const entry = data.entries.find(e => e.id === b.dataset.delEntry);
+    if (!entry) return;
+    if (!confirm(`Remove ${entry.player_name}? Their scores will be erased.`)) return;
+    try {
+      await JORD.api(`/api/rounds/${roundId}/entries/${b.dataset.delEntry}`, { method: 'DELETE' });
+      JORD.success && JORD.success('Removed');
+      openTournament(t.id);
+    } catch (e) { JORD.error && JORD.error(e.message || 'Could not remove'); }
+  });
+}
+
+// Edit-player modal — works for both individual entries and team members.
+// opts = { kind:'entry'|'member', roundId, course, trnId,
+//          entry?:{id, player_name, handicap_index, ...} for kind=entry
+//          member?:{id, player_name, handicap_index, ...} for kind=member }
+function openEditPlayer(opts) {
+  const current = opts.kind === 'entry' ? opts.entry : opts.member;
+  const tees = (opts.course && opts.course.tees) || [];
+  const body = JORD.el('div', {},
+    JORD.el('div', { class: 'field' },
+      JORD.el('label', { for: 'ep_name' }, 'Player name'),
+      JORD.el('input', { class: 'input input-lg', id: 'ep_name', value: current.player_name || '' })),
+    JORD.el('div', { class: 'field' },
+      JORD.el('label', { for: 'ep_hcp' }, 'Handicap index'),
+      JORD.el('input', { class: 'input input-lg', id: 'ep_hcp', type: 'number', step: '0.1',
+        value: current.handicap_index ?? '' })),
+    JORD.el('div', { class: 'field' },
+      JORD.el('label', { for: 'ep_tee' }, 'Tee'),
+      JORD.el('select', { class: 'input input-lg', id: 'ep_tee' },
+        ...[JORD.el('option', { value: '' }, '— default —'),
+            ...tees.map(t => JORD.el('option', { value: t.id, selected: t.id === current.tee_id }, `${t.name} (${t.gender || '—'})`))])),
+    JORD.el('div', { class: 'auth-err', id: 'ep_err', style: { display: 'none', background: '#fdecec', color: 'var(--danger)', border: '1px solid #f5c6c6', borderRadius: 'var(--r-sm)', padding: '10px 12px', fontSize: '13.5px', marginTop: 'var(--s-2)' } })
+  );
+  const submitBtn = JORD.el('button', { class: 'btn btn-primary' }, 'Save changes');
+  const cancelBtn = JORD.el('button', { class: 'btn btn-ghost' }, 'Cancel');
+  const footer = JORD.el('div', { class: 'row gap-2' }, cancelBtn, submitBtn);
+  const m = JORD.modal({ title: `Edit ${current.player_name}`, body, footer });
+  cancelBtn.onclick = () => m.close();
+  submitBtn.onclick = async () => {
+    const err = body.querySelector('#ep_err');
+    err.style.display = 'none';
+    const name = body.querySelector('#ep_name').value.trim();
+    const hcp  = body.querySelector('#ep_hcp').value;
+    const teeId = body.querySelector('#ep_tee').value;
+    if (!name) { err.textContent = 'Name is required.'; err.style.display = 'block'; return; }
+    submitBtn.disabled = true; submitBtn.textContent = 'Saving…';
+    try {
+      const url = opts.kind === 'entry'
+        ? `/api/rounds/${opts.roundId}/entries/${current.id}`
+        : `/api/rounds/${opts.roundId}/team-members/${current.id}`;
+      await JORD.api(url, { method: 'PATCH', body: {
+        name, handicap_index: hcp === '' ? null : Number(hcp), tee_id: teeId || null,
+      }});
+      m.close();
+      JORD.success && JORD.success('Saved');
+      openTournament(opts.trnId);
+    } catch (e) {
+      err.textContent = e.message || 'Could not save.';
+      err.style.display = 'block';
+      submitBtn.disabled = false; submitBtn.textContent = 'Save changes';
+    }
+  };
 }
 async function setStatus(roundId,status,trnId) {
   if (status==='ended' && !await JORD.confirm('End the round? Scores will lock.',{danger:true})) return;

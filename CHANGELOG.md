@@ -2,6 +2,75 @@
 
 ---
 
+## v3.63.0 — 2026-06-01
+### Session 80 — Edit players + printed-scorecard grid view
+
+Three asks:
+1. Once a player is added, you can't change their details. Fix that.
+2. The Arc tournament scorecard didn't show which player on a team
+   gets the stroke on each hole.
+3. Add a real scorecard view — par, SI, tee yardages, scores filling
+   in as they come, like a paper card.
+
+### Editable players
+New PATCH endpoints:
+- `PATCH /api/rounds/:roundId/entries/:entryId` — change a player's
+  name, handicap index, tee. Course handicap is recomputed (using the
+  fallback-tee resolution from v3.62.2 if no tee is supplied).
+- `PATCH /api/rounds/:roundId/team-members/:memberId` — change a team
+  member for one-ball formats. Recomputes the member's course handicap
+  AND the team card's combined handicap (scramble2 / foursomes /
+  greensome allowances).
+
+Both use the same auth surface as the existing DELETE (creator admin,
+host user, or the player editing themselves).
+
+UI:
+- Tournament detail's competitors list now shows a pencil **✎** button
+  on each player row. For team-card formats the team header row is
+  still uneditable (the team's name is what shows there) but every
+  member row underneath is now editable.
+- Existing **✕** remove button is wired up too — confirms then DELETEs.
+- Edit modal: name, handicap index, tee box. Saves, refreshes the
+  detail view, and the recomputed course handicap is visible
+  immediately.
+
+### `/card/:roundId` — printed-scorecard view
+New page that lays out a traditional paper-card grid:
+- **Header strip**: round name, status (Live dot if active), course,
+  date. Buttons for "Enter scores" and "Live" + a 🖨 Print button.
+- **Hole row** (1–9, OUT, 10–18, IN, TOTAL).
+- **Par row** + **Stroke Index row** at the top.
+- **One row per tee box** with each hole's yardage and per-9 totals
+  — color-coded dot per tee so the eye finds Blue / Gold / White / etc.
+- **Player rows** with scores filling in as they come (red = under
+  par, blue = over). Empty cells render as em-dash.
+- **Member sub-rows** for team-card formats — every player on the team
+  gets their own row showing handicap-stroke dots per hole and a
+  round total ("HCP 30 · CH 41 · 41 strokes"). This is the breakdown
+  the Arc tournament was missing.
+- **Live updates** — subscribes to the round SSE; refetches entries
+  when a score is posted.
+- **Print-friendly** — `@media print` hides the action buttons and
+  strips the chrome.
+
+A **📋 Card ↗** button now sits in every round row in the tournament
+detail UI so users can find it.
+
+### Files
+- [server.js](server.js) — `PATCH /api/rounds/:id/entries/:id`, `PATCH /api/rounds/:id/team-members/:id`, `roundScoreCards` exposes `id` on each member, registered `/card/:roundId` route
+- [public/card.html](public/card.html) — new printed-scorecard page
+- [public/tournaments.html](public/tournaments.html) — edit/remove buttons + `openEditPlayer()` modal; "Card ↗" link in every round row
+- [tests/manual/test-v363.js](tests/manual/test-v363.js) — 7-step E2E: PATCH entry (name + handicap recompute), PATCH team member (member + team-card recompute), `/card/:roundId` renders with par + player + member sub-rows
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: 7/7 E2E. Bob renamed; HCP 18→30 bumped his CH 26→41 and the
+  team's CH 7→9 (auto-recomputed). Card page renders the full grid
+  with every player's per-hole stroke dots.
+
+---
+
 ## v3.62.2 — 2026-06-01
 ### Session 79 — Stroke detail on scorecard + live leaderboard
 

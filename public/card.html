@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Scorecard · JORD Golf</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css">
+<style>
+  body { min-height: 100dvh; padding-bottom: var(--s-8); }
+  .cd-wrap { max-width: 1280px; margin: 0 auto; padding: var(--s-4); }
+  .cd-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s-3); flex-wrap: wrap; margin-bottom: var(--s-4); }
+  .cd-head h1 { font-family: var(--font-display); font-size: clamp(1.5rem, 4vw, 2.1rem); letter-spacing: -.02em; }
+  .cd-head .sub { font-size: 14px; color: var(--ink-2); margin-top: 4px; }
+  .cd-head .actions { display: flex; gap: var(--s-2); flex-wrap: wrap; }
+
+  /* Horizontal scroll on phones — 18 columns + labels + totals never fit. */
+  .card-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface); }
+
+  table.gridcard { border-collapse: collapse; min-width: 100%; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+  table.gridcard th, table.gridcard td { border-bottom: 1px solid var(--border); border-right: 1px solid var(--border);
+    padding: 6px 8px; text-align: center; white-space: nowrap; }
+  table.gridcard tbody tr:last-child td { border-bottom: 0; }
+  table.gridcard td.col-label, table.gridcard th.col-label {
+    text-align: left; font-family: var(--font-body, inherit); font-weight: 600;
+    min-width: 130px; max-width: 200px; position: sticky; left: 0; z-index: 2;
+    background: var(--surface); box-shadow: 1px 0 0 0 var(--border);
+  }
+  table.gridcard thead th { background: var(--surface-2); font-weight: 700; font-size: 11px;
+    text-transform: uppercase; letter-spacing: .06em; color: var(--ink-3); }
+  table.gridcard tr.hole-head th { background: var(--surface-2); font-size: 14px; font-weight: 700; color: var(--ink); }
+  table.gridcard tr.tot th, table.gridcard tr.tot td { background: var(--surface-2); font-weight: 700; }
+  /* Meta rows (par / SI / tee yardages) */
+  table.gridcard tr.meta td { color: var(--ink-2); }
+  table.gridcard tr.par td  { color: var(--ink); font-weight: 700; }
+  table.gridcard tr.si td   { font-size: 11px; color: var(--ink-3); }
+  table.gridcard tr.tee-row td { font-size: 12px; color: var(--ink-2); }
+  table.gridcard tr.tee-row td.col-label .tee-dot { display: inline-block; width: 10px; height: 10px;
+    border-radius: 50%; margin-right: 6px; vertical-align: middle; border: 1px solid var(--border-2); }
+  /* Player rows */
+  table.gridcard tr.player td.score { font-family: var(--font-display); font-size: 1.05rem; }
+  table.gridcard tr.player td.score.under { color: #A12C2C; font-weight: 700; }
+  table.gridcard tr.player td.score.over  { color: #1F3F7A; font-weight: 700; }
+  table.gridcard tr.player td.score.empty { color: var(--ink-3); }
+  table.gridcard tr.player td.score .strk-dots {
+    display: block; font-size: 9px; line-height: 1; color: var(--accent); letter-spacing: 1px;
+    margin-top: 1px;
+  }
+  table.gridcard tr.player td.col-label .nm { font-weight: 700; }
+  table.gridcard tr.player td.col-label .meta { font-size: 11px; color: var(--ink-3); font-weight: 500; margin-top: 2px; }
+  /* Out / In / Total columns sit between hole 9-10 and after hole 18. */
+  table.gridcard col.divider { border-right: 2px solid var(--border-2); }
+  table.gridcard th.col-total, table.gridcard td.col-total { background: var(--surface-2); font-weight: 700; min-width: 56px; }
+  table.gridcard th.col-divider, table.gridcard td.col-divider { background: var(--surface-2); }
+
+  /* For team-card formats, member sub-rows sit nested under the team's score row. */
+  table.gridcard tr.member td { background: rgba(0,0,0,0.015); font-size: 12px; color: var(--ink-2); }
+  table.gridcard tr.member td.col-label { padding-left: 28px; font-weight: 500; }
+  table.gridcard tr.member td.score .strk-dots { color: var(--accent); }
+
+  .live-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#4A7A53; margin-right:5px;
+    animation:pulse 1.6s infinite; vertical-align: middle; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .empty-state { text-align: center; padding: var(--s-6); color: var(--ink-3); }
+
+  @media print {
+    body { background: white; padding: 0; }
+    .cd-head .actions { display: none; }
+    .card-scroll { overflow: visible; border: none; }
+    table.gridcard { font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+<div id="topbar"></div>
+<main class="cd-wrap" id="root">
+  <p class="mini" style="text-align:center;padding:var(--s-6)">Loading scorecard…</p>
+</main>
+
+<script src="/js/jord.js"></script>
+<script>
+const $ = (s, r=document) => r.querySelector(s);
+const esc = JORD.escapeHtml;
+const roundId = location.pathname.split('/').pop();
+
+document.getElementById('topbar').appendChild(
+  JORD.renderTopbar('Scorecard',
+    JORD.el('div', { style: { display:'flex', gap:'8px' } },
+      JORD.el('a',      { class:'btn btn-ghost', href:'/clubhouse' }, '← Clubhouse'),
+      JORD.el('button', { class:'btn btn-ghost', type:'button', on:{ click: () => window.print() } }, '🖨  Print'))));
+
+const state = { round: null, course: null, entries: [], holes: [], tees: [], membersByEntry: {} };
+
+// ── WHS strokes-per-hole (mirror of scorecard.html / live.html) ───
+function strokesByHole(courseHcp, holes) {
+  if (courseHcp == null || !holes.length) return {};
+  const sign = courseHcp >= 0 ? 1 : -1;
+  const abs = Math.abs(courseHcp);
+  const total = holes.length || 18;
+  const base = Math.floor(abs / total);
+  const rem  = abs % total;
+  const out = {};
+  for (const h of holes) {
+    const si = Number(h.stroke_index) || total;
+    let extra = 0;
+    if (sign >= 0) { if (si <= rem) extra = 1; }
+    else            { if (si > total - rem) extra = 1; }
+    out[h.hole_number] = sign * (base + extra);
+  }
+  return out;
+}
+function scoreClass(strokes, par) {
+  if (strokes == null || !par) return 'empty';
+  const d = strokes - par;
+  if (d < 0)  return 'under';
+  if (d > 0)  return 'over';
+  return '';
+}
+
+function render() {
+  const r = state.round;
+  if (!r) { $('#root').innerHTML = '<div class="empty-state">Round not found.</div>'; return; }
+  const holes = state.holes;
+  if (!holes.length) { $('#root').innerHTML = '<div class="empty-state">No course / tee data for this round.</div>'; return; }
+
+  const front = holes.filter(h => h.hole_number <= 9);
+  const back  = holes.filter(h => h.hole_number >  9);
+  const frontPar = front.reduce((s, h) => s + (h.par || 0), 0);
+  const backPar  = back.reduce((s, h)  => s + (h.par || 0), 0);
+  const totalPar = frontPar + backPar;
+
+  // Color swatches per tee — cycle through a small palette.
+  const teeColors = ['#1f3f7a', '#a12c2c', '#2d5d36', '#7a5400', '#5b3a99', '#003a5d'];
+
+  // Build column groups so we can stripe in dividers cleanly.
+  // Columns: [label, 1..9, Out, 10..18, In, Total]
+  const headCells = [];
+  headCells.push(`<th class="col-label">Hole</th>`);
+  for (const h of front) headCells.push(`<th class="col-hole">${h.hole_number}</th>`);
+  headCells.push(`<th class="col-total">Out</th>`);
+  for (const h of back)  headCells.push(`<th class="col-hole">${h.hole_number}</th>`);
+  headCells.push(`<th class="col-total">In</th>`);
+  headCells.push(`<th class="col-total">Total</th>`);
+
+  // Par row
+  const parCells = ['<td class="col-label">Par</td>'];
+  for (const h of front) parCells.push(`<td>${h.par || '—'}</td>`);
+  parCells.push(`<td class="col-total">${frontPar || '—'}</td>`);
+  for (const h of back)  parCells.push(`<td>${h.par || '—'}</td>`);
+  parCells.push(`<td class="col-total">${backPar || '—'}</td>`);
+  parCells.push(`<td class="col-total">${totalPar || '—'}</td>`);
+
+  // Stroke index row
+  const siCells = ['<td class="col-label">SI</td>'];
+  for (const h of front) siCells.push(`<td>${h.stroke_index || '—'}</td>`);
+  siCells.push(`<td class="col-total">—</td>`);
+  for (const h of back)  siCells.push(`<td>${h.stroke_index || '—'}</td>`);
+  siCells.push(`<td class="col-total">—</td>`);
+  siCells.push(`<td class="col-total">—</td>`);
+
+  // One row per tee box with yardages.
+  const teeRows = state.tees.map((tee, i) => {
+    const cellsByHole = {};
+    for (const h of (tee.holes || [])) cellsByHole[h.hole_number] = h.yardage;
+    const cells = [`<td class="col-label"><span class="tee-dot" style="background:${teeColors[i % teeColors.length]}"></span>${esc(tee.name || 'Tees')}${tee.gender ? ' (' + esc(tee.gender) + ')' : ''}</td>`];
+    let f = 0, b = 0;
+    for (const h of front) {
+      const y = cellsByHole[h.hole_number] || 0;
+      f += y;
+      cells.push(`<td>${y || '—'}</td>`);
+    }
+    cells.push(`<td class="col-total">${f || '—'}</td>`);
+    for (const h of back)  {
+      const y = cellsByHole[h.hole_number] || 0;
+      b += y;
+      cells.push(`<td>${y || '—'}</td>`);
+    }
+    cells.push(`<td class="col-total">${b || '—'}</td>`);
+    cells.push(`<td class="col-total">${(f + b) || '—'}</td>`);
+    return `<tr class="tee-row">${cells.join('')}</tr>`;
+  }).join('');
+
+  // Player score rows. For team-card formats, the entry is the team and we
+  // also render member sub-rows showing each player's stroke allocation.
+  const renderScoreCells = (scores, strokes, holesSlice, par) => {
+    const cells = [];
+    let played = 0, sum = 0;
+    for (const h of holesSlice) {
+      const s = scores[h.hole_number] ?? scores[String(h.hole_number)];
+      const stk = strokes[h.hole_number] || 0;
+      if (s != null) { played++; sum += s; }
+      const dots = stk > 0 ? `<span class="strk-dots">${'●'.repeat(Math.min(stk, 3))}</span>` : '';
+      cells.push(`<td class="score ${scoreClass(s, h.par)}">${s != null ? s : '—'}${dots}</td>`);
+    }
+    return { html: cells.join(''), sum, played };
+  };
+
+  const playerRows = state.entries.map(e => {
+    const strokes = strokesByHole(e.course_handicap, holes);
+    const front9 = renderScoreCells(e.scores || {}, strokes, front);
+    const back9  = renderScoreCells(e.scores || {}, strokes, back);
+    const total  = (front9.played ? front9.sum : 0) + (back9.played ? back9.sum : 0);
+    const isTeamCard = Array.isArray(e.members) && e.members.length;
+    const label = `<td class="col-label">
+      <span class="nm">${esc(e.player_name)}</span>
+      <div class="meta">${isTeamCard ? 'Team · ' : ''}CH ${e.course_handicap ?? '—'}</div>
+    </td>`;
+    let row = `<tr class="player">${label}${front9.html}
+      <td class="col-total">${front9.played ? front9.sum : '—'}</td>
+      ${back9.html}
+      <td class="col-total">${back9.played ? back9.sum : '—'}</td>
+      <td class="col-total">${total > 0 ? total : '—'}</td>
+    </tr>`;
+    // Team members — show each player's name + handicap-derived strokes.
+    if (isTeamCard) {
+      row += e.members.map(m => {
+        const mstrokes = strokesByHole(m.course_handicap, holes);
+        const mFront = front.map(h => {
+          const stk = mstrokes[h.hole_number] || 0;
+          return `<td>${stk > 0 ? `<span class="strk-dots">${'●'.repeat(Math.min(stk, 3))}</span>` : '—'}</td>`;
+        }).join('');
+        const mBack = back.map(h => {
+          const stk = mstrokes[h.hole_number] || 0;
+          return `<td>${stk > 0 ? `<span class="strk-dots">${'●'.repeat(Math.min(stk, 3))}</span>` : '—'}</td>`;
+        }).join('');
+        // Total strokes given to this member across the round
+        const totalStk = Object.values(mstrokes).filter(v => v > 0).reduce((a, b) => a + b, 0);
+        return `<tr class="member">
+          <td class="col-label">↳ ${esc(m.player_name)}
+            <div class="meta">HCP ${m.handicap_index ?? '—'} · CH ${m.course_handicap ?? '—'} · ${totalStk > 0 ? totalStk + ' strokes' : 'scratch'}</div>
+          </td>
+          ${mFront}
+          <td class="col-total">—</td>
+          ${mBack}
+          <td class="col-total">—</td>
+          <td class="col-total">—</td>
+        </tr>`;
+      }).join('');
+    }
+    return row;
+  }).join('');
+
+  // Header strip + table.
+  const status = r.status === 'active' ? '<span class="live-dot"></span>Live' : esc(r.status);
+  $('#root').innerHTML = `
+    <div class="cd-head">
+      <div>
+        <h1>${esc(state.tournament?.name || 'Round')}</h1>
+        <div class="sub">${status} · ${esc(state.course?.name || '')} · Round ${r.round_number} ${r.round_date ? '· ' + esc(r.round_date) : ''}</div>
+      </div>
+      <div class="actions">
+        <a class="btn btn-primary" href="/scorecard/${esc(r.id)}">📝 Enter scores</a>
+        <a class="btn btn-ghost" href="/live/${esc(r.id)}">📺 Live</a>
+      </div>
+    </div>
+
+    <div class="card-scroll">
+      <table class="gridcard">
+        <thead><tr class="hole-head">${headCells.join('')}</tr></thead>
+        <tbody>
+          <tr class="meta par">${parCells.join('')}</tr>
+          <tr class="meta si">${siCells.join('')}</tr>
+          ${teeRows}
+          ${playerRows || `<tr><td class="col-label" colspan="${1 + holes.length + 3}">No players yet.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+    <p class="mini" style="text-align:center;margin-top:var(--s-3);color:var(--ink-3)">
+      Red = under par, blue = over. Dots under a score show handicap strokes given on that hole.
+    </p>
+  `;
+}
+
+function apply(payload) {
+  if (payload.round)      state.round      = payload.round;
+  if (payload.tournament) state.tournament = payload.tournament;
+  if (payload.course)     state.course     = payload.course;
+  if (payload.entries)    state.entries    = payload.entries;
+  if (payload.holes)      state.holes      = payload.holes;
+  if (payload.tees)       state.tees       = payload.tees;
+  // SSE payloads only carry leaderboard + holes + format_settings + sideBets.
+  // For entries we lean on a fresh /api/rounds fetch (cheap, run on each event).
+  render();
+}
+
+async function refresh() {
+  try {
+    const data = await JORD.api('/api/rounds/' + roundId);
+    state.round      = data.round;
+    state.tournament = data.tournament;
+    state.course     = data.course;
+    state.entries    = data.entries;
+    // Holes + tees come from the course payload (course.tees has each tee with .holes)
+    const tees = (data.course?.tees || []).map(t => ({
+      id: t.id, name: t.name, gender: t.gender,
+      holes: t.holes || [],
+    }));
+    state.tees = tees;
+    state.holes = tees[0]?.holes?.length ? tees[0].holes : Array.from({length:18},(_,i)=>({hole_number:i+1,par:4}));
+    // If the round limits to front/back 9, filter the hole layout.
+    const seg = data.round?.holes_segment;
+    if (seg === 'front9') state.holes = state.holes.filter(h => h.hole_number <= 9);
+    else if (seg === 'back9') state.holes = state.holes.filter(h => h.hole_number >= 10);
+    render();
+  } catch (e) {
+    $('#root').innerHTML = `<div class="empty-state" style="color:var(--danger)">Could not load: ${esc(e.message || 'unknown')}</div>`;
+  }
+}
+
+// Live updates — re-fetch entries when the leaderboard SSE fires (scores changed).
+function connect() {
+  try {
+    const es = new EventSource('/api/rounds/' + roundId + '/stream');
+    es.onmessage = () => refresh();
+    es.onerror   = () => { /* SSE auto-reconnects */ };
+  } catch {}
+}
+
+refresh();
+connect();
+</script>
+</body>
+</html>
