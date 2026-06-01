@@ -338,6 +338,25 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_hole_events_round ON hole_events(round_id);
 `);
+// v3.62.2 — individual team members for "one-ball" formats (scramble /
+// foursomes / greensome / chapman). For those formats only one round_entry
+// is created per team (the shared scorecard) — but the scorecard UI still
+// wants to show every player on the team plus the strokes each of THEM
+// would receive on each hole. This table is the metadata-only roster.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS round_team_members (
+    id              TEXT PRIMARY KEY,
+    round_id        TEXT NOT NULL,
+    team_id         TEXT NOT NULL,
+    player_id       TEXT NOT NULL,
+    tee_id          TEXT,
+    course_handicap INTEGER,
+    position        INTEGER DEFAULT 0,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_round_team_members_round ON round_team_members(round_id);
+  CREATE INDEX IF NOT EXISTS idx_round_team_members_team  ON round_team_members(team_id);
+`);
 
 // Personal → organizer upgrade requests (v3.53): a signed-in personal
 // user can submit a request to JORD to be approved as an organizer.
@@ -4441,17 +4460,42 @@ function roundScoreCards(round) {
   const isTeamCard = (fmt && typeof fmt.allowance === 'string') ? 1 : 0;
   const rows = db.prepare(`
     SELECT re.id, re.tee_id, re.course_handicap, re.team_id,
-           p.name AS player_name, rt.name AS team_name
+           p.name AS player_name, p.handicap_index, rt.name AS team_name
     FROM round_entries re
     JOIN players p ON p.id=re.player_id
     LEFT JOIN round_teams rt ON rt.id=re.team_id
     WHERE re.round_id=? AND re.is_team_card=? ORDER BY re.rowid`).all(round.id, isTeamCard);
+  // For team-card formats, fetch the full per-team roster (every individual
+  // player + their own course handicap) so the scorecard can render the
+  // "who gets strokes on this hole" breakdown.
+  const membersByTeam = {};
+  if (isTeamCard) {
+    const memberRows = db.prepare(`
+      SELECT rtm.team_id, rtm.tee_id, rtm.course_handicap, rtm.position,
+             p.id AS player_id, p.name AS player_name, p.handicap_index
+      FROM round_team_members rtm
+      JOIN players p ON p.id=rtm.player_id
+      WHERE rtm.round_id=? ORDER BY rtm.team_id, rtm.position`).all(round.id);
+    for (const m of memberRows) {
+      (membersByTeam[m.team_id] = membersByTeam[m.team_id] || []).push({
+        player_id:       m.player_id,
+        player_name:     m.player_name,
+        handicap_index:  m.handicap_index,
+        course_handicap: m.course_handicap,
+        tee_id:          m.tee_id,
+      });
+    }
+  }
   return rows.map(e => ({
     id:              e.id,
     player_name:     isTeamCard ? (e.team_name || 'Team') : e.player_name,
     group_name:      e.team_name || null,
     course_handicap: e.course_handicap,
+    handicap_index:  e.handicap_index,
+    team_id:         e.team_id,
     scores:          entryScores(e.id),
+    // members[] is populated only for team-card formats; null otherwise.
+    members:         isTeamCard ? (membersByTeam[e.team_id] || []) : null,
   }));
 }
 
@@ -4890,6 +4934,7 @@ const deleteRoundChildren = db.transaction((roundId) => {
   db.prepare('DELETE FROM score_groups  WHERE round_id=?').run(roundId);
   try { db.prepare('DELETE FROM hole_scores WHERE round_id=?').run(roundId); } catch {}
   try { db.prepare('DELETE FROM hole_events WHERE round_id=?').run(roundId); } catch {}
+  try { db.prepare('DELETE FROM round_team_members WHERE round_id=?').run(roundId); } catch {}
   db.prepare('DELETE FROM rounds WHERE id=?').run(roundId);
 });
 const deleteTournamentCascade = db.transaction((tournamentId) => {
@@ -5196,6 +5241,15 @@ app.post('/api/rounds/:roundId/teams', requireUserOrAdmin, (req, res) => {
     return res.status(400).json({ error: 'team name and at least one player required' });
   }
 
+  // Resolve a fallback tee from the round's course so we can still compute
+  // a course handicap when the caller didn't pass tee_id (the wizard's
+  // common case). Without this every team-card row carries null handicaps
+  // and the engine math defaults to scratch.
+  let fallbackTee = null;
+  if (round.course_id) {
+    fallbackTee = db.prepare('SELECT * FROM course_tees WHERE course_id=? ORDER BY rowid LIMIT 1').get(round.course_id);
+  }
+
   // resolve/create each player and compute their course handicap
   const members = players.map(p => {
     let player = p.phone ? db.prepare('SELECT * FROM players WHERE phone=?').get(p.phone) : null;
@@ -5208,11 +5262,11 @@ app.post('/api/rounds/:roundId/teams', requireUserOrAdmin, (req, res) => {
       player = { id: pid };
     }
     let raw = null;
-    if (p.tee_id) {
-      const tee = db.prepare('SELECT * FROM course_tees WHERE id=?').get(p.tee_id);
-      raw = handicap.courseHandicap(p.handicap_index, tee?.slope_rating, tee?.course_rating, tee?.par_total);
+    let teeRow = p.tee_id ? db.prepare('SELECT * FROM course_tees WHERE id=?').get(p.tee_id) : fallbackTee;
+    if (teeRow) {
+      raw = handicap.courseHandicap(p.handicap_index, teeRow.slope_rating, teeRow.course_rating, teeRow.par_total);
     }
-    return { playerId: player.id, tee_id: p.tee_id || null, courseHcp: raw };
+    return { playerId: player.id, tee_id: p.tee_id || (teeRow?.id || null), courseHcp: raw };
   });
 
   const teamId = uid('TM');
@@ -5227,6 +5281,15 @@ app.post('/api/rounds/:roundId/teams', requireUserOrAdmin, (req, res) => {
     // for the team (player_id = a representative member)
     db.prepare(`INSERT INTO round_entries (id,round_id,player_id,tee_id,team_id,is_team_card,course_handicap)
       VALUES (?,?,?,?,?,1,?)`).run(uid('ENT'), round.id, members[0].playerId, members[0].tee_id, teamId, teamHcp);
+    // v3.62.2 — also persist the full team roster (every player + their
+    // individual course handicap) so the scorecard can break out "who gets
+    // strokes on which hole" even though the team plays a single ball.
+    const insMember = db.prepare(`INSERT INTO round_team_members
+      (id, round_id, team_id, player_id, tee_id, course_handicap, position)
+      VALUES (?,?,?,?,?,?,?)`);
+    members.forEach((m, i) => {
+      insMember.run(uid('TMM'), round.id, teamId, m.playerId, m.tee_id || null, m.courseHcp, i);
+    });
   } else {
     // best ball: each member keeps their own ball + playing handicap (allowance applied)
     for (const m of members) {

@@ -2,6 +2,69 @@
 
 ---
 
+## v3.62.2 — 2026-06-01
+### Session 79 — Stroke detail on scorecard + live leaderboard
+
+User feedback: in a Shamble / Scramble / Foursomes game the scorecard
+showed the TEAM's handicap but not which individual on the team
+actually receives the strokes. Made the scorecard + live leaderboard
+"a little more detailed."
+
+### Data model — `round_team_members`
+For "one-ball" formats (scramble / foursomes / chapman) the wizard
+inserts ONE `round_entries` row per team — the other players on that
+team were lost to history once the team handicap was computed. New
+metadata-only table `round_team_members` (id, round_id, team_id,
+player_id, tee_id, course_handicap, position) preserves the full
+roster, so the scorecard can break out individual handicaps.
+
+Populated by `POST /api/rounds/:id/teams` for team-card formats only
+(best-ball pair / team formats already store one row per player).
+Cleaned up by the same cascade that wipes `hole_events`.
+
+### Fallback tee resolution
+`/api/rounds/:id/teams` and `gatherRoundEntries` both fell back to
+`null` course handicaps when no `tee_id` was supplied — silently
+breaking par-based engine math (Vegas birdie-flip, Stableford points,
+per-player strokes-on-hole). Both paths now resolve a fallback tee
+from the round's course when the caller omits one.
+
+### Scorecard
+- **Strokes-given banner** above the player rows lists every player
+  receiving at least one handicap stroke on the current hole — pulled
+  from team members too, so you see (e.g.) "+1 Brooke · +1 Cam · +1
+  Drew · SI 16" before you mark anyone's score.
+- **Per-team-member breakdown** sits inside the team row for one-ball
+  formats: every player's HCP + course handicap + per-hole stroke
+  allocation, with the same `●●●` dots used elsewhere. Scratch
+  players show a clean em-dash.
+- **Course handicap label** ("CH 7") added next to the team / player
+  name in every row.
+
+### Live leaderboard
+- **HCP in the sub-line** — every row now reads e.g. "Team Eagle · CH
+  11 · 7 strokes" so spectators see the handicap context.
+- **Strk row in the hole-by-hole drawer** — between Par and Score
+  rows there's now a Strk row showing the entry's per-hole stroke
+  allocation (`+1` on holes the player gets a stroke, `—` elsewhere).
+  Makes net-vs-gross differences readable at a glance.
+
+### Files
+- [server.js](server.js) — `round_team_members` migration; `roundScoreCards` joins members; team creation persists every player; both paths fall back to the round's first tee
+- [public/scorecard.html](public/scorecard.html) — `.strokes-banner` + `.members-list` styles; `renderStrokesBanner()` + per-member breakdown inside `renderPlayers()`
+- [public/live.html](public/live.html) — `strokesByHole()` helper, Strk row in drawer, HCP in row sub-line
+- [tests/manual/test-stroke-detail.js](tests/manual/test-stroke-detail.js) — E2E confirming scramble round exposes full roster
+- [tests/manual/capture-stroke-detail.js](tests/manual/capture-stroke-detail.js) — visual review shots
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: scramble round returns full per-player roster with handicaps
+  (Alex CH 8, Brooke CH 26, Cam CH 18, Drew CH 33); scorecard
+  screenshot confirms strokes-banner + member breakdown render; live
+  leaderboard screenshot confirms Strk row + HCP sub-line
+
+---
+
 ## v3.62.1 — 2026-05-31
 ### Session 78 (cont.) — Vegas birdie-flip bug + entry fallback par
 

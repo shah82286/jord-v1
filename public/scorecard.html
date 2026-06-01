@@ -74,6 +74,28 @@
   .hole-dots span.current { outline:2px solid var(--accent); }
   .gate { text-align:center; padding:var(--s-8) var(--s-4); }
 
+  /* Per-player stroke-allocation breakdown (v3.62.2) — shown for team-card
+   * formats (scramble / foursomes / chapman) so the scorecard makes it
+   * clear which individual on the team is getting strokes on THIS hole. */
+  .members-list { margin-top:8px; padding-top:8px; border-top:1px dashed var(--border);
+    display:flex; flex-direction:column; gap:6px; }
+  .members-list .m-row { display:flex; align-items:center; justify-content:space-between;
+    gap:var(--s-2); font-size:12.5px; color:var(--ink-2); }
+  .members-list .m-row .m-name { font-weight:600; color:var(--ink); }
+  .members-list .m-row .m-hcp  { color:var(--ink-3); font-size:11px; margin-left:4px; }
+  .members-list .m-row .m-strokes { color:var(--accent); font-weight:700; letter-spacing:1px;
+    font-size:13px; min-width:42px; text-align:right; }
+  .members-list .m-row .m-strokes.zero { color:var(--ink-3); font-weight:400; }
+
+  /* All-strokes-this-hole panel — sits between the hole nav and player rows,
+   * shows hole metadata + stroke recipients for everyone. */
+  .strokes-banner { background:var(--surface-2); border:1px solid var(--border); border-radius:var(--r-sm);
+    padding:10px 14px; margin-bottom:var(--s-3); font-size:13px; }
+  .strokes-banner .sb-title { font-size:11px; letter-spacing:.16em; text-transform:uppercase; font-weight:700;
+    color:var(--ink-3); margin-bottom:4px; }
+  .strokes-banner .sb-line { color:var(--ink-2); }
+  .strokes-banner .sb-line .strk { color:var(--accent); font-weight:700; }
+
   /* Per-hole side-event capture (v3.62) — used by Snake / BBB / Dots. */
   .events-panel { margin-top:var(--s-3); padding:14px 12px; background:#FFFCF2;
     border:1px solid var(--accent); border-radius:var(--r-lg); }
@@ -213,13 +235,53 @@ function render() {
         <div class="hole-meta">PAR ${par}${h.stroke_index?` · SI ${h.stroke_index}`:''}${h.yardage?` · ${h.yardage} yds`:''}</div></div>
       <button id="next" ${hole>=last?'disabled':''}>›</button>
     </div>
+    <div id="strokesBanner"></div>
     <div id="players"></div>
     <div id="events"></div>
     <div class="sync-note" id="syncNote"></div>`;
 
   $('#prev').onclick=()=>{ state.hole=Math.max(first,hole-1); render(); };
   $('#next').onclick=()=>{ state.hole=Math.min(last,hole+1); render(); };
-  renderDots(); renderPlayers(); renderEvents(); renderSyncNote();
+  renderDots(); renderStrokesBanner(); renderPlayers(); renderEvents(); renderSyncNote();
+}
+
+// Lists every player getting at least one handicap stroke on THIS hole so
+// the group can see at a glance who's getting help. For team-card formats
+// it pulls from the team members (each individual on the pair / scramble
+// gets their own stroke allocation even though they play one ball).
+function renderStrokesBanner() {
+  const el = $('#strokesBanner'); if (!el) return;
+  const totalHoles = state.holes.length || 18;
+  const h = state.holes.find(x => x.hole_number === state.hole) || {};
+  const si = h.stroke_index;
+  // Gather (name, strokes) tuples from every entry + team member.
+  const recipients = [];
+  for (const e of state.entries) {
+    if (Array.isArray(e.members) && e.members.length) {
+      // Team-card: the team plays one ball but each player has their own HCP.
+      for (const m of e.members) {
+        const stk = strokesOnHole(m.course_handicap, si, totalHoles);
+        if (stk > 0) recipients.push({ name: m.player_name, stk });
+      }
+    } else {
+      const stk = strokesOnHole(e.course_handicap, si, totalHoles);
+      if (stk > 0) recipients.push({ name: e.player_name, stk });
+    }
+  }
+  if (!recipients.length) {
+    el.innerHTML = `<div class="strokes-banner">
+      <div class="sb-title">Strokes given on this hole</div>
+      <div class="sb-line">None — everyone plays scratch this hole.${si ? ` SI ${si}.` : ''}</div>
+    </div>`;
+    return;
+  }
+  // Sort highest-strokes first
+  recipients.sort((a, b) => b.stk - a.stk);
+  el.innerHTML = `<div class="strokes-banner">
+    <div class="sb-title">Strokes given on this hole${si ? ` · SI ${si}` : ''}</div>
+    <div class="sb-line">${recipients.map(r =>
+      `<span class="strk">+${r.stk}</span> ${esc(r.name)}`).join(' · ')}</div>
+  </div>`;
 }
 
 function renderDots() {
@@ -356,17 +418,35 @@ function renderPlayers() {
     const diffTxt = diff==null?'':(diff===0?'E':(diff>0?'+'+diff:diff));
     const stk = strokesOnHole(e.course_handicap, h.stroke_index, totalHoles);
     const dots = stk > 0 ? '●'.repeat(Math.min(stk,3)) : '';
+    const teamHcpLabel = e.course_handicap != null
+      ? ` <span class="m-hcp">CH ${e.course_handicap}</span>` : '';
     const strokeMeta = stk > 0
-      ? `<span class="strokes" title="Player gets ${stk} handicap stroke${stk>1?'s':''} on this hole">${dots} +${stk}</span>` : '';
-    const groupPart = e.group_name ? esc(e.group_name) : '';
-    return `<div class="p-row">
-      <div class="p-name">${esc(e.player_name)}<small>${groupPart}${groupPart && strokeMeta ? ' · ' : ''}${strokeMeta}</small></div>
-      <div class="vs-par ${diff<0?'under':diff>0?'over':''}">${diffTxt}</div>
-      <div class="stepper">
-        <button data-dec="${e.id}">−</button>
-        <div class="val ${v==null?'empty':scoreShape(v,par)}">${v==null?'–':v}</div>
-        <button data-inc="${e.id}">+</button>
+      ? `<span class="strokes" title="${Array.isArray(e.members) && e.members.length ? 'Team' : 'Player'} gets ${stk} handicap stroke${stk>1?'s':''} on this hole">${dots} +${stk}</span>` : '';
+    const groupPart = e.group_name && e.group_name !== e.player_name ? esc(e.group_name) : '';
+    // For team-card formats (scramble / foursomes / chapman), break out every
+    // member of the team with their own handicap + per-hole stroke allocation.
+    let membersHTML = '';
+    if (Array.isArray(e.members) && e.members.length) {
+      membersHTML = `<div class="members-list">${e.members.map(m => {
+        const ms = strokesOnHole(m.course_handicap, h.stroke_index, totalHoles);
+        const mDots = ms > 0 ? '●'.repeat(Math.min(ms, 3)) : '';
+        return `<div class="m-row">
+          <div><span class="m-name">${esc(m.player_name)}</span><span class="m-hcp">HCP ${m.handicap_index != null ? m.handicap_index : '—'} · CH ${m.course_handicap ?? '—'}</span></div>
+          <div class="m-strokes ${ms === 0 ? 'zero' : ''}">${ms > 0 ? `${mDots} +${ms}` : '—'}</div>
+        </div>`;
+      }).join('')}</div>`;
+    }
+    return `<div class="p-row" style="${membersHTML ? 'flex-direction:column;align-items:stretch' : ''}">
+      <div style="display:flex;align-items:center;gap:var(--s-3);width:100%">
+        <div class="p-name" style="flex:1">${esc(e.player_name)}${teamHcpLabel}<small>${groupPart}${groupPart && strokeMeta ? ' · ' : ''}${strokeMeta}</small></div>
+        <div class="vs-par ${diff<0?'under':diff>0?'over':''}">${diffTxt}</div>
+        <div class="stepper">
+          <button data-dec="${e.id}">−</button>
+          <div class="val ${v==null?'empty':scoreShape(v,par)}">${v==null?'–':v}</div>
+          <button data-inc="${e.id}">+</button>
+        </div>
       </div>
+      ${membersHTML}
     </div>`;
   }).join('');
   $('#players').querySelectorAll('[data-inc]').forEach(b=>b.onclick=()=>{

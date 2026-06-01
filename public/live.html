@@ -148,9 +148,31 @@ function scoreClass(strokes, par) {
 // Render the 18-hole grid for a single entry — shown when the user taps
 // a leaderboard row. Splits into Out (1-9) and In (10-18) on phones so
 // each half fits the viewport.
+// Allocate one entry's course-handicap strokes across the holes using the
+// WHS stroke-index method (same logic as scorecard.html's strokesOnHole).
+// Returns a {holeNumber → strokes} map.
+function strokesByHole(courseHcp, holes) {
+  if (courseHcp == null || !holes.length) return {};
+  const sign = courseHcp >= 0 ? 1 : -1;
+  const abs = Math.abs(courseHcp);
+  const total = holes.length || 18;
+  const base = Math.floor(abs / total);
+  const rem  = abs % total;
+  const out = {};
+  for (const h of holes) {
+    const si = Number(h.stroke_index) || total;
+    let extra = 0;
+    if (sign >= 0) { if (si <= rem) extra = 1; }
+    else            { if (si > total - rem) extra = 1; }
+    out[h.hole_number] = sign * (base + extra);
+  }
+  return out;
+}
+
 function renderHoleDrawer(row) {
   if (!state.holes.length) return '<p style="text-align:center;color:var(--ink-3);font-size:12px;padding:8px">No scorecard layout for this round.</p>';
   const scores = row.scores || {};
+  const strokesGiven = strokesByHole(row.courseHandicap, state.holes);
   const half = (start, end, label) => {
     const cells = [];
     cells.push(`<div class="lbl">${label}</div>`);
@@ -162,6 +184,12 @@ function renderHoleDrawer(row) {
       const par = h ? h.par : 0;
       parSum += par;
       cells.push(`<div class="cell par">${par || '—'}</div>`);
+    }
+    // Strokes-given row — shows the player's per-hole handicap allocation.
+    cells.push('<div class="lbl">Strk</div>');
+    for (let i = start; i <= end; i++) {
+      const s = strokesGiven[i] || 0;
+      cells.push(`<div class="cell par" style="${s>0?'color:var(--accent);font-weight:700':''}">${s > 0 ? '+' + s : '—'}</div>`);
     }
     cells.push('<div class="lbl">Score</div>');
     let scoreSum = 0, anyScore = false;
@@ -289,9 +317,13 @@ function render() {
     const t = row.total;
     const totText = lowWins ? toParText(t) : (t==null?'—':t+(unit?' '+unit:''));
     const cls = lowWins ? (t<0?'under':t>0?'over':'') : '';
-    const sub = row.score!=null
+    // Sub-line: gross-strokes for net leaderboards, plus the player's course
+    // handicap (CH) so spectators can sanity-check the net-to-gross delta.
+    const hcpBit = row.courseHandicap != null ? `CH ${row.courseHandicap}` : '';
+    const scoreBit = row.score!=null
       ? (lowWins ? row.score+' strokes' : row.score+(unit?' '+unit:''))
       : 'not started';
+    const sub = [hcpBit, scoreBit].filter(Boolean).join(' · ');
     const pos = lb.flighted ? row.flightPosition : row.position;
     const isOpen = expandable && row.entryId && state.expanded.has(row.entryId);
     return `<div class="lb-row ${pos===1&&t!=null?'is-leader':''} ${expandable && row.entryId ? 'expandable' : ''} ${isOpen?'is-open':''}"
