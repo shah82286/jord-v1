@@ -4412,6 +4412,15 @@ function gatherRoundEntries(roundId) {
     JOIN players p ON p.id=re.player_id
     LEFT JOIN round_teams rt ON rt.id=re.team_id
     WHERE re.round_id=? AND re.is_team_card=? ORDER BY re.rowid`).all(roundId, isTeamCard);
+  // If an entry has no tee_id (admin didn't pick one), the engine still needs
+  // a hole layout for par lookup — net-vs-par detection (birdies, Stableford
+  // points, Vegas flip rule, …) reads par off each hole. Resolve a fallback
+  // tee from the round's course so engine math never sees par=0.
+  let fallbackHoles = null;
+  if (round.course_id) {
+    const tee = db.prepare('SELECT id FROM course_tees WHERE course_id=? ORDER BY rowid LIMIT 1').get(round.course_id);
+    if (tee) fallbackHoles = teeHoles(tee.id);
+  }
   return rows.map(e => ({
     entryId:        e.id,
     playerName:     isTeamCard ? (e.team_name || 'Team') : e.player_name,
@@ -4420,7 +4429,7 @@ function gatherRoundEntries(roundId) {
     side:           e.side,
     matchNo:        e.match_no,
     courseHandicap: e.course_handicap,
-    holes:          teeHoles(e.tee_id),
+    holes:          e.tee_id ? teeHoles(e.tee_id) : (fallbackHoles || []),
     scores:         entryScores(e.id),
   }));
 }

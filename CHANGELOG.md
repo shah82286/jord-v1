@@ -2,6 +2,52 @@
 
 ---
 
+## v3.62.1 — 2026-05-31
+### Session 78 (cont.) — Vegas birdie-flip bug + entry fallback par
+
+Comprehensive Vegas E2E (8-step) surfaced a real bug — the birdie-flip
+rule wasn't firing in production rounds even though the unit test
+confirmed the engine math. The cause was upstream in the entries
+plumbing, not in the engine.
+
+**Root cause:** when a player was added to a round without a `tee_id`
+(the `/teams` endpoint accepts teams without explicit tees), the
+server's `gatherRoundEntries` returned `holes: []`. Every engine that
+looks up par-per-hole then saw `par === 0`, which broke:
+- Vegas birdie-flip (`n <= par - 1` is `n <= -1`, never true)
+- Stableford points (everything counted as worse than double-bogey)
+- Skins net-low math (mostly worked because gross == net)
+- Any future engine that reads par
+
+**Fix:** `gatherRoundEntries` now resolves a fallback hole layout from
+the round's course (`SELECT * FROM course_tees WHERE course_id=? LIMIT 1`)
+and uses it for any entry that has no `tee_id`. Engine math now sees
+the right par for every hole even on lightly-configured rounds.
+
+### Vegas E2E coverage
+New [tests/manual/test-vegas-full.js](tests/manual/test-vegas-full.js)
+walks 8 verifications end-to-end:
+1. Signup as personal user
+2. Create Vegas tournament + custom settings
+3. Confirm `format_settings` round-trips through POST/GET
+4. Add 2 pairs of 2 via `/api/rounds/:id/teams` (the wizard's path)
+5. Activate round + post 12 scores (3 holes × 4 players)
+6. Pull SSE → verify Vegas leaderboard with Birdie +8 / Eagle -8
+7. Build parallel `flip_birdie:false` and `flip_birdie:true` rounds —
+   confirm flip changes the margin from +20 → +29 with a birdie on hole 1
+8. Build a 4-pair (8-player) Vegas tournament — confirm the round-robin
+   engine produces all 6 pair-vs-pair matchups (P1/P2/P3 = +1, P4 = -3)
+
+### Files
+- [server.js](server.js) — `gatherRoundEntries()` fallback to the course's first tee for entries without a `tee_id`
+- [tests/manual/test-vegas-full.js](tests/manual/test-vegas-full.js) — new comprehensive Vegas E2E
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: Vegas E2E now 8/8 (was 6/8 before the fix); zero MANUAL formats in the verification report
+
+---
+
 ## v3.62.0 — 2026-05-31
 ### Session 78 (cont.) — Last 3 MANUAL formats auto-tally (BBB / Dots / Snake)
 
