@@ -2,6 +2,81 @@
 
 ---
 
+## v3.64.0 — 2026-06-02
+### Session 81 — Manual stroke allocation override (WHS Rule 11 still default)
+
+User wanted two things: confirm JORD's auto-allocation matches the WHS
+spec, and add a manual override so the host can hand-pick which holes
+specific players get strokes on.
+
+### The default (WHS Rule 11 / Appendix C + E)
+Walked through the algorithm in chat. Quick reference:
+- **Course Handicap** = `Index × (Slope / 113) + (Course Rating − Par)`
+- **Playing Handicap** = Course Handicap × format allowance:
+  - Stroke Net / Stableford / Skins / Erado → **95%**
+  - 4-Ball Better Ball stroke play → **85%**
+  - 4-Ball Better Ball match play → **90%**
+  - Match Play (singles) → **100%**
+  - Scramble 2-man → **35/15** split, low/high
+  - Scramble 4-man → **25/20/15/10** split
+  - Foursomes (alt shot) → **50%** of combined
+  - Greensome → **60%** low + **40%** high
+- **Per-hole** (Appendix E): `floor(PH/18)` base strokes everywhere,
+  then the remainder gets one extra on the holes with the LOWEST stroke
+  index (1 = hardest). Plus-handicaps give strokes BACK starting from
+  the HIGHEST stroke index.
+
+`lib/handicap.js::strokesPerHole` already implemented this; every view
+(`scorecard.html`, `card.html`, `live.html`, the simulator) reads from
+it. Unit tests cover the math.
+
+### Manual override (new)
+Added `stroke_overrides TEXT` JSON columns to both `round_entries` and
+`round_team_members`. Shape: `{ holeNumber: strokes }`. When non-null:
+- The scoring engine (`scoreEntry`, `entryNet`) uses the override map
+  instead of `strokesPerHole`
+- All three views (`scorecard`, `card`, `live`) read the override when
+  rendering the per-hole stroke dots
+- The leaderboard SSE payload carries `strokeOverrides` on each row so
+  spectators see the same allocation the engine used
+- A new `strokesForEntryOnHole` helper centralizes the
+  override-or-auto logic
+
+### Edit-player modal
+The existing v3.63 edit modal grew a **Manual stroke allocation**
+toggle. When checked, a 9-by-9 grid appears (front/back) with
+per-hole stroke inputs. Each cell shows Par + SI for the hole; the
+stroke input accepts 0–5 (or negative for plus-handicap give-backs).
+A running total at the bottom tallies "X stroke(s) given" so the
+host can sanity-check against the player's Playing Handicap.
+
+Default is OFF — JORD computes per WHS unless the host opts in. A
+hint above the toggle explains the algorithm in one sentence so users
+know what they're overriding.
+
+### Drive-by fix
+`POST /api/tournaments/:id/field` had the same "null course handicap
+when no tee_id" gap that `/teams` had in v3.62.2. Same fix: fall back
+to the round's first tee so per-player handicaps are computed even
+when the caller doesn't pass an explicit tee.
+
+### Files
+- [server.js](server.js) — `stroke_overrides` columns; PATCH endpoints accept + sanitize; `gatherRoundEntries` / `roundScoreCards` surface the map; field endpoint gets the tee fallback
+- [lib/scoring.js](lib/scoring.js) — `entryNet` + `scoreEntry` use overrides when set; row payload carries `strokeOverrides`
+- [public/scorecard.html](public/scorecard.html) — new `strokesForEntryOnHole` helper; banner + per-member breakdown both honor overrides
+- [public/card.html](public/card.html) — `entryStrokesByHole` helper used in both team and member rows
+- [public/live.html](public/live.html) — drawer's STRK row reads override when present
+- [public/tournaments.html](public/tournaments.html) — Manual allocation toggle + 9×9 grid in the edit modal, running total + WHS hint
+- [tests/manual/test-stroke-override.js](tests/manual/test-stroke-override.js) — 6-step E2E: create entry → PATCH overrides → round-trip → SSE delivery → strokeMap honors override → clear
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: override round-trips through POST/GET/SSE; engine math
+  honors override; field-endpoint regression fixed (CH now correctly
+  computed when no tee specified)
+
+---
+
 ## v3.63.0 — 2026-06-01
 ### Session 80 — Edit players + printed-scorecard grid view
 

@@ -338,6 +338,13 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_hole_events_round ON hole_events(round_id);
 `);
+// v3.64 — optional manual stroke allocation. When non-null, replaces the
+// auto-WHS allocation derived from course_handicap + stroke_index. JSON
+// keyed by hole_number, value = strokes received (may be negative for
+// plus-handicap give-backs). Lives on both round_entries (best-ball,
+// individual) AND round_team_members (per-player override within a one-
+// ball team). Null/empty = use auto.
+try { db.exec("ALTER TABLE round_entries      ADD COLUMN stroke_overrides TEXT"); } catch {}
 // v3.62.2 — individual team members for "one-ball" formats (scramble /
 // foursomes / greensome / chapman). For those formats only one round_entry
 // is created per team (the shared scorecard) — but the scorecard UI still
@@ -357,6 +364,9 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_round_team_members_round ON round_team_members(round_id);
   CREATE INDEX IF NOT EXISTS idx_round_team_members_team  ON round_team_members(team_id);
 `);
+// v3.64 — manual stroke overrides on team members too (per-player override
+// inside a one-ball team).
+try { db.exec("ALTER TABLE round_team_members ADD COLUMN stroke_overrides TEXT"); } catch {}
 
 // Personal → organizer upgrade requests (v3.53): a signed-in personal
 // user can submit a request to JORD to be approved as an organizer.
@@ -4426,6 +4436,7 @@ function gatherRoundEntries(roundId) {
   const isTeamCard = (fmt && typeof fmt.allowance === 'string') ? 1 : 0;
   const rows = db.prepare(`
     SELECT re.id, re.tee_id, re.course_handicap, re.team_id, re.side, re.match_no,
+           re.stroke_overrides,
            p.name AS player_name, rt.name AS team_name
     FROM round_entries re
     JOIN players p ON p.id=re.player_id
@@ -4448,6 +4459,9 @@ function gatherRoundEntries(roundId) {
     side:           e.side,
     matchNo:        e.match_no,
     courseHandicap: e.course_handicap,
+    // Manual stroke override (v3.64) — replaces auto-WHS allocation when set.
+    // Map { holeNumber: strokes }. Engine uses this if present.
+    strokeOverrides: e.stroke_overrides ? safeJSON(e.stroke_overrides) : null,
     holes:          e.tee_id ? teeHoles(e.tee_id) : (fallbackHoles || []),
     scores:         entryScores(e.id),
   }));
@@ -4459,7 +4473,7 @@ function roundScoreCards(round) {
   // "one-ball" formats (scramble / foursomes / greensome) share one team card
   const isTeamCard = (fmt && typeof fmt.allowance === 'string') ? 1 : 0;
   const rows = db.prepare(`
-    SELECT re.id, re.tee_id, re.course_handicap, re.team_id,
+    SELECT re.id, re.tee_id, re.course_handicap, re.team_id, re.stroke_overrides,
            p.name AS player_name, p.handicap_index, rt.name AS team_name
     FROM round_entries re
     JOIN players p ON p.id=re.player_id
@@ -4472,6 +4486,7 @@ function roundScoreCards(round) {
   if (isTeamCard) {
     const memberRows = db.prepare(`
       SELECT rtm.id AS member_id, rtm.team_id, rtm.tee_id, rtm.course_handicap, rtm.position,
+             rtm.stroke_overrides,
              p.id AS player_id, p.name AS player_name, p.handicap_index
       FROM round_team_members rtm
       JOIN players p ON p.id=rtm.player_id
@@ -4484,6 +4499,7 @@ function roundScoreCards(round) {
         handicap_index:  m.handicap_index,
         course_handicap: m.course_handicap,
         tee_id:          m.tee_id,
+        stroke_overrides: m.stroke_overrides ? safeJSON(m.stroke_overrides) : null,
       });
     }
   }
@@ -4495,6 +4511,8 @@ function roundScoreCards(round) {
     handicap_index:  e.handicap_index,
     team_id:         e.team_id,
     scores:          entryScores(e.id),
+    // Manual stroke allocation override (v3.64). Null = use auto-WHS.
+    stroke_overrides: e.stroke_overrides ? safeJSON(e.stroke_overrides) : null,
     // members[] is populated only for team-card formats; null otherwise.
     members:         isTeamCard ? (membersByTeam[e.team_id] || []) : null,
   }));
@@ -5332,13 +5350,19 @@ app.post('/api/tournaments/:id/field', requireUserOrAdmin, (req, res) => {
 
   for (const round of rounds) {
     let courseHcp = null;
-    if (tee_id) {
-      const tee = db.prepare('SELECT * FROM course_tees WHERE id=?').get(tee_id);
-      const raw = handicap.courseHandicap(handicap_index, tee?.slope_rating, tee?.course_rating, tee?.par_total);
+    // Resolve a tee — explicit, or fall back to the round's course default —
+    // so course_handicap is computable even when no tee was specified.
+    let teeRow = tee_id ? db.prepare('SELECT * FROM course_tees WHERE id=?').get(tee_id) : null;
+    if (!teeRow && round.course_id) {
+      teeRow = db.prepare('SELECT * FROM course_tees WHERE course_id=? ORDER BY rowid LIMIT 1').get(round.course_id);
+    }
+    if (teeRow && handicap_index != null) {
+      const raw = handicap.courseHandicap(handicap_index, teeRow.slope_rating, teeRow.course_rating, teeRow.par_total);
       const fmt = formats.getFormat(round.format);
       courseHcp = (raw != null && fmt && typeof fmt.allowance === 'number')
         ? handicap.playingHandicap(raw, fmt.allowance) : raw;
     }
+    const effTeeId = tee_id || (teeRow ? teeRow.id : null);
     // Resolve / create the per-round team row when a label was supplied.
     let teamId = null;
     if (teamLabel) {
@@ -5352,7 +5376,7 @@ app.post('/api/tournaments/:id/field', requireUserOrAdmin, (req, res) => {
       }
     }
     db.prepare('INSERT INTO round_entries (id,round_id,player_id,tee_id,course_handicap,side,match_no,team_id) VALUES (?,?,?,?,?,?,?,?)')
-      .run(uid('ENT'), round.id, player.id, tee_id || null, courseHcp, sd, match_no ?? null, teamId);
+      .run(uid('ENT'), round.id, player.id, effTeeId, courseHcp, sd, match_no ?? null, teamId);
     broadcastRound(round.id);
   }
   res.json({ ok: true, player_id: player.id });
@@ -5506,11 +5530,38 @@ app.patch('/api/rounds/:roundId/entries/:entryId', (req, res) => {
       teeId = teeId || teeRow.id;
     }
   }
-  db.prepare('UPDATE round_entries SET tee_id=?, course_handicap=? WHERE id=?')
-    .run(teeId, cHcp, req.params.entryId);
+  // Manual stroke allocation override (v3.64). Pass an object of
+  // { holeNumber: strokes } to use it; pass null to clear.
+  let overridesJson = undefined;
+  if (b.stroke_overrides !== undefined) {
+    overridesJson = b.stroke_overrides && typeof b.stroke_overrides === 'object'
+      ? JSON.stringify(sanitizeStrokeOverrides(b.stroke_overrides)) : null;
+  }
+  if (overridesJson !== undefined) {
+    db.prepare('UPDATE round_entries SET tee_id=?, course_handicap=?, stroke_overrides=? WHERE id=?')
+      .run(teeId, cHcp, overridesJson, req.params.entryId);
+  } else {
+    db.prepare('UPDATE round_entries SET tee_id=?, course_handicap=? WHERE id=?')
+      .run(teeId, cHcp, req.params.entryId);
+  }
   broadcastRound(req.params.roundId);
   res.json({ id: req.params.entryId, course_handicap: cHcp });
 });
+
+// Drop any non-numeric values; cap each value to a sensible range so the
+// engine doesn't choke on absurd input. Returns the cleaned map.
+function sanitizeStrokeOverrides(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const hole = Number(k);
+    const strokes = Number(v);
+    if (!Number.isFinite(hole) || hole < 1 || hole > 36) continue;
+    if (!Number.isFinite(strokes)) continue;
+    out[hole] = Math.max(-3, Math.min(5, Math.round(strokes)));
+  }
+  return Object.keys(out).length ? out : null;
+}
 
 // Edit a single team member (one-ball formats only). Updates the player row
 // + recomputes course handicap. If the team's combined handicap is derived
@@ -5548,8 +5599,18 @@ app.patch('/api/rounds/:roundId/team-members/:memberId', (req, res) => {
       teeId = teeId || teeRow.id;
     }
   }
-  db.prepare('UPDATE round_team_members SET tee_id=?, course_handicap=? WHERE id=?')
-    .run(teeId, cHcp, req.params.memberId);
+  let overridesJson = undefined;
+  if (b.stroke_overrides !== undefined) {
+    overridesJson = b.stroke_overrides && typeof b.stroke_overrides === 'object'
+      ? JSON.stringify(sanitizeStrokeOverrides(b.stroke_overrides)) : null;
+  }
+  if (overridesJson !== undefined) {
+    db.prepare('UPDATE round_team_members SET tee_id=?, course_handicap=?, stroke_overrides=? WHERE id=?')
+      .run(teeId, cHcp, overridesJson, req.params.memberId);
+  } else {
+    db.prepare('UPDATE round_team_members SET tee_id=?, course_handicap=? WHERE id=?')
+      .run(teeId, cHcp, req.params.memberId);
+  }
 
   // Recompute the team card's handicap from all the team's members.
   const fmt = formats.getFormat(round.format);

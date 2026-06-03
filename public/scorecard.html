@@ -213,6 +213,20 @@ function strokesOnHole(courseHcp, strokeIndex, totalHoles) {
   return sign * (base + extra);
 }
 
+/* Per-hole strokes for a player/entry, honoring an optional manual override
+   (v3.64). If the entry has a `strokeOverrides` / `stroke_overrides` map,
+   the value for THIS hole wins; otherwise we fall back to the auto WHS
+   calculation. Used everywhere strokes appear on the scorecard. */
+function strokesForEntryOnHole(entry, hole, totalHoles) {
+  const ov = entry?.stroke_overrides || entry?.strokeOverrides;
+  if (ov && Object.keys(ov).length) {
+    const v = ov[hole.hole_number] ?? ov[String(hole.hole_number)];
+    if (v != null) return Number(v) || 0;
+    return 0; // explicit override list — holes not listed get zero
+  }
+  return strokesOnHole(entry?.course_handicap, hole.stroke_index, totalHoles);
+}
+
 /* ─── render ───────────────────────────────────────────────────────── */
 function renderGate(msg,icon){
   $('#app').innerHTML = `<div class="gate"><div style="font-size:48px">${icon}</div>
@@ -260,11 +274,11 @@ function renderStrokesBanner() {
     if (Array.isArray(e.members) && e.members.length) {
       // Team-card: the team plays one ball but each player has their own HCP.
       for (const m of e.members) {
-        const stk = strokesOnHole(m.course_handicap, si, totalHoles);
+        const stk = strokesForEntryOnHole(m, h, totalHoles);
         if (stk > 0) recipients.push({ name: m.player_name, stk });
       }
     } else {
-      const stk = strokesOnHole(e.course_handicap, si, totalHoles);
+      const stk = strokesForEntryOnHole(e, h, totalHoles);
       if (stk > 0) recipients.push({ name: e.player_name, stk });
     }
   }
@@ -416,7 +430,7 @@ function renderPlayers() {
     const v=getScore(e.id,hole);
     const diff = v!=null ? v-par : null;
     const diffTxt = diff==null?'':(diff===0?'E':(diff>0?'+'+diff:diff));
-    const stk = strokesOnHole(e.course_handicap, h.stroke_index, totalHoles);
+    const stk = strokesForEntryOnHole(e, h, totalHoles);
     const dots = stk > 0 ? '●'.repeat(Math.min(stk,3)) : '';
     const teamHcpLabel = e.course_handicap != null
       ? ` <span class="m-hcp">CH ${e.course_handicap}</span>` : '';
@@ -428,7 +442,7 @@ function renderPlayers() {
     let membersHTML = '';
     if (Array.isArray(e.members) && e.members.length) {
       membersHTML = `<div class="members-list">${e.members.map(m => {
-        const ms = strokesOnHole(m.course_handicap, h.stroke_index, totalHoles);
+        const ms = strokesForEntryOnHole(m, h, totalHoles);
         const mDots = ms > 0 ? '●'.repeat(Math.min(ms, 3)) : '';
         return `<div class="m-row">
           <div><span class="m-name">${esc(m.player_name)}</span><span class="m-hcp">HCP ${m.handicap_index != null ? m.handicap_index : '—'} · CH ${m.course_handicap ?? '—'}</span></div>

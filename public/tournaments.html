@@ -1261,9 +1261,12 @@ async function openTournament(id) {
   // Wire the action buttons. Each handler grabs the latest entry/member info
   // from `data` rather than rebuilding state from scratch.
   const roundId = data.round.id;
+  // Hole layout for the round — used by the edit modal to render the
+  // manual stroke-allocation grid. Pulled from the first tee on the course.
+  const holesLayout = (data.course && data.course.tees && data.course.tees[0] && data.course.tees[0].holes) || [];
   pl.querySelectorAll('[data-edit-entry]').forEach(b => b.onclick = () => {
     const entry = data.entries.find(e => e.id === b.dataset.editEntry);
-    if (entry) openEditPlayer({ kind: 'entry', roundId, entry, course: data.course, trnId: t.id });
+    if (entry) openEditPlayer({ kind: 'entry', roundId, entry, course: data.course, holes: holesLayout, trnId: t.id });
   });
   pl.querySelectorAll('[data-edit-member]').forEach(b => b.onclick = () => {
     let member = null, parent = null;
@@ -1271,7 +1274,7 @@ async function openTournament(id) {
       const m = (e.members || []).find(m => m.id === b.dataset.editMember);
       if (m) { member = m; parent = e; break; }
     }
-    if (member) openEditPlayer({ kind: 'member', roundId, member, parent, course: data.course, trnId: t.id });
+    if (member) openEditPlayer({ kind: 'member', roundId, member, parent, course: data.course, holes: holesLayout, trnId: t.id });
   });
   pl.querySelectorAll('[data-del-entry]').forEach(b => b.onclick = async () => {
     const entry = data.entries.find(e => e.id === b.dataset.delEntry);
@@ -1286,12 +1289,47 @@ async function openTournament(id) {
 }
 
 // Edit-player modal — works for both individual entries and team members.
-// opts = { kind:'entry'|'member', roundId, course, trnId,
+// opts = { kind:'entry'|'member', roundId, course, holes, trnId,
 //          entry?:{id, player_name, handicap_index, ...} for kind=entry
 //          member?:{id, player_name, handicap_index, ...} for kind=member }
 function openEditPlayer(opts) {
   const current = opts.kind === 'entry' ? opts.entry : opts.member;
   const tees = (opts.course && opts.course.tees) || [];
+  const holes = (opts.holes && opts.holes.length) ? opts.holes
+    : Array.from({length: 18}, (_, i) => ({ hole_number: i+1, par: 4, stroke_index: i+1 }));
+  // Manual override map keyed by hole_number. Pre-fill from the entry's
+  // existing override (server returns it via stroke_overrides).
+  const initialOverride = (current.stroke_overrides && typeof current.stroke_overrides === 'object') ? { ...current.stroke_overrides } : null;
+  const manualOn = !!initialOverride;
+  const localStrokes = {};
+  for (const h of holes) {
+    const v = initialOverride ? (initialOverride[h.hole_number] ?? initialOverride[String(h.hole_number)] ?? 0) : 0;
+    localStrokes[h.hole_number] = Number(v) || 0;
+  }
+
+  // Build the manual-allocation grid as DOM nodes (easier than HTML strings
+  // for re-renders + event wiring).
+  const front = holes.slice(0, Math.min(9, holes.length));
+  const back  = holes.slice(9, 18);
+  const nineHTML = (slice) => `
+    <table style="border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:12px;width:100%">
+      <thead>
+        <tr style="background:var(--surface-2);color:var(--ink-3);font-size:10px;text-transform:uppercase;letter-spacing:.05em">
+          <th style="padding:4px 6px;text-align:left">Hole</th>
+          ${slice.map(h => `<th style="padding:4px 6px">${h.hole_number}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td style="padding:4px 6px;color:var(--ink-3)">Par</td>${slice.map(h => `<td style="padding:4px 6px;text-align:center;color:var(--ink-3)">${h.par || '—'}</td>`).join('')}</tr>
+        <tr><td style="padding:4px 6px;color:var(--ink-3)">SI</td>${slice.map(h => `<td style="padding:4px 6px;text-align:center;color:var(--ink-3)">${h.stroke_index || '—'}</td>`).join('')}</tr>
+        <tr><td style="padding:4px 6px;color:var(--ink)">Strokes</td>${slice.map(h => `
+          <td style="padding:2px 1px;text-align:center"><input
+            data-strk="${h.hole_number}" type="number" min="0" max="5" step="1"
+            style="width:34px;padding:4px 2px;text-align:center;border:1px solid var(--border-2);border-radius:var(--r-sm);font-family:inherit;font-size:13px"
+            value="${localStrokes[h.hole_number]||0}" /></td>`).join('')}</tr>
+      </tbody>
+    </table>`;
+
   const body = JORD.el('div', {},
     JORD.el('div', { class: 'field' },
       JORD.el('label', { for: 'ep_name' }, 'Player name'),
@@ -1305,13 +1343,38 @@ function openEditPlayer(opts) {
       JORD.el('select', { class: 'input input-lg', id: 'ep_tee' },
         ...[JORD.el('option', { value: '' }, '— default —'),
             ...tees.map(t => JORD.el('option', { value: t.id, selected: t.id === current.tee_id }, `${t.name} (${t.gender || '—'})`))])),
+    JORD.el('div', { class: 'field', style: { borderTop: '1px solid var(--border)', paddingTop: 'var(--s-3)', marginTop: 'var(--s-3)' } },
+      JORD.el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } },
+        JORD.el('input', { type: 'checkbox', id: 'ep_manual', checked: manualOn, style: { width: '18px', height: '18px', accentColor: 'var(--accent)' } }),
+        JORD.el('span', {}, 'Manual stroke allocation')),
+      JORD.el('p', { class: 'hint', style: { marginTop: '4px', fontSize: '12.5px', color: 'var(--ink-2)' } },
+        `By default JORD allocates strokes per WHS Rule 11 — your course handicap is spread by stroke index (hardest holes first), wrapping if it exceeds the number of holes. Turn this on to hand-pick which holes get which strokes.`)
+    ),
+    JORD.el('div', { id: 'ep_manual_panel', style: { display: manualOn ? '' : 'none', background: '#FFFCF2', border: '1px solid var(--accent)', borderRadius: 'var(--r-sm)', padding: '12px', marginTop: 'var(--s-2)', overflowX: 'auto' },
+      html: `${nineHTML(front)}${back.length ? '<div style="height:8px"></div>' + nineHTML(back) : ''}
+        <div style="margin-top:8px;font-size:12px;color:var(--ink-2)">Total: <strong id="ep_manual_total">0</strong> stroke(s) given. Use 0 (or blank) to skip a hole. Plus-handicaps: enter negative to take strokes back.</div>` }),
     JORD.el('div', { class: 'auth-err', id: 'ep_err', style: { display: 'none', background: '#fdecec', color: 'var(--danger)', border: '1px solid #f5c6c6', borderRadius: 'var(--r-sm)', padding: '10px 12px', fontSize: '13.5px', marginTop: 'var(--s-2)' } })
   );
   const submitBtn = JORD.el('button', { class: 'btn btn-primary' }, 'Save changes');
   const cancelBtn = JORD.el('button', { class: 'btn btn-ghost' }, 'Cancel');
   const footer = JORD.el('div', { class: 'row gap-2' }, cancelBtn, submitBtn);
-  const m = JORD.modal({ title: `Edit ${current.player_name}`, body, footer });
+  const m = JORD.modal({ title: `Edit ${current.player_name}`, body, footer, lg: true });
   cancelBtn.onclick = () => m.close();
+
+  // Toggle the manual panel + recompute the running total.
+  const recalcTotal = () => {
+    const inputs = body.querySelectorAll('input[data-strk]');
+    let tot = 0;
+    inputs.forEach(i => { tot += Number(i.value) || 0; });
+    const t = body.querySelector('#ep_manual_total');
+    if (t) t.textContent = tot;
+  };
+  body.querySelector('#ep_manual').onchange = (e) => {
+    body.querySelector('#ep_manual_panel').style.display = e.target.checked ? '' : 'none';
+  };
+  body.querySelectorAll('input[data-strk]').forEach(i => { i.oninput = recalcTotal; });
+  recalcTotal();
+
   submitBtn.onclick = async () => {
     const err = body.querySelector('#ep_err');
     err.style.display = 'none';
@@ -1319,6 +1382,16 @@ function openEditPlayer(opts) {
     const hcp  = body.querySelector('#ep_hcp').value;
     const teeId = body.querySelector('#ep_tee').value;
     if (!name) { err.textContent = 'Name is required.'; err.style.display = 'block'; return; }
+    // Collect manual overrides (or set explicit null to clear them).
+    let stroke_overrides = null;
+    if (body.querySelector('#ep_manual').checked) {
+      stroke_overrides = {};
+      body.querySelectorAll('input[data-strk]').forEach(i => {
+        const v = Number(i.value);
+        if (Number.isFinite(v) && v !== 0) stroke_overrides[i.dataset.strk] = v;
+      });
+      if (!Object.keys(stroke_overrides).length) stroke_overrides = null; // empty = no override
+    }
     submitBtn.disabled = true; submitBtn.textContent = 'Saving…';
     try {
       const url = opts.kind === 'entry'
@@ -1326,6 +1399,7 @@ function openEditPlayer(opts) {
         : `/api/rounds/${opts.roundId}/team-members/${current.id}`;
       await JORD.api(url, { method: 'PATCH', body: {
         name, handicap_index: hcp === '' ? null : Number(hcp), tee_id: teeId || null,
+        stroke_overrides,
       }});
       m.close();
       JORD.success && JORD.success('Saved');

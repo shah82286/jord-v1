@@ -172,7 +172,11 @@ function strokesByHole(courseHcp, holes) {
 function renderHoleDrawer(row) {
   if (!state.holes.length) return '<p style="text-align:center;color:var(--ink-3);font-size:12px;padding:8px">No scorecard layout for this round.</p>';
   const scores = row.scores || {};
-  const strokesGiven = strokesByHole(row.courseHandicap, state.holes);
+  // Honor a manual stroke override when one is set on the entry (v3.64).
+  const ov = row.strokeOverrides || row.stroke_overrides;
+  const strokesGiven = (ov && Object.keys(ov).length)
+    ? Object.fromEntries(state.holes.map(h => [h.hole_number, Number(ov[h.hole_number] ?? ov[String(h.hole_number)]) || 0]))
+    : strokesByHole(row.courseHandicap, state.holes);
   const half = (start, end, label) => {
     const cells = [];
     cells.push(`<div class="lbl">${label}</div>`);

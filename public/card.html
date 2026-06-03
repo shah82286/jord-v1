@@ -111,6 +111,19 @@ function strokesByHole(courseHcp, holes) {
   }
   return out;
 }
+/** Per-hole strokes for an entry/member, honoring manual override (v3.64). */
+function entryStrokesByHole(entry, holes) {
+  const ov = entry?.stroke_overrides;
+  if (ov && Object.keys(ov).length) {
+    const out = {};
+    for (const h of holes) {
+      const v = ov[h.hole_number] ?? ov[String(h.hole_number)];
+      out[h.hole_number] = v != null ? Number(v) || 0 : 0;
+    }
+    return out;
+  }
+  return strokesByHole(entry?.course_handicap, holes);
+}
 function scoreClass(strokes, par) {
   if (strokes == null || !par) return 'empty';
   const d = strokes - par;
@@ -198,7 +211,7 @@ function render() {
   };
 
   const playerRows = state.entries.map(e => {
-    const strokes = strokesByHole(e.course_handicap, holes);
+    const strokes = entryStrokesByHole(e, holes);
     const front9 = renderScoreCells(e.scores || {}, strokes, front);
     const back9  = renderScoreCells(e.scores || {}, strokes, back);
     const total  = (front9.played ? front9.sum : 0) + (back9.played ? back9.sum : 0);
@@ -216,7 +229,7 @@ function render() {
     // Team members — show each player's name + handicap-derived strokes.
     if (isTeamCard) {
       row += e.members.map(m => {
-        const mstrokes = strokesByHole(m.course_handicap, holes);
+        const mstrokes = entryStrokesByHole(m, holes);
         const mFront = front.map(h => {
           const stk = mstrokes[h.hole_number] || 0;
           return `<td>${stk > 0 ? `<span class="strk-dots">${'●'.repeat(Math.min(stk, 3))}</span>` : '—'}</td>`;
