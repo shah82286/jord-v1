@@ -2,6 +2,58 @@
 
 ---
 
+## v3.65.0 — 2026-06-03
+### Session 84 — No auto-start + add/remove players post-creation
+
+User asked for two changes:
+1. Don't auto-start the round the second the wizard finishes — let the
+   host keep preparing.
+2. Be able to add or remove players at any point, not only inside the
+   wizard.
+
+### No auto-start
+`createGame()` was calling `POST /api/rounds/:id/status {status:'active'}`
+right after creating the entries. Removed. The round now lands in
+`setup` status and the host clicks the existing **Start** button on
+the tournament detail page when everyone's ready.
+
+The toast text shifted from "Game created and started" to
+"Game created — start it when everyone's ready" so the next step
+is obvious.
+
+### Add/remove competitors post-creation
+The Competitors card on the tournament detail page now has Add buttons
+that adapt to the round's format tier:
+
+- **Individual / stroke / skins / nassau / etc.** → **+ Add player**
+- **Pair / team formats** → **+ Add team**
+- **Reds vs Blues** → **+ Add to Reds** and **+ Add to Blues**
+
+Each opens a modal that mirrors the wizard's fields (name, phone, HCP
+index, tee — plus an optional team/group label for individual; plus a
+multi-member list for teams). Submit POSTs to the same endpoints the
+wizard uses (`/api/tournaments/:id/field` or
+`/api/rounds/:id/teams`) and refreshes the detail view.
+
+Removing already worked — the existing ✕ button hits `DELETE
+/api/rounds/:id/entries/:id`. Add + remove both succeed in either
+`setup` OR `active` status, so a late drop-in or no-show can be
+handled in the moment.
+
+When there are zero competitors yet, the panel now reads:
+> "No competitors yet — add them above. You can keep adding or
+>  editing right up until you click Start on the round."
+
+### Files
+- [public/tournaments.html](public/tournaments.html) — `createGame()` no longer auto-activates; `renderPlayerList` renders an Add bar with format-aware buttons; `openAddPlayerModal()` and `openAddTeamModal()` mirror the wizard's UI; `wireAddButtons()` glues them together
+- [tests/manual/test-no-autostart.js](tests/manual/test-no-autostart.js) — 6-step E2E: create stays setup → add post-creation → remove a player → explicit Start moves to active
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: 6/6 — round.status='setup' after creation; add Bob to existing game; remove Alice; explicit Start activates
+
+---
+
 ## v3.64.2 — 2026-06-03
 ### Session 83 — Edit players from the wizard list (not just delete)
 

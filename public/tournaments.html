@@ -1338,12 +1338,13 @@ async function createGame() {
       for (const p of w.players)
         await JORD.api(`/api/tournaments/${trn.id}/field`,{method:'POST',body:p});
     }
-    for (const rid of roundIds)
-      await JORD.api(`/api/rounds/${rid}/status`,{method:'POST',body:{status:'active'}});
+    // Leave the round in 'setup' status — the host clicks "Start" on the
+    // tournament detail page when everyone's ready. Score-entry is blocked
+    // until then, so we can keep adding/removing players without losing data.
     S.wiz = null;
     await loadAll();
     go('game/'+trn.id);
-    JORD.success('Game created and started');
+    JORD.success('Game created — start it when everyone\'s ready');
   } catch(e){ JORD.error(e.message); }
 }
 
@@ -1420,12 +1421,29 @@ async function openTournament(id) {
   });
 
   const pl = $('#playerList');
-  if (!data.entries.length) { pl.innerHTML = '<p class="mini">No competitors yet.</p>'; return; }
+  // Determine what "+ Add" affordances make sense for this round's format.
+  const roundFmt = findFmt(data.round.format);
+  const isTeam = !!(roundFmt && roundFmt.teamSize && roundFmt.teamSize[1] > 1);
+  const isRvb  = data.round && /* reds_blues stores side on round_entries */ data.entries.some(e => e.side);
+  // The Add button(s) are always rendered, even before any competitors exist.
+  const addBar = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:var(--s-3)">
+    ${isRvb
+      ? `<button class="btn btn-primary" id="addRed">+ Add to Reds</button>
+         <button class="btn btn-primary" id="addBlue">+ Add to Blues</button>`
+      : isTeam
+        ? `<button class="btn btn-primary" id="addTeam">+ Add team</button>`
+        : `<button class="btn btn-primary" id="addPlayer">+ Add player</button>`}
+  </div>`;
+  if (!data.entries.length) {
+    pl.innerHTML = addBar + '<p class="mini">No competitors yet — add them above. You can keep adding or editing right up until you click <strong>Start</strong> on the round.</p>';
+    wireAddButtons(t, data, isTeam, isRvb);
+    return;
+  }
   // Team-card formats: top row is the team (no direct edit — name lives on
   // the team row), each member underneath is editable.
   // Individual / best-ball formats: each entry is itself a player and is
   // edited directly.
-  pl.innerHTML = data.entries.map(e => {
+  pl.innerHTML = addBar + data.entries.map(e => {
     const isTeamCard = Array.isArray(e.members) && e.members.length;
     const headLine = `<div class="row-card"><div><strong>${esc(e.player_name)}</strong>
       <div class="meta">${e.group_name && e.group_name !== e.player_name ? esc(e.group_name)+' · ' : ''}Course handicap: ${e.course_handicap??'—'}</div></div>
@@ -1471,6 +1489,155 @@ async function openTournament(id) {
       openTournament(t.id);
     } catch (e) { JORD.error && JORD.error(e.message || 'Could not remove'); }
   });
+  wireAddButtons(t, data, isTeam, isRvb);
+}
+
+// Wire the "+ Add player" / "+ Add team" affordances surfaced on the
+// tournament detail page (post-creation). Each one opens a modal with
+// the same fields the wizard uses.
+function wireAddButtons(t, data, isTeam, isRvb) {
+  const roundId = data.round.id;
+  const addPl = document.getElementById('addPlayer');
+  const addTm = document.getElementById('addTeam');
+  const addR  = document.getElementById('addRed');
+  const addB  = document.getElementById('addBlue');
+  if (addPl) addPl.onclick = () => openAddPlayerModal({ tournamentId: t.id, roundId, course: data.course });
+  if (addTm) addTm.onclick = () => openAddTeamModal({ tournamentId: t.id, roundId, course: data.course });
+  if (addR)  addR.onclick  = () => openAddPlayerModal({ tournamentId: t.id, roundId, course: data.course, side: 'red' });
+  if (addB)  addB.onclick  = () => openAddPlayerModal({ tournamentId: t.id, roundId, course: data.course, side: 'blue' });
+}
+
+// Add-player modal — works for individual / best-ball / R-vs-B formats.
+// opts = { tournamentId, roundId, course, side? ('red'|'blue' for R-vs-B) }
+function openAddPlayerModal(opts) {
+  const tees = (opts.course && opts.course.tees) || [];
+  const titleLabel = opts.side === 'red'  ? 'Add player to Reds'
+                   : opts.side === 'blue' ? 'Add player to Blues'
+                   : 'Add player';
+  const body = JORD.el('div', {},
+    JORD.el('div', { class: 'field' },
+      JORD.el('label', { for: 'ap_name' }, 'Player name'),
+      JORD.el('input', { class: 'input input-lg', id: 'ap_name' })),
+    JORD.el('div', { class: 'field' },
+      JORD.el('label', { for: 'ap_phone' }, 'Phone (optional)'),
+      JORD.el('input', { class: 'input input-lg', id: 'ap_phone', type: 'tel' })),
+    JORD.el('div', { class: 'field' },
+      JORD.el('label', { for: 'ap_hcp' }, 'Handicap index (optional)'),
+      JORD.el('input', { class: 'input input-lg', id: 'ap_hcp', type: 'number', step: '0.1' })),
+    JORD.el('div', { class: 'field' },
+      JORD.el('label', { for: 'ap_tee' }, 'Tee'),
+      JORD.el('select', { class: 'input input-lg', id: 'ap_tee' },
+        JORD.el('option', { value: '' }, '— default —'),
+        ...tees.map(t => JORD.el('option', { value: t.id }, `${t.name} (${t.gender || '—'})`)))),
+    opts.side ? null : JORD.el('div', { class: 'field' },
+      JORD.el('label', { for: 'ap_team' }, 'Team / group (optional)'),
+      JORD.el('input', { class: 'input input-lg', id: 'ap_team',
+        placeholder: 'A / B / Smith Foursome (leave blank for solo)' })),
+    JORD.el('div', { class: 'auth-err', id: 'ap_err', style: { display: 'none', background: '#fdecec', color: 'var(--danger)', border: '1px solid #f5c6c6', borderRadius: 'var(--r-sm)', padding: '10px 12px', fontSize: '13.5px', marginTop: 'var(--s-2)' } })
+  );
+  const submitBtn = JORD.el('button', { class: 'btn btn-primary' }, 'Add player');
+  const cancelBtn = JORD.el('button', { class: 'btn btn-ghost' }, 'Cancel');
+  const m = JORD.modal({ title: titleLabel, body, footer: JORD.el('div', { class: 'row gap-2' }, cancelBtn, submitBtn) });
+  cancelBtn.onclick = () => m.close();
+  setTimeout(() => body.querySelector('#ap_name')?.focus(), 50);
+  submitBtn.onclick = async () => {
+    const err = body.querySelector('#ap_err');
+    err.style.display = 'none';
+    const name = body.querySelector('#ap_name').value.trim();
+    if (!name) { err.textContent = 'Name is required.'; err.style.display = 'block'; return; }
+    const payload = { name,
+      phone: body.querySelector('#ap_phone').value.trim() || null,
+      handicap_index: body.querySelector('#ap_hcp').value === '' ? null : Number(body.querySelector('#ap_hcp').value),
+      tee_id: body.querySelector('#ap_tee').value || null,
+    };
+    if (opts.side) payload.side = opts.side;
+    else {
+      const tm = body.querySelector('#ap_team')?.value.trim();
+      if (tm) payload.team_name = tm;
+    }
+    submitBtn.disabled = true; submitBtn.textContent = 'Adding…';
+    try {
+      await JORD.api(`/api/tournaments/${opts.tournamentId}/field`, { method: 'POST', body: payload });
+      m.close();
+      JORD.success && JORD.success(`Added ${name}`);
+      openTournament(opts.tournamentId);
+    } catch (e) {
+      err.textContent = e.message || 'Could not add player.';
+      err.style.display = 'block';
+      submitBtn.disabled = false; submitBtn.textContent = 'Add player';
+    }
+  };
+}
+
+// Add-team modal — for pair / team formats. Collects N member rows.
+function openAddTeamModal(opts) {
+  const tees = (opts.course && opts.course.tees) || [];
+  // Local member list — pushed/spliced by the +/− buttons below.
+  const members = [{ name: '', handicap_index: '', tee_id: '' }, { name: '', handicap_index: '', tee_id: '' }];
+  const teamNameInput = JORD.el('input', { class: 'input input-lg', id: 'at_team', placeholder: 'Team name (e.g. Eagles)' });
+  const memberList = JORD.el('div', { id: 'at_members' });
+  const addMemberBtn = JORD.el('button', { class: 'btn btn-ghost', type: 'button' }, '+ Add member');
+  const errBox = JORD.el('div', { class: 'auth-err', id: 'at_err', style: { display: 'none', background: '#fdecec', color: 'var(--danger)', border: '1px solid #f5c6c6', borderRadius: 'var(--r-sm)', padding: '10px 12px', fontSize: '13.5px', marginTop: 'var(--s-2)' } });
+
+  const renderMembers = () => {
+    memberList.innerHTML = members.map((m, i) => `
+      <div class="row-card" style="flex-direction:column;align-items:stretch">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+          <strong style="flex:1">Member ${i+1}</strong>
+          ${members.length > 1 ? `<button class="btn btn-ghost btn-icon" type="button" data-rm-mem="${i}" title="Remove">✕</button>` : ''}
+        </div>
+        <div class="field-grid" style="grid-template-columns:1fr 1fr;gap:var(--s-2)">
+          <div class="field"><label>Name</label><input class="input" data-m-name="${i}" value="${esc(m.name)}" /></div>
+          <div class="field"><label>HCP index</label><input class="input" type="number" step="0.1" data-m-hcp="${i}" value="${esc(m.handicap_index)}" /></div>
+          <div class="field" style="grid-column:1/-1"><label>Tee</label><select class="input" data-m-tee="${i}">
+            <option value="">— default —</option>
+            ${tees.map(t => `<option value="${t.id}" ${m.tee_id === t.id ? 'selected' : ''}>${esc(t.name)} (${esc(t.gender || '—')})</option>`).join('')}
+          </select></div>
+        </div>
+      </div>`).join('');
+    memberList.querySelectorAll('[data-m-name]').forEach(i => i.oninput = e => { members[+i.dataset.mName].name = e.target.value; });
+    memberList.querySelectorAll('[data-m-hcp]').forEach(i  => i.oninput = e => { members[+i.dataset.mHcp].handicap_index  = e.target.value; });
+    memberList.querySelectorAll('[data-m-tee]').forEach(i  => i.onchange = e => { members[+i.dataset.mTee].tee_id  = e.target.value; });
+    memberList.querySelectorAll('[data-rm-mem]').forEach(b => b.onclick  = () => { members.splice(+b.dataset.rmMem, 1); renderMembers(); });
+  };
+  renderMembers();
+  addMemberBtn.onclick = () => { members.push({ name: '', handicap_index: '', tee_id: '' }); renderMembers(); };
+
+  const body = JORD.el('div', {},
+    JORD.el('div', { class: 'field' },
+      JORD.el('label', { for: 'at_team' }, 'Team name'),
+      teamNameInput),
+    memberList,
+    addMemberBtn,
+    errBox,
+  );
+  const submitBtn = JORD.el('button', { class: 'btn btn-primary' }, 'Add team');
+  const cancelBtn = JORD.el('button', { class: 'btn btn-ghost' }, 'Cancel');
+  const m = JORD.modal({ title: 'Add team', body, footer: JORD.el('div', { class: 'row gap-2' }, cancelBtn, submitBtn) });
+  cancelBtn.onclick = () => m.close();
+  setTimeout(() => teamNameInput.focus(), 50);
+  submitBtn.onclick = async () => {
+    errBox.style.display = 'none';
+    const teamName = teamNameInput.value.trim();
+    if (!teamName) { errBox.textContent = 'Team name is required.'; errBox.style.display = 'block'; return; }
+    const players = members.filter(m => m.name && m.name.trim()).map(m => ({
+      name: m.name.trim(),
+      handicap_index: m.handicap_index === '' ? null : Number(m.handicap_index),
+      tee_id: m.tee_id || null,
+    }));
+    if (!players.length) { errBox.textContent = 'Add at least one player.'; errBox.style.display = 'block'; return; }
+    submitBtn.disabled = true; submitBtn.textContent = 'Adding…';
+    try {
+      await JORD.api(`/api/rounds/${opts.roundId}/teams`, { method: 'POST', body: { name: teamName, players } });
+      m.close();
+      JORD.success && JORD.success(`Added team "${teamName}"`);
+      openTournament(opts.tournamentId);
+    } catch (e) {
+      errBox.textContent = e.message || 'Could not add team.';
+      errBox.style.display = 'block';
+      submitBtn.disabled = false; submitBtn.textContent = 'Add team';
+    }
+  };
 }
 
 // Edit-player modal — works for both individual entries and team members.
