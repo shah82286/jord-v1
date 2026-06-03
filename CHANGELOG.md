@@ -2,6 +2,49 @@
 
 ---
 
+## v3.66.2 — 2026-06-03
+### Session 85 (cont.) — Color-code each player so individuals stand out from the team total
+
+Players now get a distinct accent color (blue / red / green / gold /
+purple / teal — cycled per team) on both the live drawer and the
+printed card. Makes it easy to see at a glance "this is Alex's row,
+this is Brooke's row, and the team total is something else."
+
+### Live drawer (live.html)
+- Each member section gets `--m-color` set inline + a 4px colored
+  left border, a tinted background gradient, and a colored dot before
+  the player's name. Name text uses the same color.
+- A new **TEAM TOTAL · {team name}** banner appears between the
+  team-aggregate grid and the member breakdowns, so users know which
+  block is which.
+- The saffron "this score counts" outline still wins over the member
+  color on whichever cell scores for the team.
+
+### Card view (card.html)
+- Same color palette applied to each player's row. Row gets a 4px
+  colored left border on the label cell, name text in that color,
+  and a colored dot prefix.
+- Solo entries (no team_id or team-of-one) skip the color — they
+  use the default ink color, no dot.
+- The synthetic **Team — best net per hole** row gets a 🏆 prefix
+  and a heavier 2px saffron top border so it visually anchors the
+  group.
+
+Same `MEMBER_COLORS` palette is used in both files so a player's
+color reads the same on the drawer and the card. Six colors before
+they cycle, which covers every realistic team size.
+
+### Files
+- [public/live.html](public/live.html) — `MEMBER_COLORS` palette, per-member `style="--m-color:..."` injection, gradient background, team-label banner CSS
+- [public/card.html](public/card.html) — same palette, `entryColor[id]` map indexed per team, player-row CSS with `.solo` skip; team-total row gets trophy + heavier border
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: live drawer + card view both render Alex (blue) and Brooke
+  (red); team-total row clearly separated
+
+---
+
 ## v3.66.1 — 2026-06-03
 ### Session 85 (cont.) — Live drawer shows each team member's scorecard
 

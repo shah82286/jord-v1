@@ -78,10 +78,33 @@
   /* "This score counts" outline (v3.66.1) — the member whose net score is
      the team's best on this hole gets a saffron ring inside the cell. */
   .lb-drawer .hole-grid .cell.score.used   { box-shadow:inset 0 0 0 2px var(--accent); font-weight:700; }
-  /* Member sub-section in the drawer for best-ball / better-ball teams. */
-  .lb-drawer .member-section { margin-top:14px; padding-top:10px; border-top:1px dashed var(--border); }
+  /* Label above the member breakdowns so users can tell the team-aggregate
+     grid from the individual scorecards. */
+  .lb-drawer .team-label {
+    margin-top:12px; padding:6px 10px;
+    background:#FFFCF2; border:1px solid var(--accent); border-radius:var(--r-sm);
+    font-size:11px; letter-spacing:.12em; text-transform:uppercase;
+    font-weight:700; color:var(--accent); text-align:center;
+  }
+  /* Member sub-section in the drawer for best-ball / better-ball teams.
+     Each member gets a distinct accent color (set via --m-color) so the
+     individual scores read as separate from the team-aggregate grid above. */
+  .lb-drawer .member-section {
+    margin-top:14px; padding:10px 0 0 12px;
+    border-top:1px dashed var(--border);
+    border-left:4px solid var(--m-color, var(--accent));
+    background:linear-gradient(90deg, color-mix(in srgb, var(--m-color, var(--accent)) 8%, transparent), transparent 30%);
+  }
   .lb-drawer .member-section .member-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
-  .lb-drawer .member-section .member-head .nm { font-weight:600; font-size:13px; }
+  .lb-drawer .member-section .member-head .nm {
+    font-weight:700; font-size:13.5px;
+    color:var(--m-color, var(--ink));
+    display:inline-flex; align-items:center; gap:6px;
+  }
+  .lb-drawer .member-section .member-head .nm::before {
+    content:''; display:inline-block; width:9px; height:9px; border-radius:50%;
+    background:var(--m-color, var(--accent));
+  }
   .lb-drawer .member-section .member-head .hcp { font-size:11px; color:var(--ink-3); }
   .lb-drawer .totals { display:flex; justify-content:space-between; gap:12px; margin-top:10px;
     padding-top:10px; border-top:1px dashed var(--border); font-size:12px; color:var(--ink-2); }
@@ -236,9 +259,16 @@ function renderHoleDrawer(row) {
       <span><i class="swatch" style="background:rgba(192,57,43,.45)"></i> Bogey</span>
       <span><i class="swatch" style="background:rgba(192,57,43,.85)"></i> Double+</span>
     </div>
-    ${renderMembersInDrawer(row)}
+    ${Array.isArray(row.members) && row.members.length >= 2
+      ? `<div class="team-label">TEAM TOTAL · ${esc(row.playerName)}</div>${renderMembersInDrawer(row)}`
+      : ''}
   `;
 }
+
+// Per-member accent colors so the individual scorecards in the drawer
+// stay visually distinct from the team-aggregate grid above. Same palette
+// is used by card.html for consistency across views.
+const MEMBER_COLORS = ['#1F3F7A', '#A12C2C', '#2D5D36', '#7A5400', '#5B3A99', '#0F6B6B'];
 
 // Render each team-member's hole-by-hole scores under the team aggregate row.
 // Used by best-ball / better-ball — the row.members[] array carries each
@@ -247,7 +277,8 @@ function renderHoleDrawer(row) {
 function renderMembersInDrawer(row) {
   if (!Array.isArray(row.members) || row.members.length < 2) return '';
   const winners = row.winnerByHole || {};
-  const memberHTML = row.members.map(m => {
+  const memberHTML = row.members.map((m, mi) => {
+    const color = MEMBER_COLORS[mi % MEMBER_COLORS.length];
     const scores = m.scores || {};
     const ov = m.strokeOverrides;
     const strokesGiven = (ov && Object.keys(ov).length)
@@ -277,7 +308,7 @@ function renderMembersInDrawer(row) {
     const out = half(1, 9, 'Hole');
     const inn = half(10, 18, 'Hole');
     const total = (out.anyScore ? out.scoreSum : 0) + (inn.anyScore ? inn.scoreSum : 0);
-    return `<div class="member-section">
+    return `<div class="member-section" style="--m-color:${color}">
       <div class="member-head">
         <span class="nm">${esc(m.playerName)}</span>
         <span class="hcp">CH ${m.courseHandicap != null ? m.courseHandicap : '—'} · Gross ${out.anyScore || inn.anyScore ? total : '—'}</span>

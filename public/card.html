@@ -67,10 +67,27 @@
     outline-offset: -3px;
     font-weight: 700;
   }
+  /* Per-player color band on the row label so individual scorecards stay
+     visually distinct from the team-aggregate row. v3.66.2 */
+  table.gridcard tr.player td.col-label {
+    border-left: 4px solid var(--m-color, transparent);
+  }
+  table.gridcard tr.player td.col-label .nm {
+    color: var(--m-color, var(--ink));
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  table.gridcard tr.player td.col-label .nm::before {
+    content: ''; display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+    background: var(--m-color, transparent);
+  }
+  /* No color dot for solo players (no team_id) */
+  table.gridcard tr.player.solo td.col-label .nm::before { display: none; }
+  table.gridcard tr.player.solo td.col-label { border-left: 0; }
+  table.gridcard tr.player.solo td.col-label .nm { color: var(--ink); }
   /* Synthetic "team net" row that sums each hole's best net across the team. */
-  table.gridcard tr.team-total td { background: #FFFCF2; font-weight: 700; color: var(--ink); border-top: 1px solid var(--accent); }
-  table.gridcard tr.team-total td.col-label { background: #FFFCF2; }
-  table.gridcard tr.team-total td.col-label .meta { color: var(--accent); font-size: 11px; font-weight: 600; }
+  table.gridcard tr.team-total td { background: #FFFCF2; font-weight: 700; color: var(--ink); border-top: 2px solid var(--accent); }
+  table.gridcard tr.team-total td.col-label { background: #FFFCF2; border-left: 4px solid var(--accent); }
+  table.gridcard tr.team-total td.col-label .meta { color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 
   .live-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#4A7A53; margin-right:5px;
     animation:pulse 1.6s infinite; vertical-align: middle; }
@@ -207,6 +224,11 @@ function render() {
     return `<tr class="tee-row">${cells.join('')}</tr>`;
   }).join('');
 
+  // Per-player accent color palette — same one live.html uses for the
+  // drawer member sections. Keeps players visually distinct from the
+  // team-aggregate / team-net rows.
+  const MEMBER_COLORS = ['#1F3F7A', '#A12C2C', '#2D5D36', '#7A5400', '#5B3A99', '#0F6B6B'];
+
   // For best-ball / better-ball pair (and team) formats, group entries by
   // team_id and pre-compute the per-hole "winning" net score so we can
   // highlight which player's score the team is actually using.
@@ -215,6 +237,12 @@ function render() {
     if (e.team_id && !(Array.isArray(e.members) && e.members.length)) {
       (teamGroups[e.team_id] = teamGroups[e.team_id] || []).push(e);
     }
+  }
+  // entryColor[id] → hex color, indexed per team so each pair / group has
+  // its own [blue, red, green, gold...] sequence.
+  const entryColor = {};
+  for (const [, members] of Object.entries(teamGroups)) {
+    members.forEach((e, i) => { entryColor[e.id] = MEMBER_COLORS[i % MEMBER_COLORS.length]; });
   }
   // Skip the highlight when a "team" has only one entry (no contest).
   const winnerByTeamHole = {}; // { team_id: { hole_number: entryId } }
@@ -266,11 +294,14 @@ function render() {
     const back9  = renderScoreCells(e, strokes, back);
     const total  = (front9.played ? front9.sum : 0) + (back9.played ? back9.sum : 0);
     const isTeamCard = Array.isArray(e.members) && e.members.length;
+    const isSolo = !e.team_id || (teamGroups[e.team_id] && teamGroups[e.team_id].length < 2);
+    const color = entryColor[e.id];
+    const styleAttr = color ? `style="--m-color:${color}"` : '';
     const label = `<td class="col-label">
       <span class="nm">${esc(e.player_name)}</span>
       <div class="meta">${isTeamCard ? 'Team · ' : ''}CH ${e.course_handicap ?? '—'}</div>
     </td>`;
-    let row = `<tr class="player">${label}${front9.html}
+    let row = `<tr class="player ${isSolo ? 'solo' : ''}" ${styleAttr}>${label}${front9.html}
       <td class="col-total">${front9.played ? front9.sum : '—'}</td>
       ${back9.html}
       <td class="col-total">${back9.played ? back9.sum : '—'}</td>
@@ -326,7 +357,7 @@ function render() {
         const tnTotal = (tnFront.played ? tnFront.sum : 0) + (tnBack.played ? tnBack.sum : 0);
         const teamName = e.group_name || `${esc(e.player_name)}'s team`;
         row += `<tr class="team-total">
-          <td class="col-label">${esc(teamName)}<div class="meta">Best ball net per hole</div></td>
+          <td class="col-label">🏆 ${esc(teamName)}<div class="meta">Team — best net per hole</div></td>
           ${tnFront.html}
           <td class="col-total">${tnFront.played ? tnFront.sum : '—'}</td>
           ${tnBack.html}
