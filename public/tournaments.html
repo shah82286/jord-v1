@@ -584,11 +584,15 @@ function renderTees() {
         <div class="y-cell"><label>${i+1}</label>
           <input type="number" min="0" placeholder="yds" value="${esc(t.yards[i] || '')}" data-tyd="${ti}.${i}" /></div>`).join('')}</div>
     </div>`).join('');
-  // Wire up all the inputs to keep _newCourse in sync.
+  // Wire up all the inputs to keep _newCourse in sync. We mutate the DOM
+  // surgically (just the swatch) rather than re-rendering on every keystroke
+  // — re-rendering tears down the input and kills focus.
   el.querySelectorAll('[data-tname]').forEach(i => i.oninput = e => {
-    _newCourse.tees[+i.dataset.tname].name = e.target.value;
-    // Re-render the swatch only — cheap full re-render.
-    renderTees();
+    const ti = +i.dataset.tname;
+    _newCourse.tees[ti].name = e.target.value;
+    const row = e.target.closest('.tee-box');
+    const swatch = row && row.querySelector('.tee-color');
+    if (swatch) swatch.style.background = _teeSwatch(e.target.value);
   });
   el.querySelectorAll('[data-tgender]').forEach(i => i.onchange = e => { _newCourse.tees[+i.dataset.tgender].gender = e.target.value; });
   el.querySelectorAll('[data-tcr]').forEach(i => i.oninput = e => { _newCourse.tees[+i.dataset.tcr].course_rating = e.target.value; });
