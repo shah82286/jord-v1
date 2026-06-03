@@ -1050,35 +1050,54 @@ function wireWagerPanel(fmt, w) {
 /* step 4 — players */
 function stepPlayers() {
   const w = S.wiz;
+  // w._editIndex tracks which existing player (if any) the form is editing.
+  // Null = "add new" mode; integer = "save changes to that index" mode.
+  const editing = w._editIndex != null ? w.players[w._editIndex] : null;
   const course = S.courses.find(c=>c.id===w.course_id);
   $('#wizBody').innerHTML = `
-    <p class="card-sub">Add players. Course handicaps are computed from the handicap index and tee.</p>
+    <p class="card-sub">Add players. Course handicaps are computed from the handicap index and tee. Tap a player below to edit.</p>
     <div class="inline-panel">
       <div class="field-grid" style="grid-template-columns:1fr 1fr">
-        <div class="field"><label>Name</label><input class="input" id="pName" /></div>
-        <div class="field"><label>Phone (optional)</label><input class="input" id="pPhone" /></div>
-        <div class="field"><label>Handicap index ${help('The official handicap. JORD turns it into a course handicap for the chosen tee automatically.')}</label><input class="input" type="number" step="0.1" id="pHcp" /></div>
+        <div class="field"><label>Name</label><input class="input" id="pName" value="${editing?esc(editing.name):''}" /></div>
+        <div class="field"><label>Phone (optional)</label><input class="input" id="pPhone" value="${editing?esc(editing.phone||''):''}" /></div>
+        <div class="field"><label>Handicap index ${help('The official handicap. JORD turns it into a course handicap for the chosen tee automatically.')}</label><input class="input" type="number" step="0.1" id="pHcp" value="${editing&&editing.handicap_index!=null?editing.handicap_index:''}" /></div>
         <div class="field"><label>Tee ${help('Which set of tees the player uses — tees differ in yardage, course rating and slope.')}</label><select class="select" id="pTee"><option value="">default</option></select></div>
-        <div class="field" style="grid-column:1/-1"><label>Team ${help('Optional — group players into teams for a 4-vs-4 side bet or scramble pairing. Free text: "A" / "B", "Reds" / "Blues", or "Smith Foursome" — players sharing the same label aggregate on the team leaderboard.')}</label><input class="input" id="pTeam" placeholder="A / B / Reds / Smith Foursome (leave blank for solo)" /></div>
+        <div class="field" style="grid-column:1/-1"><label>Team ${help('Optional — group players into teams for a 4-vs-4 side bet or scramble pairing. Free text: "A" / "B", "Reds" / "Blues", or "Smith Foursome" — players sharing the same label aggregate on the team leaderboard.')}</label><input class="input" id="pTeam" placeholder="A / B / Reds / Smith Foursome (leave blank for solo)" value="${editing?esc(editing.team_name||''):''}" /></div>
       </div>
-      <button class="btn btn-ghost" id="pAdd">+ Add player</button>
+      <div class="row gap-2" style="display:flex;gap:var(--s-2)">
+        <button class="btn btn-primary" id="pAdd">${editing ? 'Save changes' : '+ Add player'}</button>
+        ${editing ? `<button class="btn btn-ghost" id="pCancel">Cancel</button>` : ''}
+      </div>
     </div>
     <div id="pList"></div>` + nav(null,'Create &amp; start ▶',null,w.players.length>0);
   // tees load lazily from the course
   loadCourseTees(course).then(tees => {
     const sel = $('#pTee');
-    if (sel) sel.innerHTML = tees.map(t=>`<option value="${t.id}">${esc(t.name)} (${esc(t.gender)})</option>`).join('')
-      || '<option value="">no tees</option>';
+    if (sel) {
+      sel.innerHTML = tees.map(t=>`<option value="${t.id}">${esc(t.name)} (${esc(t.gender)})</option>`).join('')
+        || '<option value="">no tees</option>';
+      // Pre-select the editing player's tee
+      if (editing && editing.tee_id) sel.value = editing.tee_id;
+    }
   });
   renderWizPlayers();
   $('#pAdd').onclick = () => {
     const name = $('#pName').value.trim();
     if (!name) { JORD.warn('Player name required'); return; }
-    w.players.push({ name, phone:$('#pPhone').value.trim(), handicap_index:+$('#pHcp').value||null,
-      tee_id:$('#pTee').value||null, team_name:$('#pTeam').value.trim()||null });
-    $('#pName').value=''; $('#pPhone').value=''; $('#pHcp').value=''; $('#pTeam').value='';
+    const data = { name,
+      phone: $('#pPhone').value.trim(),
+      handicap_index: +$('#pHcp').value || null,
+      tee_id: $('#pTee').value || null,
+      team_name: $('#pTeam').value.trim() || null };
+    if (w._editIndex != null) {
+      w.players[w._editIndex] = data;
+      w._editIndex = null;
+    } else {
+      w.players.push(data);
+    }
     renderWizard();
   };
+  if (editing) $('#pCancel').onclick = () => { w._editIndex = null; renderWizard(); };
   wireNav(()=>go('new/setup'), createGame);
 }
 let _teeCache = {};
@@ -1092,14 +1111,27 @@ async function loadCourseTees(course) {
 function renderWizPlayers() {
   const w = S.wiz, el = $('#pList');
   if (!w.players.length) { el.innerHTML = '<p class="mini">No players added yet.</p>'; return; }
-  el.innerHTML = w.players.map((p,i)=>`
-    <div class="row-card">
+  el.innerHTML = w.players.map((p,i)=>{
+    const isEditing = w._editIndex === i;
+    return `<div class="row-card" style="${isEditing?'border-color:var(--accent);background:#FFFCF2':''}">
       <div><strong>${esc(p.name)}</strong>
-        <div class="meta">HCP index ${p.handicap_index??'—'}${p.team_name ? ' · Team ' + esc(p.team_name) : ''}</div></div>
-      <button class="btn btn-ghost btn-icon" data-rm="${i}">✕</button>
-    </div>`).join('');
+        <div class="meta">HCP index ${p.handicap_index??'—'}${p.team_name ? ' · Team ' + esc(p.team_name) : ''}${isEditing?' · editing…':''}</div></div>
+      <div class="row gap-2" style="display:flex;gap:6px">
+        <button class="btn btn-ghost btn-icon" data-edit="${i}" title="Edit player">✎</button>
+        <button class="btn btn-ghost btn-icon" data-rm="${i}" title="Remove player">✕</button>
+      </div>
+    </div>`;
+  }).join('');
+  el.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => {
+    w._editIndex = +b.dataset.edit; renderWizard();
+  });
   el.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => {
-    w.players.splice(+b.dataset.rm,1); renderWizard();
+    const i = +b.dataset.rm;
+    // If you remove the player you're currently editing, drop the edit state.
+    if (w._editIndex === i) w._editIndex = null;
+    else if (w._editIndex != null && i < w._editIndex) w._editIndex -= 1;
+    w.players.splice(i, 1);
+    renderWizard();
   });
 }
 
@@ -1122,40 +1154,71 @@ function stepTeams() {
 function renderTeams() {
   const w = S.wiz, el = $('#teamList');
   if (!el) return;
+  // w._teamEdit = { ti, pi } when a team-player row is being edited; null otherwise.
+  const edit = w._teamEdit || null;
   const teeOpts = _teesFor.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')
     || '<option value="">default</option>';
   if (!w.teams.length) { el.innerHTML='<p class="mini">Add a team to begin.</p>'; return; }
-  el.innerHTML = w.teams.map((t,ti)=>`
-    <div class="inline-panel">
+  el.innerHTML = w.teams.map((t,ti)=>{
+    const editingThisTeam = edit && edit.ti === ti ? w.teams[ti].players[edit.pi] : null;
+    return `<div class="inline-panel">
       <div style="display:flex;gap:var(--s-2);align-items:center;margin-bottom:var(--s-2)">
         <input class="input" value="${esc(t.name)}" data-tname="${ti}" style="flex:1" />
         <button class="btn btn-ghost btn-icon" data-trm="${ti}" title="Remove team">✕</button>
       </div>
-      ${t.players.map((p,pi)=>`<div class="row-card">
-        <div><strong>${esc(p.name)}</strong><div class="meta">HCP index ${p.handicap_index??'—'}</div></div>
-        <button class="btn btn-ghost btn-icon" data-prm="${ti}.${pi}">✕</button></div>`).join('')}
+      ${t.players.map((p,pi)=>{
+        const isEditing = edit && edit.ti === ti && edit.pi === pi;
+        return `<div class="row-card" style="${isEditing?'border-color:var(--accent);background:#FFFCF2':''}">
+          <div><strong>${esc(p.name)}</strong><div class="meta">HCP index ${p.handicap_index??'—'}${isEditing?' · editing…':''}</div></div>
+          <div class="row gap-2" style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-icon" data-pedit="${ti}.${pi}" title="Edit player">✎</button>
+            <button class="btn btn-ghost btn-icon" data-prm="${ti}.${pi}" title="Remove player">✕</button>
+          </div>
+        </div>`;
+      }).join('')}
       <div class="field-grid" style="grid-template-columns:1fr 1fr;margin-top:var(--s-2)">
-        <div class="field"><label>Player name</label><input class="input" data-pn="${ti}" /></div>
-        <div class="field"><label>Phone</label><input class="input" data-pp="${ti}" /></div>
-        <div class="field"><label>HCP index ${help('The official handicap. JORD turns it into a course handicap for the chosen tee automatically.')}</label><input class="input" type="number" step="0.1" data-ph="${ti}" /></div>
+        <div class="field"><label>Player name</label><input class="input" data-pn="${ti}" value="${editingThisTeam?esc(editingThisTeam.name):''}" /></div>
+        <div class="field"><label>Phone</label><input class="input" data-pp="${ti}" value="${editingThisTeam?esc(editingThisTeam.phone||''):''}" /></div>
+        <div class="field"><label>HCP index ${help('The official handicap. JORD turns it into a course handicap for the chosen tee automatically.')}</label><input class="input" type="number" step="0.1" data-ph="${ti}" value="${editingThisTeam&&editingThisTeam.handicap_index!=null?editingThisTeam.handicap_index:''}" /></div>
         <div class="field"><label>Tee ${help('Which set of tees the player uses — tees differ in yardage, course rating and slope.')}</label><select class="select" data-pt="${ti}">${teeOpts}</select></div>
       </div>
-      <button class="btn btn-ghost" data-padd="${ti}">+ Add player</button>
-    </div>`).join('');
+      <div class="row gap-2" style="display:flex;gap:6px">
+        <button class="btn ${editingThisTeam?'btn-primary':'btn-ghost'}" data-padd="${ti}">${editingThisTeam?'Save changes':'+ Add player'}</button>
+        ${editingThisTeam?'<button class="btn btn-ghost" data-pcancel="1">Cancel</button>':''}
+      </div>
+    </div>`;
+  }).join('');
+  // Pre-select tee for the editing player
+  if (edit) {
+    const sel = el.querySelector(`[data-pt="${edit.ti}"]`);
+    if (sel) sel.value = w.teams[edit.ti].players[edit.pi].tee_id || '';
+  }
   el.querySelectorAll('[data-tname]').forEach(i=>i.onchange=e=>{ w.teams[+i.dataset.tname].name=e.target.value; });
-  el.querySelectorAll('[data-trm]').forEach(b=>b.onclick=()=>{ w.teams.splice(+b.dataset.trm,1); renderWizard(); });
+  el.querySelectorAll('[data-trm]').forEach(b=>b.onclick=()=>{ w.teams.splice(+b.dataset.trm,1); w._teamEdit=null; renderWizard(); });
   el.querySelectorAll('[data-prm]').forEach(b=>b.onclick=()=>{
     const [ti,pi]=b.dataset.prm.split('.').map(Number);
+    if (w._teamEdit && w._teamEdit.ti===ti && w._teamEdit.pi===pi) w._teamEdit=null;
     w.teams[ti].players.splice(pi,1); renderWizard();
   });
+  el.querySelectorAll('[data-pedit]').forEach(b=>b.onclick=()=>{
+    const [ti,pi]=b.dataset.pedit.split('.').map(Number);
+    w._teamEdit = { ti, pi }; renderWizard();
+  });
+  el.querySelectorAll('[data-pcancel]').forEach(b=>b.onclick=()=>{ w._teamEdit=null; renderWizard(); });
   el.querySelectorAll('[data-padd]').forEach(b=>b.onclick=()=>{
     const ti=+b.dataset.padd;
     const name=el.querySelector(`[data-pn="${ti}"]`).value.trim();
     if(!name){ JORD.warn('Player name required'); return; }
-    w.teams[ti].players.push({ name,
+    const data = { name,
       phone:el.querySelector(`[data-pp="${ti}"]`).value.trim(),
       handicap_index:+el.querySelector(`[data-ph="${ti}"]`).value||null,
-      tee_id:el.querySelector(`[data-pt="${ti}"]`).value||null });
+      tee_id:el.querySelector(`[data-pt="${ti}"]`).value||null };
+    if (w._teamEdit && w._teamEdit.ti === ti) {
+      w.teams[ti].players[w._teamEdit.pi] = data;
+      w._teamEdit = null;
+    } else {
+      w.teams[ti].players.push(data);
+    }
     renderWizard();
   });
 }
@@ -1176,32 +1239,68 @@ function stepRvb() {
 function renderRvb() {
   const w = S.wiz, body = $('#wizBody');
   if (!body || !$('#redPanel')) return;
+  // w._rvbEdit = { side:'red'|'blue', idx:number } when an existing player is being edited.
+  const edit = w._rvbEdit || null;
   const teeOpts = _teesFor.map(t=>`<option value="${t.id}">${esc(t.name)}</option>`).join('')
     || '<option value="">default</option>';
-  const panel = (side,arr) => `<div class="inline-panel">
-    <h3 style="font-family:var(--font-display);margin-bottom:var(--s-2)">${side==='red'?'🔴 Reds':'🔵 Blues'}</h3>
-    ${arr.map((p,i)=>`<div class="row-card"><div><strong>${esc(p.name)}</strong>
-      <div class="meta">Match ${i+1} · HCP index ${p.handicap_index??'—'}</div></div>
-      <button class="btn btn-ghost btn-icon" data-rm="${side}.${i}">✕</button></div>`).join('')}
-    <div class="field-grid" style="grid-template-columns:1fr 1fr;margin-top:var(--s-2)">
-      <div class="field"><label>Player name</label><input class="input" data-n="${side}" /></div>
-      <div class="field"><label>HCP index ${help('The official handicap. JORD turns it into a course handicap for the chosen tee automatically.')}</label><input class="input" type="number" step="0.1" data-h="${side}" /></div>
-      <div class="field"><label>Phone</label><input class="input" data-p="${side}" /></div>
-      <div class="field"><label>Tee ${help('Which set of tees the player uses — tees differ in yardage, course rating and slope.')}</label><select class="select" data-t="${side}">${teeOpts}</select></div>
-    </div>
-    <button class="btn btn-ghost" data-add="${side}">+ Add player</button></div>`;
+  const panel = (side, arr) => {
+    const editingThisSide = edit && edit.side === side ? arr[edit.idx] : null;
+    return `<div class="inline-panel">
+      <h3 style="font-family:var(--font-display);margin-bottom:var(--s-2)">${side==='red'?'🔴 Reds':'🔵 Blues'}</h3>
+      ${arr.map((p,i)=>{
+        const isEditing = edit && edit.side === side && edit.idx === i;
+        return `<div class="row-card" style="${isEditing?'border-color:var(--accent);background:#FFFCF2':''}">
+          <div><strong>${esc(p.name)}</strong>
+            <div class="meta">Match ${i+1} · HCP index ${p.handicap_index??'—'}${isEditing?' · editing…':''}</div></div>
+          <div class="row gap-2" style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-icon" data-edit="${side}.${i}" title="Edit player">✎</button>
+            <button class="btn btn-ghost btn-icon" data-rm="${side}.${i}" title="Remove player">✕</button>
+          </div>
+        </div>`;
+      }).join('')}
+      <div class="field-grid" style="grid-template-columns:1fr 1fr;margin-top:var(--s-2)">
+        <div class="field"><label>Player name</label><input class="input" data-n="${side}" value="${editingThisSide?esc(editingThisSide.name):''}" /></div>
+        <div class="field"><label>HCP index ${help('The official handicap. JORD turns it into a course handicap for the chosen tee automatically.')}</label><input class="input" type="number" step="0.1" data-h="${side}" value="${editingThisSide&&editingThisSide.handicap_index!=null?editingThisSide.handicap_index:''}" /></div>
+        <div class="field"><label>Phone</label><input class="input" data-p="${side}" value="${editingThisSide?esc(editingThisSide.phone||''):''}" /></div>
+        <div class="field"><label>Tee ${help('Which set of tees the player uses — tees differ in yardage, course rating and slope.')}</label><select class="select" data-t="${side}">${teeOpts}</select></div>
+      </div>
+      <div class="row gap-2" style="display:flex;gap:6px">
+        <button class="btn ${editingThisSide?'btn-primary':'btn-ghost'}" data-add="${side}">${editingThisSide?'Save changes':'+ Add player'}</button>
+        ${editingThisSide?'<button class="btn btn-ghost" data-cancel="1">Cancel</button>':''}
+      </div>
+    </div>`;
+  };
   $('#redPanel').innerHTML = panel('red', w.reds);
   $('#bluePanel').innerHTML = panel('blue', w.blues);
+  // Pre-select tee for the editing player
+  if (edit) {
+    const sel = body.querySelector(`[data-t="${edit.side}"]`);
+    const arr = edit.side === 'red' ? w.reds : w.blues;
+    if (sel && arr[edit.idx]) sel.value = arr[edit.idx].tee_id || '';
+  }
   body.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{
-    const [s,i]=b.dataset.rm.split('.'); (s==='red'?w.reds:w.blues).splice(+i,1); renderWizard();
+    const [s,i]=b.dataset.rm.split('.'); const arr = s==='red'?w.reds:w.blues;
+    if (w._rvbEdit && w._rvbEdit.side===s && w._rvbEdit.idx===+i) w._rvbEdit=null;
+    arr.splice(+i,1); renderWizard();
   });
+  body.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{
+    const [s,i]=b.dataset.edit.split('.');
+    w._rvbEdit = { side: s, idx: +i }; renderWizard();
+  });
+  body.querySelectorAll('[data-cancel]').forEach(b=>b.onclick=()=>{ w._rvbEdit=null; renderWizard(); });
   body.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>{
     const s=b.dataset.add, arr=s==='red'?w.reds:w.blues;
     const name=body.querySelector(`[data-n="${s}"]`).value.trim();
     if(!name){ JORD.warn('Player name required'); return; }
-    arr.push({ name, handicap_index:+body.querySelector(`[data-h="${s}"]`).value||null,
+    const data = { name, handicap_index:+body.querySelector(`[data-h="${s}"]`).value||null,
       phone:body.querySelector(`[data-p="${s}"]`).value.trim(),
-      tee_id:body.querySelector(`[data-t="${s}"]`).value||null });
+      tee_id:body.querySelector(`[data-t="${s}"]`).value||null };
+    if (w._rvbEdit && w._rvbEdit.side === s) {
+      arr[w._rvbEdit.idx] = data;
+      w._rvbEdit = null;
+    } else {
+      arr.push(data);
+    }
     renderWizard();
   });
 }

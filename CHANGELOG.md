@@ -2,6 +2,46 @@
 
 ---
 
+## v3.64.2 — 2026-06-03
+### Session 83 — Edit players from the wizard list (not just delete)
+
+User feedback: once a player was added in the wizard, you couldn't
+go back and fix a typo'd name or wrong handicap — only delete and
+re-add. Every player-list panel in the wizard now has a pencil ✎
+edit affordance alongside the existing ✕ remove.
+
+**Three places fixed (same pattern in each):**
+1. **Individual / Stroke / Skins / etc.** (`stepPlayers` → `renderWizPlayers`)
+2. **Pair / Team formats** (`renderTeams` — players inside each team card)
+3. **Reds vs Blues** (`renderRvb` — matched 1-vs-1 lineups)
+
+**Flow:**
+- Tap **✎** on a row → the input form above the list pre-fills with
+  that player's name / phone / HCP / tee, and the row gets the saffron
+  border + "editing…" hint. Submit button changes from "+ Add player"
+  to "Save changes" and a **Cancel** appears next to it.
+- Save → the row updates in place and the form clears back to "add new"
+  mode.
+- Cancel → form clears, edit state dropped.
+- Remove the row you're currently editing → edit state dropped
+  automatically (no leftover stale state).
+
+Each surface uses its own scoped state key (`w._editIndex`,
+`w._teamEdit`, `w._rvbEdit`) so editing one player doesn't affect the
+others.
+
+### Files
+- [public/tournaments.html](public/tournaments.html) — three matching edit/save/cancel UI passes
+- [tests/manual/test-wizard-edit-player.js](tests/manual/test-wizard-edit-player.js) — Puppeteer smoke test for the individual flow (add → edit → save → re-edit → cancel — 7/7 checks pass)
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: 7-step Puppeteer trace covers the individual-format flow;
+  the pair / R-vs-B variants share the exact same pattern (scoped
+  state key per panel)
+
+---
+
 ## v3.64.1 — 2026-06-02
 ### Session 82 — Multi-tee course-add + personal users can add courses
 
