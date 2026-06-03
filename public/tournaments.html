@@ -1380,10 +1380,28 @@ async function openTournament(id) {
       <h2 class="card-title">Round${multi?'s':''}</h2>
       <div id="roundList"></div>
     </div>
-    <div class="card"><h2 class="card-title">Competitors</h2><div id="playerList"></div></div>`;
+    <div class="card">
+      <h2 class="card-title" style="display:flex;align-items:center;justify-content:space-between;gap:var(--s-3)">
+        <span>Competitors</span>
+        <button class="btn btn-ghost" id="btn-hcp-info" type="button" style="font-size:12px;padding:6px 12px">ⓘ How handicaps work</button>
+      </h2>
+      <div id="hcpInfo" style="display:none"></div>
+      <div id="playerList"></div>
+    </div>`;
   $('#back').onclick = () => go('');
   if (shareUrl) $('#btn-share').onclick = () => openShareModal(t, shareUrl);
   $('#btn-edit').onclick = () => openEditModal(t);
+  // Handicap-info collapsible — explains the WHS Rule 11 algorithm + the
+  // format's allowance so the host can sanity-check what JORD is doing.
+  $('#btn-hcp-info').onclick = () => {
+    const panel = $('#hcpInfo');
+    if (panel.style.display === 'none' || !panel.innerHTML) {
+      panel.innerHTML = renderHandicapInfo(fmt);
+      panel.style.display = '';
+    } else {
+      panel.style.display = 'none';
+    }
+  };
   $('#btn-del-game').onclick = async () => {
     if (!confirm(`Delete "${t.name}"? This removes all rounds, players, and scores. Cannot be undone.`)) return;
     try {
@@ -1431,7 +1449,8 @@ async function openTournament(id) {
       ? `<button class="btn btn-primary" id="addRed">+ Add to Reds</button>
          <button class="btn btn-primary" id="addBlue">+ Add to Blues</button>`
       : isTeam
-        ? `<button class="btn btn-primary" id="addTeam">+ Add team</button>`
+        ? `<button class="btn btn-primary" id="addPlayer">+ Add player</button>
+           <button class="btn btn-ghost"   id="addTeam">+ Add new team</button>`
         : `<button class="btn btn-primary" id="addPlayer">+ Add player</button>`}
   </div>`;
   if (!data.entries.length) {
@@ -1492,6 +1511,57 @@ async function openTournament(id) {
   wireAddButtons(t, data, isTeam, isRvb);
 }
 
+// Render the "How handicaps work" panel for the tournament detail. Pulls
+// the format-specific allowance from the catalog so the host sees exactly
+// what JORD is applying.
+const ALLOWANCE_DESCRIPTIONS = {
+  '1': '100% of course handicap (Match Play singles)',
+  '0.95': '95% of course handicap (WHS Appendix C — stroke play, Stableford, Skins, Erado, Nassau, Duplicate)',
+  '0.9':  '90% of course handicap (4-Ball Better Ball match play)',
+  '0.85': '85% of course handicap (4-Ball Better Ball stroke play, Best Ball team)',
+  '0.6':  '60% of course handicap',
+  'scramble2': '2-Man Scramble: 35% of LOW handicap + 15% of HIGH handicap (WHS Appendix C-7)',
+  'scramble4': '4-Person Scramble: 25/20/15/10 split, low handicap to high (WHS Appendix C-7)',
+  'foursomes': 'Foursomes (alternate shot): 50% of the team\'s combined course handicap',
+  'greensome':  'Greensome: 60% × low handicap + 40% × high handicap',
+};
+function renderHandicapInfo(fmt) {
+  const allowance = fmt ? (typeof fmt.allowance === 'string' ? fmt.allowance : String(fmt.allowance)) : '';
+  const allowText = ALLOWANCE_DESCRIPTIONS[allowance] || `${fmt?.allowance ?? '—'} (custom allowance for this format)`;
+  return `<div style="background:#FFFCF2;border:1px solid var(--accent);border-radius:var(--r-md, var(--r-sm));padding:14px 16px;margin:0 0 var(--s-3);font-size:13.5px;line-height:1.55;color:var(--ink-2)">
+    <div style="display:flex;align-items:flex-start;gap:10px">
+      <div style="font-size:22px;line-height:1">📐</div>
+      <div style="flex:1">
+        <h3 style="font-family:var(--font-display);font-size:1.05rem;margin:0 0 6px;color:var(--ink)">How JORD calculates handicap strokes</h3>
+        <p style="margin:0 0 8px">JORD follows the <strong>World Handicap System</strong>
+          (USGA Rules of Handicapping, <em>Appendix C: Handicap Allowances</em> and
+          <em>Appendix E: Stroke Index Allocation</em>). Three steps:</p>
+        <ol style="margin:0 0 10px;padding-left:22px">
+          <li><strong>Course Handicap</strong> from the player's index, the tee's slope/rating, and the course's par:<br>
+            <code style="font-family:'JetBrains Mono',monospace;font-size:12px">round(Index × (Slope / 113) + (Course Rating − Par))</code></li>
+          <li><strong>Playing Handicap</strong> = Course Handicap × the <em>format allowance</em>.
+            For <strong>${esc(fmt?.name + ' · ' + (fmt?.sub || ''))}</strong>, JORD applies:
+            <em>${esc(allowText)}</em>.</li>
+          <li><strong>Per-hole allocation</strong> spreads the playing handicap across the holes
+            by stroke index — the lowest stroke-index hole (1 = hardest) gets the first stroke,
+            then 2, then 3, etc. If the playing handicap exceeds 18, the count wraps and SI 1
+            also gets a second stroke. Plus-handicaps (negative course handicap) give strokes
+            <em>back</em> starting from the highest stroke index (easiest holes).</li>
+        </ol>
+        <p style="margin:8px 0 0;font-size:12.5px">
+          Need to override? Click <strong>✎</strong> on any player above and toggle
+          <strong>Manual stroke allocation</strong> to hand-pick which holes get which strokes.
+          <a href="https://www.usga.org/handicapping/roh/Content/rules/Appendix%20C%20Handicap%20Allowances.htm"
+            target="_blank" rel="noopener" style="color:var(--accent)">USGA Appendix C ↗</a>
+          ·
+          <a href="https://www.usga.org/handicapping/roh/Content/rules/Appendix%20E%20Stroke%20Index%20Allocation.htm"
+            target="_blank" rel="noopener" style="color:var(--accent)">Appendix E ↗</a>
+        </p>
+      </div>
+    </div>
+  </div>`;
+}
+
 // Wire the "+ Add player" / "+ Add team" affordances surfaced on the
 // tournament detail page (post-creation). Each one opens a modal with
 // the same fields the wizard uses.
@@ -1501,20 +1571,48 @@ function wireAddButtons(t, data, isTeam, isRvb) {
   const addTm = document.getElementById('addTeam');
   const addR  = document.getElementById('addRed');
   const addB  = document.getElementById('addBlue');
-  if (addPl) addPl.onclick = () => openAddPlayerModal({ tournamentId: t.id, roundId, course: data.course });
+  // Existing teams (with their ids) so the "+ Add player" modal in team
+  // formats can offer them as targets.
+  const existingTeams = isTeam ? data.entries
+    .filter(e => e.team_id && (Array.isArray(e.members) || e.group_name))
+    .map(e => ({ id: e.team_id, name: e.group_name || e.player_name }))
+    // De-dupe by id (best-ball pair: multiple entries share one team_id)
+    .filter((t, i, a) => a.findIndex(x => x.id === t.id) === i)
+    : [];
+  if (addPl) addPl.onclick = () => openAddPlayerModal({
+    tournamentId: t.id, roundId, course: data.course,
+    isTeam, existingTeams, format: data.round.format,
+  });
   if (addTm) addTm.onclick = () => openAddTeamModal({ tournamentId: t.id, roundId, course: data.course });
   if (addR)  addR.onclick  = () => openAddPlayerModal({ tournamentId: t.id, roundId, course: data.course, side: 'red' });
   if (addB)  addB.onclick  = () => openAddPlayerModal({ tournamentId: t.id, roundId, course: data.course, side: 'blue' });
 }
 
 // Add-player modal — works for individual / best-ball / R-vs-B formats.
-// opts = { tournamentId, roundId, course, side? ('red'|'blue' for R-vs-B) }
+// opts = { tournamentId, roundId, course, side? ('red'|'blue' for R-vs-B),
+//          isTeam?, existingTeams?:[{id,name}], format? }
 function openAddPlayerModal(opts) {
   const tees = (opts.course && opts.course.tees) || [];
   const titleLabel = opts.side === 'red'  ? 'Add player to Reds'
                    : opts.side === 'blue' ? 'Add player to Blues'
                    : 'Add player';
+  // For team-format games the host picks an existing team to join (or
+  // creates a new one). The select renders only when isTeam is true.
+  const teamSelector = opts.isTeam ? JORD.el('div', { class: 'field' },
+    JORD.el('label', { for: 'ap_pickteam' }, 'Add to team'),
+    JORD.el('select', { class: 'input input-lg', id: 'ap_pickteam' },
+      ...(opts.existingTeams && opts.existingTeams.length
+        ? opts.existingTeams.map(t => JORD.el('option', { value: t.id }, t.name))
+        : []),
+      JORD.el('option', { value: '__new__' }, '— Create new team —')),
+    JORD.el('div', { class: 'field', id: 'ap_newteamwrap', style: { display: 'none', marginTop: '8px' } },
+      JORD.el('label', { for: 'ap_newteam' }, 'New team name'),
+      JORD.el('input', { class: 'input input-lg', id: 'ap_newteam',
+        placeholder: 'e.g. Eagles' }))
+  ) : null;
+
   const body = JORD.el('div', {},
+    teamSelector,
     JORD.el('div', { class: 'field' },
       JORD.el('label', { for: 'ap_name' }, 'Player name'),
       JORD.el('input', { class: 'input input-lg', id: 'ap_name' })),
@@ -1529,7 +1627,7 @@ function openAddPlayerModal(opts) {
       JORD.el('select', { class: 'input input-lg', id: 'ap_tee' },
         JORD.el('option', { value: '' }, '— default —'),
         ...tees.map(t => JORD.el('option', { value: t.id }, `${t.name} (${t.gender || '—'})`)))),
-    opts.side ? null : JORD.el('div', { class: 'field' },
+    (opts.side || opts.isTeam) ? null : JORD.el('div', { class: 'field' },
       JORD.el('label', { for: 'ap_team' }, 'Team / group (optional)'),
       JORD.el('input', { class: 'input input-lg', id: 'ap_team',
         placeholder: 'A / B / Smith Foursome (leave blank for solo)' })),
@@ -1540,6 +1638,20 @@ function openAddPlayerModal(opts) {
   const m = JORD.modal({ title: titleLabel, body, footer: JORD.el('div', { class: 'row gap-2' }, cancelBtn, submitBtn) });
   cancelBtn.onclick = () => m.close();
   setTimeout(() => body.querySelector('#ap_name')?.focus(), 50);
+
+  // Toggle the "new team name" field when the user picks "Create new team".
+  if (opts.isTeam) {
+    const pickTeam = body.querySelector('#ap_pickteam');
+    const newTeamWrap = body.querySelector('#ap_newteamwrap');
+    const showNewField = () => {
+      newTeamWrap.style.display = pickTeam.value === '__new__' ? '' : 'none';
+    };
+    pickTeam.onchange = showNewField;
+    // Default to "Create new team" if there are no existing teams yet.
+    if (!opts.existingTeams || !opts.existingTeams.length) pickTeam.value = '__new__';
+    showNewField();
+  }
+
   submitBtn.onclick = async () => {
     const err = body.querySelector('#ap_err');
     err.style.display = 'none';
@@ -1550,14 +1662,29 @@ function openAddPlayerModal(opts) {
       handicap_index: body.querySelector('#ap_hcp').value === '' ? null : Number(body.querySelector('#ap_hcp').value),
       tee_id: body.querySelector('#ap_tee').value || null,
     };
-    if (opts.side) payload.side = opts.side;
-    else {
-      const tm = body.querySelector('#ap_team')?.value.trim();
-      if (tm) payload.team_name = tm;
-    }
     submitBtn.disabled = true; submitBtn.textContent = 'Adding…';
     try {
-      await JORD.api(`/api/tournaments/${opts.tournamentId}/field`, { method: 'POST', body: payload });
+      if (opts.isTeam) {
+        // Team format: either join an existing team (post to /teams/:id/members)
+        // or create a new team-of-one (post to /teams).
+        const pick = body.querySelector('#ap_pickteam').value;
+        if (pick && pick !== '__new__') {
+          await JORD.api(`/api/rounds/${opts.roundId}/teams/${pick}/members`, { method: 'POST', body: payload });
+        } else {
+          const newName = body.querySelector('#ap_newteam').value.trim();
+          if (!newName) { throw new Error('New team needs a name.'); }
+          await JORD.api(`/api/rounds/${opts.roundId}/teams`, {
+            method: 'POST', body: { name: newName, players: [payload] },
+          });
+        }
+      } else {
+        if (opts.side) payload.side = opts.side;
+        else {
+          const tm = body.querySelector('#ap_team')?.value.trim();
+          if (tm) payload.team_name = tm;
+        }
+        await JORD.api(`/api/tournaments/${opts.tournamentId}/field`, { method: 'POST', body: payload });
+      }
       m.close();
       JORD.success && JORD.success(`Added ${name}`);
       openTournament(opts.tournamentId);

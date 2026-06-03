@@ -5566,6 +5566,71 @@ function sanitizeStrokeOverrides(raw) {
   return Object.keys(out).length ? out : null;
 }
 
+// Add a new player to an existing team. Works for both pair-tier (best ball,
+// match play better-ball — each member has their own round_entries row) and
+// one-ball formats (scramble / foursomes / chapman — single team card +
+// round_team_members metadata). For one-ball formats the team handicap is
+// also recomputed from the new member set.
+app.post('/api/rounds/:roundId/teams/:teamId/members', requireUserOrAdmin, (req, res) => {
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
+  if (!round) return res.status(404).json({ error: 'Round not found' });
+  const team = db.prepare('SELECT * FROM round_teams WHERE id=? AND round_id=?')
+    .get(req.params.teamId, req.params.roundId);
+  if (!team) return res.status(404).json({ error: 'Team not found' });
+  const tour = db.prepare('SELECT * FROM tournaments WHERE id=?').get(round.tournament_id);
+  if (!tour || !canEditTournament(req, tour)) return res.status(403).json({ error: 'Not your tournament' });
+  const fmt = formats.getFormat(round.format);
+  if (!fmt) return res.status(400).json({ error: 'Unknown round format' });
+  const { name, phone, email, handicap_index, tee_id } = req.body || {};
+  if (!name) return res.status(400).json({ error: 'player name required' });
+
+  // Resolve or create the player row.
+  let player = phone ? db.prepare('SELECT * FROM players WHERE phone=?').get(phone) : null;
+  if (player) {
+    if (handicap_index != null) db.prepare('UPDATE players SET handicap_index=? WHERE id=?').run(handicap_index, player.id);
+  } else {
+    const pid = uid('PLR');
+    db.prepare('INSERT INTO players (id,name,phone,email,handicap_index) VALUES (?,?,?,?,?)')
+      .run(pid, name, phone || null, email || null, handicap_index ?? null);
+    player = { id: pid };
+  }
+  // Resolve a tee for the course-handicap calc (fallback to the round's first tee).
+  let teeRow = tee_id ? db.prepare('SELECT * FROM course_tees WHERE id=?').get(tee_id) : null;
+  if (!teeRow && round.course_id) {
+    teeRow = db.prepare('SELECT * FROM course_tees WHERE course_id=? ORDER BY rowid LIMIT 1').get(round.course_id);
+  }
+  let cHcp = null;
+  if (teeRow && handicap_index != null) {
+    const raw = handicap.courseHandicap(handicap_index, teeRow.slope_rating, teeRow.course_rating, teeRow.par_total);
+    cHcp = raw;
+  }
+  const effTeeId = tee_id || (teeRow ? teeRow.id : null);
+
+  if (typeof fmt.allowance === 'string') {
+    // One-ball formats: append a row to round_team_members + recompute the
+    // team-card handicap from the new full roster.
+    const existing = db.prepare('SELECT course_handicap FROM round_team_members WHERE team_id=?').all(team.id);
+    const position = existing.length;
+    db.prepare(`INSERT INTO round_team_members
+      (id, round_id, team_id, player_id, tee_id, course_handicap, position)
+      VALUES (?,?,?,?,?,?,?)`)
+      .run(uid('TMM'), round.id, team.id, player.id, effTeeId, cHcp, position);
+    const allHcps = existing.map(m => m.course_handicap).concat([cHcp]);
+    const teamHcp = handicap.teamHandicap(allHcps, fmt.allowance);
+    db.prepare('UPDATE round_teams SET team_handicap=? WHERE id=?').run(teamHcp, team.id);
+    db.prepare('UPDATE round_entries SET course_handicap=? WHERE team_id=? AND is_team_card=1')
+      .run(teamHcp, team.id);
+  } else {
+    // Pair/team best-ball: each player has their own scoring row.
+    const playing = (cHcp != null && typeof fmt.allowance === 'number')
+      ? handicap.playingHandicap(cHcp, fmt.allowance) : cHcp;
+    db.prepare(`INSERT INTO round_entries (id,round_id,player_id,tee_id,team_id,is_team_card,course_handicap)
+      VALUES (?,?,?,?,?,0,?)`).run(uid('ENT'), round.id, player.id, effTeeId, team.id, playing);
+  }
+  broadcastRound(round.id);
+  res.json({ ok: true });
+});
+
 // Edit a single team member (one-ball formats only). Updates the player row
 // + recomputes course handicap. If the team's combined handicap is derived
 // (scramble2 / scramble4 / foursomes / greensome), also recompute the team

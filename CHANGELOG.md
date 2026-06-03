@@ -2,6 +2,71 @@
 
 ---
 
+## v3.65.1 — 2026-06-03
+### Session 84 (cont.) — Add player to an existing team + handicap info
+
+Two follow-ups on v3.65:
+1. Team-format tournaments only showed "+ Add team" — the user wanted
+   to add a **single** player and pick which existing team they join.
+2. The Competitors card needed a visible explanation of HOW JORD is
+   calculating handicaps.
+
+### + Add player works for team formats now
+Both buttons sit side-by-side on team-format games:
+- **+ Add player** (primary) — opens the add modal with a "Add to
+  team" dropdown listing every existing team (or "— Create new team
+  —" if you'd rather start a fresh one). On "Create new team" the
+  modal grows a name input.
+- **+ Add new team** (ghost) — opens the multi-member team modal
+  unchanged.
+
+New backend endpoint to support adding to an EXISTING team:
+- `POST /api/rounds/:roundId/teams/:teamId/members`
+  - One-ball formats (scramble / foursomes / chapman): inserts a
+    `round_team_members` row + recomputes the team-card handicap from
+    the new full roster (WHS scramble2 / scramble4 / foursomes /
+    greensome allowances).
+  - Best-ball / better-ball pair: inserts a new `round_entries` row
+    (each player has their own scorecard).
+
+Existing team list is built from `data.entries` (deduped by team_id),
+so it always shows what JORD currently knows about. The dropdown
+auto-defaults to "Create new team" when the round has no teams yet.
+
+### How JORD calculates handicaps (visible on the page)
+Competitors card gets an **ⓘ How handicaps work** button next to the
+heading. Clicking it expands an inline info card explaining:
+
+- **Course Handicap** = `round(Index × (Slope / 113) + (Course Rating − Par))`
+- **Playing Handicap** = Course Handicap × format allowance, with the
+  CURRENT format's allowance spelled out:
+  - Stroke Net / Skins / etc. → 95% (WHS Appendix C)
+  - 4-Ball Better Ball stroke → 85%, match → 90%
+  - Match Play singles → 100%
+  - Scramble 2-man → 35/15 low-high split
+  - Scramble 4-man → 25/20/15/10 split
+  - Foursomes → 50% of combined
+  - Greensome → 60% low + 40% high
+- **Per-hole allocation** — `floor(PH/18)` base everywhere, remainder
+  on the lowest stroke-index holes. Plus-handicaps give back from the
+  highest SI.
+
+Links to the official USGA Appendix C and Appendix E. Reminds the
+host they can override via the ✎ "Manual stroke allocation" toggle.
+
+### Files
+- [server.js](server.js) — `POST /api/rounds/:id/teams/:teamId/members` for both one-ball and best-ball formats
+- [public/tournaments.html](public/tournaments.html) — team-format detail page shows both add buttons; `openAddPlayerModal` now offers team selection; `renderHandicapInfo()` collapsible panel
+- [tests/manual/test-add-team-member.js](tests/manual/test-add-team-member.js) — 5-step E2E covering one-ball (4-person scramble — team CH recomputes 10→13) and best-ball (Pair Birdie grows from 2 to 3 round_entries)
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: 5/5 E2E. Add-to-existing-team works for both one-ball
+  (round_team_members + team CH recompute) and best-ball (new
+  round_entries row).
+
+---
+
 ## v3.65.0 — 2026-06-03
 ### Session 84 — No auto-start + add/remove players post-creation
 
