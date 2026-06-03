@@ -4973,6 +4973,108 @@ const deleteTournamentCascade = db.transaction((tournamentId) => {
   db.prepare('DELETE FROM tournaments WHERE id=?').run(tournamentId);
 });
 
+// Clone an existing tournament (v3.67) — copies the setup (format,
+// settings, side-bets, rounds, players, teams, team members) into a brand
+// new tournament owned by the caller. Scores + hole events are NOT copied
+// so the new tournament lands in 'setup' status ready to play.
+app.post('/api/tournaments/:id/clone', requireUserOrAdmin, (req, res) => {
+  const src = db.prepare('SELECT * FROM tournaments WHERE id=?').get(req.params.id);
+  if (!src) return res.status(404).json({ error: 'Tournament not found' });
+  if (!canEditTournament(req, src)) return res.status(403).json({ error: 'Not your tournament' });
+  const actor = actorIdentity(req);
+  const newName = (req.body && String(req.body.name || '').trim().slice(0, 200)) || (src.name + ' (copy)');
+  const newId = uid('TRN');
+
+  const cloneTx = db.transaction(() => {
+    // 1. New tournament row with the same format + JSON blobs.
+    db.prepare(`INSERT INTO tournaments
+      (id, type, name, admin_id, user_id, default_format, num_rounds,
+       flights_enabled, num_flights, status, share_code,
+       format_settings, side_bets)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      newId, src.type, newName,
+      actor.kind === 'admin' ? actor.id : null,
+      actor.kind === 'user'  ? actor.id : null,
+      src.default_format, src.num_rounds || 1,
+      src.flights_enabled || 0, src.num_flights || 1,
+      'setup', uid('').slice(0, 6),
+      src.format_settings, src.side_bets);
+
+    // 2. For each source round, copy the round + entries + teams + team
+    //    members. Skip hole_scores + hole_events so the new tournament
+    //    starts fresh.
+    const srcRounds = db.prepare('SELECT * FROM rounds WHERE tournament_id=? ORDER BY round_number').all(src.id);
+    for (const r of srcRounds) {
+      const newRoundId = uid('RND');
+      db.prepare(`INSERT INTO rounds
+        (id, tournament_id, round_number, course_id, round_date, format,
+         status, holes_segment, hole_multipliers)
+        VALUES (?,?,?,?,?,?,?,?,?)`).run(
+        newRoundId, newId, r.round_number, r.course_id, r.round_date,
+        r.format, 'setup', r.holes_segment, r.hole_multipliers);
+
+      // Teams first — entries reference team_id.
+      const teamMap = {}; // old team_id → new team_id
+      const oldTeams = db.prepare('SELECT * FROM round_teams WHERE round_id=?').all(r.id);
+      for (const t of oldTeams) {
+        const newTeamId = uid('TM');
+        teamMap[t.id] = newTeamId;
+        db.prepare('INSERT INTO round_teams (id, round_id, name, team_handicap) VALUES (?,?,?,?)')
+          .run(newTeamId, newRoundId, t.name, t.team_handicap);
+      }
+      // Entries
+      const oldEntries = db.prepare('SELECT * FROM round_entries WHERE round_id=?').all(r.id);
+      for (const e of oldEntries) {
+        const newEntryId = uid('ENT');
+        db.prepare(`INSERT INTO round_entries
+          (id, round_id, player_id, tee_id, group_id, course_handicap,
+           team_id, is_team_card, side, match_no, user_id,
+           stroke_overrides, order_index)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+          newEntryId, newRoundId, e.player_id, e.tee_id, null,
+          e.course_handicap, teamMap[e.team_id] || null,
+          e.is_team_card || 0, e.side, e.match_no, e.user_id,
+          e.stroke_overrides, e.order_index || 0);
+      }
+      // Team members (one-ball formats)
+      const oldMembers = db.prepare('SELECT * FROM round_team_members WHERE round_id=?').all(r.id);
+      for (const m of oldMembers) {
+        db.prepare(`INSERT INTO round_team_members
+          (id, round_id, team_id, player_id, tee_id, course_handicap,
+           position, stroke_overrides)
+          VALUES (?,?,?,?,?,?,?,?)`).run(
+          uid('TMM'), newRoundId, teamMap[m.team_id] || null, m.player_id,
+          m.tee_id, m.course_handicap, m.position || 0, m.stroke_overrides);
+      }
+    }
+  });
+  try { cloneTx(); } catch (err) {
+    console.error('[clone] failed', err);
+    return res.status(500).json({ error: 'Clone failed: ' + err.message });
+  }
+  res.json({ id: newId });
+});
+
+// Reset every score + hole event for one round so the host can clear test
+// data without rebuilding the field. The round goes back to 'setup' too so
+// the score-entry page is gated until they click Start again.
+app.post('/api/rounds/:roundId/reset-scores', requireUserOrAdmin, (req, res) => {
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
+  if (!round) return res.status(404).json({ error: 'Round not found' });
+  const tour = db.prepare('SELECT * FROM tournaments WHERE id=?').get(round.tournament_id);
+  if (!tour || !canEditTournament(req, tour)) return res.status(403).json({ error: 'Not your tournament' });
+  const tx = db.transaction(() => {
+    db.prepare(`DELETE FROM scores WHERE round_entry_id IN
+      (SELECT id FROM round_entries WHERE round_id=?)`).run(round.id);
+    try { db.prepare('DELETE FROM hole_scores WHERE round_id=?').run(round.id); } catch {}
+    try { db.prepare('DELETE FROM hole_events WHERE round_id=?').run(round.id); } catch {}
+    db.prepare("UPDATE rounds SET status='setup' WHERE id=?").run(round.id);
+  });
+  tx();
+  broadcastRound(round.id);
+  res.json({ ok: true });
+});
+
 app.delete('/api/tournaments/:id', requireUserOrAdmin, (req, res) => {
   const t = db.prepare('SELECT * FROM tournaments WHERE id=?').get(req.params.id);
   if (!t) return res.status(404).json({ error: 'Tournament not found' });

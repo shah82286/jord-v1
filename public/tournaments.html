@@ -1378,6 +1378,7 @@ async function openTournament(id) {
           ${shareUrl ? `<button class="btn btn-primary" id="btn-share">🔗 Share link</button>` : ''}
           ${shareUrl ? `<a class="btn btn-ghost" href="/round/${esc(t.share_code)}" target="_blank">💬 Banter</a>` : ''}
           <button class="btn btn-ghost" id="btn-edit">✎ Edit game</button>
+          <button class="btn btn-ghost" id="btn-clone">⎘ Clone setup</button>
           ${multi?`<a class="btn btn-accent" href="/tournament/${t.id}" target="_blank">🏆 Tournament leaderboard ↗</a>`:''}
           <button class="btn btn-ghost" id="btn-del-game" style="color:var(--danger)">🗑 Delete</button>
         </div>
@@ -1419,6 +1420,18 @@ async function openTournament(id) {
       go('');
     } catch (e) { JORD.error && JORD.error(e.message || 'Could not delete'); }
   };
+  $('#btn-clone').onclick = async () => {
+    const proposed = prompt(`Clone "${t.name}" — new game name?`, t.name + ' (copy)');
+    if (proposed == null) return; // user hit Cancel
+    const newName = proposed.trim();
+    if (!newName) return;
+    try {
+      const out = await JORD.api(`/api/tournaments/${t.id}/clone`, { method:'POST', body: { name: newName } });
+      JORD.success && JORD.success('Setup cloned');
+      await loadAll();
+      go('game/' + out.id);
+    } catch (e) { JORD.error && JORD.error(e.message || 'Could not clone'); }
+  };
 
   $('#roundList').innerHTML = t.rounds.map(r=>`
     <div class="row-card">
@@ -1430,11 +1443,20 @@ async function openTournament(id) {
         <a class="btn btn-primary" href="/scorecard/${r.id}" target="_blank">📝 Enter scores ↗</a>
         ${r.status==='active'?`<button class="btn btn-ghost" data-end="${r.id}">End</button>`
           :`<button class="btn btn-ghost" data-start="${r.id}">Start</button>`}
+        <button class="btn btn-ghost" data-reset-round="${r.id}" title="Clear all scores + reset to setup">↺ Reset scores</button>
         ${multi ? `<button class="btn btn-ghost" data-del-round="${r.id}" style="color:var(--danger)">🗑</button>` : ''}
       </div>
     </div>`).join('');
   $('#roundList').querySelectorAll('[data-end]').forEach(b=>b.onclick=()=>setStatus(b.dataset.end,'ended',id));
   $('#roundList').querySelectorAll('[data-start]').forEach(b=>b.onclick=()=>setStatus(b.dataset.start,'active',id));
+  $('#roundList').querySelectorAll('[data-reset-round]').forEach(b => b.onclick = async () => {
+    if (!confirm('Reset every score for this round? Players + handicaps stay; only the scores + hole events are cleared. The round goes back to "setup" status.')) return;
+    try {
+      await JORD.api(`/api/rounds/${b.dataset.resetRound}/reset-scores`, { method:'POST' });
+      JORD.success && JORD.success('Scores cleared');
+      openTournament(id);
+    } catch (e) { JORD.error && JORD.error(e.message || 'Could not reset scores'); }
+  });
   $('#roundList').querySelectorAll('[data-del-round]').forEach(b => b.onclick = async () => {
     const r = t.rounds.find(r => r.id === b.dataset.delRound);
     if (!confirm(`Delete Round ${r ? r.round_number : '?'}? Removes that round's players and scores. Cannot be undone.`)) return;

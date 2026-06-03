@@ -2,6 +2,78 @@
 
 ---
 
+## v3.67.0 — 2026-06-03
+### Session 87 — Clone tournament + Reset scores + UI audit
+
+Three asks rolled together:
+1. Clone an existing round/event setup so a tournament can be quickly
+   duplicated for the next round / next week / second event.
+2. Wipe scores on a test event without rebuilding the field.
+3. Spot-check the UI for broken flows.
+
+### POST /api/tournaments/:id/clone
+Duplicates a tournament's full setup into a new one owned by the
+caller:
+- Same format, format_settings JSON, side_bets JSON
+- All rounds (round_number, course_id, round_date, holes_segment,
+  hole_multipliers — but status reset to 'setup')
+- Every entry, team, and team-member (with handicaps + tee_id +
+  stroke_overrides + order_index preserved)
+- Scores + hole events are NOT copied (the whole point — start
+  fresh)
+- New tournament name defaults to `"<source> (copy)"`; the modal lets
+  you rename before submit.
+
+All inside one `db.transaction()` so a failure mid-copy can't leave
+half a tournament behind.
+
+### POST /api/rounds/:roundId/reset-scores
+Wipes every score + hole_event on a round but keeps the
+players / teams / team_members untouched, then drops the round back
+to `setup` status. For the user's "I put numbers in for testing, clear
+them and let me actually play" case.
+
+### Tournament detail buttons
+- New **⎘ Clone setup** button in the header (next to Edit game).
+  Prompts for the new tournament name, POSTs, navigates to the clone.
+- New **↺ Reset scores** button on each round row. Confirms, POSTs,
+  refreshes the detail view.
+
+### UI audit
+[tests/manual/test-ui-audit.js](tests/manual/test-ui-audit.js) walks
+through landing → login → signup → clubhouse → /account → wizard
+players step → + Add course manual form. Reports any:
+- 4xx pages or blank loads
+- Missing key buttons (`#create`, `#addCourse`, `#btnSave`,
+  `#btnChangeEmail`, `#btnChangePassword`, `#ghin_id`, `#pAdd`,
+  drag-handle ✎ pencil, etc.)
+- JS errors or non-404 console errors
+
+Current state: **clean** — every page renders, every key control is
+present, no JS errors. The smoke runs as part of v3.67's E2E suite
+going forward.
+
+### Files
+- [server.js](server.js) — clone + reset-scores endpoints
+- [public/tournaments.html](public/tournaments.html) — `⎘ Clone setup` header button, `↺ Reset scores` per round, handlers
+- [tests/manual/test-clone-reset.js](tests/manual/test-clone-reset.js) — 4-step E2E: create + score → reset → verify cleared → clone → verify clone has setup but no scores
+- [tests/manual/test-ui-audit.js](tests/manual/test-ui-audit.js) — 7-page smoke test, reports findings
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: clone-reset 4/4 (Day 1 → reset → clone to Day 2 with 4
+  players intact + zero scores); UI audit 7-page walk reports clean
+
+### Note on "Day 1" event repair
+User mentioned they have a "Day 1" event on the live site with test
+numbers they want cleared. Once Railway redeploys, open that game
+and the new **↺ Reset scores** button on the round row will wipe the
+test scores while keeping the players + handicaps intact. Then play
+the round normally via 📝 **Enter scores** — the v3.66.3 stepper fix
+makes under-par scores one tap.
+
+---
+
 ## v3.66.3 — 2026-06-03
 ### Session 86 — Score stepper one-tap + skins win/carry markers
 
