@@ -59,6 +59,18 @@
   table.gridcard tr.member td { background: rgba(0,0,0,0.015); font-size: 12px; color: var(--ink-2); }
   table.gridcard tr.member td.col-label { padding-left: 28px; font-weight: 500; }
   table.gridcard tr.member td.score .strk-dots { color: var(--accent); }
+  /* "This score counts" highlight — for best-ball / better-ball formats
+     where each player keeps their own ball but only the BEST net per hole
+     scores for the team. v3.66 */
+  table.gridcard tr.player td.score.used {
+    outline: 2px solid var(--accent);
+    outline-offset: -3px;
+    font-weight: 700;
+  }
+  /* Synthetic "team net" row that sums each hole's best net across the team. */
+  table.gridcard tr.team-total td { background: #FFFCF2; font-weight: 700; color: var(--ink); border-top: 1px solid var(--accent); }
+  table.gridcard tr.team-total td.col-label { background: #FFFCF2; }
+  table.gridcard tr.team-total td.col-label .meta { color: var(--accent); font-size: 11px; font-weight: 600; }
 
   .live-dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:#4A7A53; margin-right:5px;
     animation:pulse 1.6s infinite; vertical-align: middle; }
@@ -195,9 +207,42 @@ function render() {
     return `<tr class="tee-row">${cells.join('')}</tr>`;
   }).join('');
 
+  // For best-ball / better-ball pair (and team) formats, group entries by
+  // team_id and pre-compute the per-hole "winning" net score so we can
+  // highlight which player's score the team is actually using.
+  const teamGroups = {}; // team_id → array of entries
+  for (const e of state.entries) {
+    if (e.team_id && !(Array.isArray(e.members) && e.members.length)) {
+      (teamGroups[e.team_id] = teamGroups[e.team_id] || []).push(e);
+    }
+  }
+  // Skip the highlight when a "team" has only one entry (no contest).
+  const winnerByTeamHole = {}; // { team_id: { hole_number: entryId } }
+  const teamNetByHole    = {}; // { team_id: { hole_number: bestNetScore } }
+  for (const [teamId, members] of Object.entries(teamGroups)) {
+    if (members.length < 2) continue;
+    winnerByTeamHole[teamId] = {};
+    teamNetByHole[teamId] = {};
+    for (const h of holes) {
+      let bestNet = Infinity, bestId = null, bestGross = null;
+      for (const e of members) {
+        const s = e.scores?.[h.hole_number] ?? e.scores?.[String(h.hole_number)];
+        if (s == null) continue;
+        const strokes = entryStrokesByHole(e, holes)[h.hole_number] || 0;
+        const net = Number(s) - strokes;
+        if (net < bestNet) { bestNet = net; bestId = e.id; bestGross = Number(s); }
+      }
+      if (bestId != null) {
+        winnerByTeamHole[teamId][h.hole_number] = bestId;
+        teamNetByHole[teamId][h.hole_number] = bestNet;
+      }
+    }
+  }
+
   // Player score rows. For team-card formats, the entry is the team and we
   // also render member sub-rows showing each player's stroke allocation.
-  const renderScoreCells = (scores, strokes, holesSlice, par) => {
+  const renderScoreCells = (entry, strokes, holesSlice) => {
+    const scores = entry.scores || {};
     const cells = [];
     let played = 0, sum = 0;
     for (const h of holesSlice) {
@@ -205,15 +250,20 @@ function render() {
       const stk = strokes[h.hole_number] || 0;
       if (s != null) { played++; sum += s; }
       const dots = stk > 0 ? `<span class="strk-dots">${'●'.repeat(Math.min(stk, 3))}</span>` : '';
-      cells.push(`<td class="score ${scoreClass(s, h.par)}">${s != null ? s : '—'}${dots}</td>`);
+      const isUsed = winnerByTeamHole[entry.team_id]?.[h.hole_number] === entry.id;
+      cells.push(`<td class="score ${scoreClass(s, h.par)} ${isUsed ? 'used' : ''}" title="${isUsed ? 'This score counts for the team' : ''}">${s != null ? s : '—'}${dots}</td>`);
     }
     return { html: cells.join(''), sum, played };
   };
 
+  // Track which team_ids we've already attached a "team net" row to so we
+  // render it once after the last member, not duplicated per row.
+  const teamNetEmitted = new Set();
+
   const playerRows = state.entries.map(e => {
     const strokes = entryStrokesByHole(e, holes);
-    const front9 = renderScoreCells(e.scores || {}, strokes, front);
-    const back9  = renderScoreCells(e.scores || {}, strokes, back);
+    const front9 = renderScoreCells(e, strokes, front);
+    const back9  = renderScoreCells(e, strokes, back);
     const total  = (front9.played ? front9.sum : 0) + (back9.played ? back9.sum : 0);
     const isTeamCard = Array.isArray(e.members) && e.members.length;
     const label = `<td class="col-label">
@@ -252,6 +302,39 @@ function render() {
         </tr>`;
       }).join('');
     }
+    // For best-ball groups, append a synthetic "Team net" row after the LAST
+    // member of the team — sums each hole's winning (lowest) net score so the
+    // host sees what the team actually scored across the round.
+    if (e.team_id && teamNetByHole[e.team_id] && !teamNetEmitted.has(e.team_id)) {
+      // Only emit after the last member of this team in state.entries.
+      const remainingInTeam = state.entries.slice(state.entries.indexOf(e) + 1)
+        .some(x => x.team_id === e.team_id && !(Array.isArray(x.members) && x.members.length));
+      if (!remainingInTeam) {
+        teamNetEmitted.add(e.team_id);
+        const teamNet = teamNetByHole[e.team_id];
+        const cellsFor = (slice) => {
+          let played = 0, sum = 0;
+          const tds = slice.map(h => {
+            const n = teamNet[h.hole_number];
+            if (n != null) { played++; sum += n; }
+            return `<td>${n != null ? n : '—'}</td>`;
+          }).join('');
+          return { html: tds, sum, played };
+        };
+        const tnFront = cellsFor(front);
+        const tnBack  = cellsFor(back);
+        const tnTotal = (tnFront.played ? tnFront.sum : 0) + (tnBack.played ? tnBack.sum : 0);
+        const teamName = e.group_name || `${esc(e.player_name)}'s team`;
+        row += `<tr class="team-total">
+          <td class="col-label">${esc(teamName)}<div class="meta">Best ball net per hole</div></td>
+          ${tnFront.html}
+          <td class="col-total">${tnFront.played ? tnFront.sum : '—'}</td>
+          ${tnBack.html}
+          <td class="col-total">${tnBack.played ? tnBack.sum : '—'}</td>
+          <td class="col-total">${tnTotal > 0 ? tnTotal : '—'}</td>
+        </tr>`;
+      }
+    }
     return row;
   }).join('');
 
@@ -282,6 +365,8 @@ function render() {
     </div>
     <p class="mini" style="text-align:center;margin-top:var(--s-3);color:var(--ink-3)">
       Red = under par, blue = over. Dots under a score show handicap strokes given on that hole.
+      <span style="display:inline-block;width:14px;height:14px;border:2px solid var(--accent);outline-offset:-1px;vertical-align:middle;margin:0 4px"></span>
+      = the score that counts for the team on that hole (best ball).
     </p>
   `;
 }

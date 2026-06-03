@@ -14,6 +14,14 @@
   .page-head h1 em { font-style:italic; color:var(--accent); }
   .row-card { display:flex; align-items:center; justify-content:space-between; gap:var(--s-3); padding:14px 18px; border:1px solid var(--border); border-radius:var(--r-sm); background:var(--surface); margin-bottom:var(--s-2); flex-wrap:wrap; }
   .row-card .meta { font-size:13px; color:var(--ink-2); }
+  /* Drag-to-reorder (v3.66) */
+  .draggable-row { cursor:grab; }
+  .draggable-row:active { cursor:grabbing; }
+  .draggable-row.is-dragging { opacity:.45; }
+  .draggable-row .drag-handle { color:var(--ink-3); font-size:18px; user-select:none; padding:0 6px 0 0;
+    letter-spacing:-2px; line-height:1; }
+  .draggable-row.drop-above { box-shadow:0 -3px 0 var(--accent) inset; }
+  .draggable-row.drop-below { box-shadow:0  3px 0 var(--accent) inset; }
   .mini { font-size:12px; color:var(--ink-3); }
 
   /* Clubhouse home — photo hero + clickable tiles */
@@ -1464,8 +1472,10 @@ async function openTournament(id) {
   // edited directly.
   pl.innerHTML = addBar + data.entries.map(e => {
     const isTeamCard = Array.isArray(e.members) && e.members.length;
-    const headLine = `<div class="row-card"><div><strong>${esc(e.player_name)}</strong>
-      <div class="meta">${e.group_name && e.group_name !== e.player_name ? esc(e.group_name)+' · ' : ''}Course handicap: ${e.course_handicap??'—'}</div></div>
+    const headLine = `<div class="row-card draggable-row" draggable="true" data-entry-id="${esc(e.id)}">
+      <span class="drag-handle" title="Drag to reorder">⋮⋮</span>
+      <div><strong>${esc(e.player_name)}</strong>
+        <div class="meta">${e.group_name && e.group_name !== e.player_name ? esc(e.group_name)+' · ' : ''}Course handicap: ${e.course_handicap??'—'}</div></div>
       <div class="row gap-2">
         ${!isTeamCard ? `<button class="btn btn-ghost btn-icon" data-edit-entry="${esc(e.id)}" title="Edit player">✎</button>` : ''}
         <button class="btn btn-ghost btn-icon" data-del-entry="${esc(e.id)}" title="Remove">✕</button>
@@ -1479,6 +1489,7 @@ async function openTournament(id) {
       </div>`).join('');
     return headLine + memberLines;
   }).join('');
+  wireDragReorder(pl, t.id, data.round.id);
 
   // Wire the action buttons. Each handler grabs the latest entry/member info
   // from `data` rather than rebuilding state from scratch.
@@ -1509,6 +1520,55 @@ async function openTournament(id) {
     } catch (e) { JORD.error && JORD.error(e.message || 'Could not remove'); }
   });
   wireAddButtons(t, data, isTeam, isRvb);
+}
+
+// Wire HTML5 drag-and-drop on the player rows so the host can reorder
+// competitors. The new order POSTs to /api/rounds/:id/entries/order.
+function wireDragReorder(container, tournamentId, roundId) {
+  let dragging = null;
+  container.querySelectorAll('.draggable-row').forEach(row => {
+    row.ondragstart = e => {
+      dragging = row;
+      row.classList.add('is-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      // Firefox requires data to be set or the drag won't start.
+      try { e.dataTransfer.setData('text/plain', row.dataset.entryId); } catch {}
+    };
+    row.ondragend = () => {
+      row.classList.remove('is-dragging');
+      container.querySelectorAll('.draggable-row').forEach(r => r.classList.remove('drop-above', 'drop-below'));
+      dragging = null;
+    };
+    row.ondragover = e => {
+      if (!dragging || dragging === row) return;
+      e.preventDefault();
+      const rect = row.getBoundingClientRect();
+      const isAbove = (e.clientY - rect.top) < rect.height / 2;
+      row.classList.toggle('drop-above', isAbove);
+      row.classList.toggle('drop-below', !isAbove);
+    };
+    row.ondragleave = () => {
+      row.classList.remove('drop-above', 'drop-below');
+    };
+    row.ondrop = async e => {
+      e.preventDefault();
+      if (!dragging || dragging === row) return;
+      const rect = row.getBoundingClientRect();
+      const isAbove = (e.clientY - rect.top) < rect.height / 2;
+      // Reorder in the DOM first for instant visual feedback…
+      if (isAbove) row.parentNode.insertBefore(dragging, row);
+      else         row.parentNode.insertBefore(dragging, row.nextSibling);
+      row.classList.remove('drop-above', 'drop-below');
+      // …then persist the new order.
+      const orderedIds = [...container.querySelectorAll('.draggable-row')].map(r => r.dataset.entryId);
+      try {
+        await JORD.api(`/api/rounds/${roundId}/entries/order`, { method: 'PATCH', body: { entryIds: orderedIds } });
+      } catch (err) {
+        JORD.error && JORD.error(err.message || 'Could not save new order');
+        openTournament(tournamentId);
+      }
+    };
+  });
 }
 
 // Render the "How handicaps work" panel for the tournament detail. Pulls

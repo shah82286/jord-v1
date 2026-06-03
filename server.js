@@ -345,6 +345,11 @@ db.exec(`
 // individual) AND round_team_members (per-player override within a one-
 // ball team). Null/empty = use auto.
 try { db.exec("ALTER TABLE round_entries      ADD COLUMN stroke_overrides TEXT"); } catch {}
+// v3.66 — drag-to-reorder. Default 0 keeps existing insertion order
+// (re-sorted ascending → rowid). Hosts can drag a player row up/down on
+// the tournament detail page; the PATCH /entries/order endpoint writes a
+// fresh sequence here so the order persists across reloads + on the card.
+try { db.exec("ALTER TABLE round_entries ADD COLUMN order_index INTEGER DEFAULT 0"); } catch {}
 // v3.62.2 — individual team members for "one-ball" formats (scramble /
 // foursomes / greensome / chapman). For those formats only one round_entry
 // is created per team (the shared scorecard) — but the scorecard UI still
@@ -4441,7 +4446,7 @@ function gatherRoundEntries(roundId) {
     FROM round_entries re
     JOIN players p ON p.id=re.player_id
     LEFT JOIN round_teams rt ON rt.id=re.team_id
-    WHERE re.round_id=? AND re.is_team_card=? ORDER BY re.rowid`).all(roundId, isTeamCard);
+    WHERE re.round_id=? AND re.is_team_card=? ORDER BY re.order_index, re.rowid`).all(roundId, isTeamCard);
   // If an entry has no tee_id (admin didn't pick one), the engine still needs
   // a hole layout for par lookup — net-vs-par detection (birdies, Stableford
   // points, Vegas flip rule, …) reads par off each hole. Resolve a fallback
@@ -4478,7 +4483,7 @@ function roundScoreCards(round) {
     FROM round_entries re
     JOIN players p ON p.id=re.player_id
     LEFT JOIN round_teams rt ON rt.id=re.team_id
-    WHERE re.round_id=? AND re.is_team_card=? ORDER BY re.rowid`).all(round.id, isTeamCard);
+    WHERE re.round_id=? AND re.is_team_card=? ORDER BY re.order_index, re.rowid`).all(round.id, isTeamCard);
   // For team-card formats, fetch the full per-team roster (every individual
   // player + their own course handicap) so the scorecard can render the
   // "who gets strokes on this hole" breakdown.
@@ -5491,6 +5496,26 @@ function _canEditEntry(req, entry, tournament) {
   const isOwnEntry     = user  && entry && entry.user_id === user.id;
   return isCreatorAdmin || isCreatorUser || isOwnEntry;
 }
+
+// Reorder entries for a round. Body: { entryIds: [id1, id2, ...] }.
+// Each id is written to round_entries.order_index by position; missing
+// entries keep their existing order_index (so partial reorders work).
+// v3.66 — feeds the drag-to-reorder UI on the tournament detail page.
+app.patch('/api/rounds/:roundId/entries/order', (req, res) => {
+  const round = db.prepare('SELECT * FROM rounds WHERE id=?').get(req.params.roundId);
+  if (!round) return res.status(404).json({ error: 'Round not found' });
+  const tour = db.prepare('SELECT * FROM tournaments WHERE id=?').get(round.tournament_id);
+  if (!tour || !_canEditEntry(req, null, tour)) {
+    return res.status(403).json({ error: 'Sign in as the host to reorder players' });
+  }
+  const ids = Array.isArray(req.body?.entryIds) ? req.body.entryIds : [];
+  if (!ids.length) return res.status(400).json({ error: 'entryIds array required' });
+  const upd = db.prepare('UPDATE round_entries SET order_index=? WHERE id=? AND round_id=?');
+  const tx = db.transaction((arr) => arr.forEach((id, i) => upd.run(i + 1, String(id), round.id)));
+  tx(ids);
+  broadcastRound(round.id);
+  res.json({ ok: true });
+});
 
 // Edit a round entry — change player name, handicap index, or tee. The
 // course handicap is recomputed from the new (handicap_index, tee). Team

@@ -2,6 +2,55 @@
 
 ---
 
+## v3.66.0 — 2026-06-03
+### Session 85 — Drag-to-reorder players + "this score counts" highlight
+
+### Drag-to-reorder
+Every player row on the Competitors panel now has a `⋮⋮` drag handle.
+Drag a row up or down and release; the new order persists immediately.
+
+Backend:
+- New `round_entries.order_index` column (default 0 keeps existing
+  insertion order).
+- `gatherRoundEntries` and `roundScoreCards` both sort
+  `ORDER BY order_index, rowid` so the change cascades to the
+  scorecard, the card view, and the live leaderboard.
+- New `PATCH /api/rounds/:roundId/entries/order` endpoint takes
+  `{ entryIds: [...] }` and writes a fresh sequence inside one
+  transaction.
+
+Frontend:
+- HTML5 drag/drop with above/below drop indicators (saffron line top
+  or bottom of the target row).
+- Optimistic DOM reorder on drop, then POST. If the POST fails, the
+  view re-fetches to reset.
+
+### "This score counts" highlight on the card view
+For best-ball / better-ball formats where each player keeps their own
+ball, the team only scores the BEST net per hole. The `/card/:id`
+view now:
+- Pre-computes per-hole winners by net score across each team.
+- Renders a saffron outline around the winning cell + a tooltip
+  ("This score counts for the team").
+- Appends a synthetic **Best ball net per hole** row after each team's
+  members showing the hole-by-hole best-net + front/back/total. So
+  if Alex scores 4 on hole 1 and Brooke scores 5, the team row reads
+  4 on hole 1.
+- Updates the legend at the bottom with a sample swatch.
+
+### Files
+- [server.js](server.js) — `order_index` column, `PATCH /api/rounds/:id/entries/order`, updated both ORDER BY clauses
+- [public/tournaments.html](public/tournaments.html) — `wireDragReorder()` + drag-handle CSS
+- [public/card.html](public/card.html) — `winnerByTeamHole` + `teamNetByHole` pre-pass; `.used` outline; "team-total" synthetic row
+- [tests/manual/test-reorder-and-counts.js](tests/manual/test-reorder-and-counts.js) — 8-step E2E: insertion order → reorder → reversed order persists; best-ball pair posts scores → Alex's 4 marked on hole 1, Brooke's 3 on hole 2; team-total row rendered
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: 8/8 — drag-reorder writes order_index correctly; card view
+  highlights the per-hole winner; synthetic Pair row sums best nets
+
+---
+
 ## v3.65.1 — 2026-06-03
 ### Session 84 (cont.) — Add player to an existing team + handicap info
 
