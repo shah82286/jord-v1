@@ -2,6 +2,53 @@
 
 ---
 
+## v3.66.1 — 2026-06-03
+### Session 85 (cont.) — Live drawer shows each team member's scorecard
+
+User pointed out that when a team row is expanded on `/live/:id`, the
+drawer didn't show the individual players' names or scores — making
+it impossible to see who actually contributed each net on a best-ball
+or better-ball team.
+
+### Engine — enriched team rows
+The bestball builder in `lib/scoring.js` now attaches two extra fields
+to each team row before returning the leaderboard:
+
+- `members: [{ entryId, playerName, courseHandicap, scores, strokeMap, strokeOverrides }]`
+  — the per-player data needed to render each member's grid.
+- `winnerByHole: { holeNumber: entryId }` — which member's NET score
+  is the team's best on that hole. The live drawer uses this exact
+  same mechanism as the printed-card view to outline the cell.
+
+### Live drawer — per-member sections
+`live.html` now calls `renderMembersInDrawer(row)` after the team's
+aggregate hole grid. For best-ball / better-ball teams (member count
+≥ 2) it renders one section per player:
+
+- Member's name + "CH X · Gross Y" header
+- 9-column front-nine grid: Hole / Strk / Score rows
+- 9-column back-nine grid (same structure)
+- The "this score counts" cell is outlined in saffron (`box-shadow:
+  inset 0 0 0 2px var(--accent)`) — same visual language as the card
+  view's `.used` class.
+- Members honor manual stroke overrides too (the strokes row reads
+  from `strokeOverrides` when set, otherwise the auto-WHS strokes).
+
+For non-best-ball formats (stroke, skins, scramble team-card, etc.)
+the new section is a no-op — those rows don't carry a `members[]`
+array, so the existing single-grid drawer keeps working as before.
+
+### Files
+- [lib/scoring.js](lib/scoring.js) — bestball team rows attach `members[]` + `winnerByHole`
+- [public/live.html](public/live.html) — new `renderMembersInDrawer()` + member-section CSS + `.used` outline rule
+- [tests/manual/test-live-bb-drawer.js](tests/manual/test-live-bb-drawer.js) — Puppeteer: 2-pair best-ball game → SSE payload → expand team row → verify 2 member sections rendered + at least one `.used` cell exists
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: 4/4 — drawer renders Alex + Brooke sections, 3 cells get the `used` outline (Alex won holes 1 + 3, Brooke won hole 2)
+
+---
+
 ## v3.66.0 — 2026-06-03
 ### Session 85 — Drag-to-reorder players + "this score counts" highlight
 

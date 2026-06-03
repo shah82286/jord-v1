@@ -75,6 +75,14 @@
   .lb-drawer .hole-grid .cell.score.bogey  { background:rgba(192,57,43,.10); color:#a33; }
   .lb-drawer .hole-grid .cell.score.double { background:rgba(192,57,43,.22); color:#811; }
   .lb-drawer .hole-grid .cell.score.empty  { color:var(--ink-3); }
+  /* "This score counts" outline (v3.66.1) — the member whose net score is
+     the team's best on this hole gets a saffron ring inside the cell. */
+  .lb-drawer .hole-grid .cell.score.used   { box-shadow:inset 0 0 0 2px var(--accent); font-weight:700; }
+  /* Member sub-section in the drawer for best-ball / better-ball teams. */
+  .lb-drawer .member-section { margin-top:14px; padding-top:10px; border-top:1px dashed var(--border); }
+  .lb-drawer .member-section .member-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:6px; }
+  .lb-drawer .member-section .member-head .nm { font-weight:600; font-size:13px; }
+  .lb-drawer .member-section .member-head .hcp { font-size:11px; color:var(--ink-3); }
   .lb-drawer .totals { display:flex; justify-content:space-between; gap:12px; margin-top:10px;
     padding-top:10px; border-top:1px dashed var(--border); font-size:12px; color:var(--ink-2); }
   .lb-drawer .totals strong { color:var(--ink); font-family:'JetBrains Mono', monospace; }
@@ -228,7 +236,58 @@ function renderHoleDrawer(row) {
       <span><i class="swatch" style="background:rgba(192,57,43,.45)"></i> Bogey</span>
       <span><i class="swatch" style="background:rgba(192,57,43,.85)"></i> Double+</span>
     </div>
+    ${renderMembersInDrawer(row)}
   `;
+}
+
+// Render each team-member's hole-by-hole scores under the team aggregate row.
+// Used by best-ball / better-ball — the row.members[] array carries each
+// player's scores + course handicap + stroke map; row.winnerByHole tells us
+// which member's net score is the team's best on each hole (saffron outline).
+function renderMembersInDrawer(row) {
+  if (!Array.isArray(row.members) || row.members.length < 2) return '';
+  const winners = row.winnerByHole || {};
+  const memberHTML = row.members.map(m => {
+    const scores = m.scores || {};
+    const ov = m.strokeOverrides;
+    const strokesGiven = (ov && Object.keys(ov).length)
+      ? Object.fromEntries(state.holes.map(h => [h.hole_number, Number(ov[h.hole_number] ?? ov[String(h.hole_number)]) || 0]))
+      : strokesByHole(m.courseHandicap, state.holes);
+    const half = (start, end, label) => {
+      const cells = [];
+      cells.push(`<div class="lbl">${label}</div>`);
+      for (let i = start; i <= end; i++) cells.push(`<div class="cell hole">${i}</div>`);
+      cells.push('<div class="lbl">Strk</div>');
+      for (let i = start; i <= end; i++) {
+        const s = strokesGiven[i] || 0;
+        cells.push(`<div class="cell par" style="${s>0?'color:var(--accent);font-weight:700':''}">${s > 0 ? '+' + s : '—'}</div>`);
+      }
+      cells.push('<div class="lbl">Score</div>');
+      let scoreSum = 0, anyScore = false;
+      for (let i = start; i <= end; i++) {
+        const h = state.holes.find(x => x.hole_number === i);
+        const par = h ? h.par : 0;
+        const s = scores[i] ?? scores[String(i)];
+        if (s != null) { scoreSum += s; anyScore = true; }
+        const isUsed = winners[i] === m.entryId || winners[String(i)] === m.entryId;
+        cells.push(`<div class="cell score ${scoreClass(s, par)} ${isUsed?'used':''}" title="${isUsed?'This score counts for the team':''}">${s != null ? s : '—'}</div>`);
+      }
+      return { html: `<div class="hole-grid">${cells.join('')}</div>`, scoreSum, anyScore };
+    };
+    const out = half(1, 9, 'Hole');
+    const inn = half(10, 18, 'Hole');
+    const total = (out.anyScore ? out.scoreSum : 0) + (inn.anyScore ? inn.scoreSum : 0);
+    return `<div class="member-section">
+      <div class="member-head">
+        <span class="nm">${esc(m.playerName)}</span>
+        <span class="hcp">CH ${m.courseHandicap != null ? m.courseHandicap : '—'} · Gross ${out.anyScore || inn.anyScore ? total : '—'}</span>
+      </div>
+      ${out.html}
+      <div style="height:6px"></div>
+      ${inn.html}
+    </div>`;
+  }).join('');
+  return memberHTML;
 }
 
 // Render the team-aggregate strip (shown above the individual rows when
