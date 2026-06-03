@@ -465,12 +465,21 @@ function renderPlayers() {
   }).join('');
   $('#players').querySelectorAll('[data-inc]').forEach(b=>b.onclick=()=>{
     const v=getScore(b.dataset.inc,hole);
-    setScore(b.dataset.inc,hole, v==null?par:Math.min(20,v+1)); renderPlayers(); renderDots();
+    // First tap on + seeds to par (most common score); subsequent taps add 1.
+    setScore(b.dataset.inc, hole, v == null ? par : Math.min(20, v + 1));
+    renderPlayers(); renderDots();
   });
   $('#players').querySelectorAll('[data-dec]').forEach(b=>b.onclick=()=>{
     const v=getScore(b.dataset.dec,hole);
-    if (v==null) return;
-    setScore(b.dataset.dec,hole, v<=1?null:v-1); renderPlayers(); renderDots();
+    // First tap on − seeds to par − 1 (one under, typical birdie shortcut)
+    // rather than ignoring — so under-par scores are one tap, not two.
+    if (v == null) {
+      const seed = Math.max(1, par - 1);
+      setScore(b.dataset.dec, hole, seed);
+    } else {
+      setScore(b.dataset.dec, hole, v <= 1 ? null : v - 1);
+    }
+    renderPlayers(); renderDots();
   });
 }
 

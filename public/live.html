@@ -75,6 +75,16 @@
   .lb-drawer .hole-grid .cell.score.bogey  { background:rgba(192,57,43,.10); color:#a33; }
   .lb-drawer .hole-grid .cell.score.double { background:rgba(192,57,43,.22); color:#811; }
   .lb-drawer .hole-grid .cell.score.empty  { color:var(--ink-3); }
+  /* Skin marker — shown on the hole row of the drawer's grid for holes
+     where this player won the skin. Gold background + 💰 emoji. v3.66.3 */
+  .lb-drawer .hole-grid .cell.skin {
+    background:#FFE99B; color:#7a5400; font-weight:700; border-radius:50%;
+    font-size:11px;
+  }
+  .lb-drawer .hole-grid .cell.skin.carry {
+    background:#FFF1D6; color:#a37100;
+  }
+  .lb-drawer .hole-grid .cell.skin.empty { background:none; color:var(--ink-3); font-size:11px; }
   /* "This score counts" outline (v3.66.1) — the member whose net score is
      the team's best on this hole gets a saffron ring inside the cell. */
   .lb-drawer .hole-grid .cell.score.used   { box-shadow:inset 0 0 0 2px var(--accent); font-weight:700; }
@@ -208,6 +218,12 @@ function renderHoleDrawer(row) {
   const strokesGiven = (ov && Object.keys(ov).length)
     ? Object.fromEntries(state.holes.map(h => [h.hole_number, Number(ov[h.hole_number] ?? ov[String(h.hole_number)]) || 0]))
     : strokesByHole(row.courseHandicap, state.holes);
+  // Skins data — { hole_number: skinValue } for holes this player won.
+  // skinHoles[i] = { hole, value, carry } from the engine.
+  const skinByHole = {};
+  for (const s of (row.skinHoles || [])) skinByHole[s.hole] = s;
+  const tiedSet = new Set((row.skinTiedHoles || []).map(Number));
+  const hasSkins = (row.skinHoles && row.skinHoles.length) || tiedSet.size > 0;
   const half = (start, end, label) => {
     const cells = [];
     cells.push(`<div class="lbl">${label}</div>`);
@@ -234,6 +250,22 @@ function renderHoleDrawer(row) {
       const s = scores[i] ?? scores[String(i)];
       if (s != null) { scoreSum += s; anyScore = true; }
       cells.push(`<div class="cell score ${scoreClass(s, par)}">${s != null ? s : '—'}</div>`);
+    }
+    // Skins row — only shown when this is a skins-format leaderboard.
+    // 💰 X marks a won hole (X = value, > 1 if carried over); ↻ marks a
+    // tied carryover; em-dash otherwise.
+    if (hasSkins) {
+      cells.push('<div class="lbl">Skin</div>');
+      for (let i = start; i <= end; i++) {
+        const w = skinByHole[i];
+        if (w) {
+          cells.push(`<div class="cell skin" title="Won ${w.value} skin${w.value>1?'s':''}${w.carry?' (carryover)':''} on hole ${i}">💰${w.value > 1 ? '×' + w.value : ''}</div>`);
+        } else if (tiedSet.has(i)) {
+          cells.push(`<div class="cell skin carry" title="Tied — carried over to the next hole">↻</div>`);
+        } else {
+          cells.push(`<div class="cell skin empty">—</div>`);
+        }
+      }
     }
     return { html: `<div class="hole-grid">${cells.join('')}</div>`, parSum, scoreSum, anyScore };
   };

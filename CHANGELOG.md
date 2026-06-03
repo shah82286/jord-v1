@@ -2,6 +2,59 @@
 
 ---
 
+## v3.66.3 — 2026-06-03
+### Session 86 — Score stepper one-tap + skins win/carry markers
+
+Two bugs the user hit in the same session:
+
+### Stepper: one tap for under-par scores
+The score-entry **−** button used to do nothing on the first tap if no
+score existed yet, so an under-par score (birdie/eagle) needed two
+clicks: **+** to seed par, then **−** to come down. Now:
+- First tap on **+** seeds the score to **par**
+- First tap on **−** seeds the score to **par − 1** (i.e., one under)
+
+So a birdie on a par-4 is one tap of **−**, an eagle is two taps.
+Symmetric with the **+** path (par, par+1, par+2 …) so users don't
+have to think about which button to use first.
+
+### Skins drawer shows the holes won + carryovers
+A user reported that even though Fitzy won 1 skin in their mock event,
+the drawer didn't say WHICH hole he won it on. Fixed.
+
+The skins engine (`lib/scoring.js::buildSkins`) now attaches two extra
+fields to each leaderboard row:
+- `skinHoles: [{ hole, value, carry }]` — every hole this player won,
+  the skin value on that hole (> 1 if previous holes tied and
+  carried), and a flag noting whether it was a carry pot.
+- `skinTiedHoles: [hole, …]` — holes where the field tied (the pot
+  rolled forward); shared on every row so the UI can flag them.
+
+The live drawer's hole-by-hole grid now adds a **Skin** row when the
+row carries skins data:
+- **💰×N** on holes the player won (N = value, omitted when 1)
+- **↻** on tied holes (carryover indicator)
+- em-dash on holes the player neither won nor tied
+
+Each hole's existing par + strokes + score rows keep working as
+before, so the drawer reads top-to-bottom as a full per-hole story:
+*"Hole 3, par 4, no stroke, Fitzy shot 4, 💰×2 — he picked up the
+carry from hole 2 + the live skin."*
+
+### Files
+- [public/scorecard.html](public/scorecard.html) — − button now seeds to par − 1 on first tap
+- [lib/scoring.js](lib/scoring.js) — `buildSkins` attaches `skinHoles` + `skinTiedHoles` + raw `scores` + `strokeMap` to every row
+- [public/live.html](public/live.html) — Skin row in `renderHoleDrawer` + 💰 / ↻ markers + matching CSS
+- [tests/manual/test-skins-drawer.js](tests/manual/test-skins-drawer.js) — Puppeteer 4-step: skins game with deliberate carryovers → expand Fitzy's row → verify `💰×2` + 2 `↻` carry markers
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: skins drawer renders **💰×2** on the hole Fitzy won + **↻**
+  on the holes that carried; "$5.00 per skin" displayed under the
+  headline
+
+---
+
 ## v3.66.2 — 2026-06-03
 ### Session 85 (cont.) — Color-code each player so individuals stand out from the team total
 
