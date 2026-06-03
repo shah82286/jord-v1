@@ -2,6 +2,51 @@
 
 ---
 
+## v3.64.1 — 2026-06-02
+### Session 82 — Multi-tee course-add + personal users can add courses
+
+User feedback: the "+ Add course" form only accepted a single tee, so
+adding a course with Black / Blue / White / Red required creating it
+four times.
+
+### Course-add form
+Rewrote `courseManualMode` + `saveManualCourse` to support N tee boxes:
+
+- **Shared layout up top**: course name, city, state, then a single
+  par + stroke-index row (these almost never vary across tees, so
+  collecting them once keeps the form short).
+- **Tee boxes section**: each tee is its own card with:
+  - Name input (with a color swatch that auto-updates to match —
+    "Black" → black dot, "Blue" → blue dot, etc.)
+  - Gender select (Male / Female / Any)
+  - Course rating + Slope rating inputs
+  - 9-column yardage grid per hole
+  - **×** remove button (hidden when only one tee remains)
+- **+ Add tee box** button at the bottom to keep adding.
+- Defaults to two tees pre-seeded (Blue + White) so the common case is
+  one click cheaper.
+
+The server already accepted `tees: [...]` arrays via `insertCourse`
+— the bug was purely the UI hard-coding `tees: [{...}]` with one
+entry. So this is a UI fix.
+
+### Personal users can add courses
+`POST /api/courses` was `requireAuth, requireAdminOrSuper` — blocking
+personal users from adding a home course for their casual rounds.
+Widened to `requireUserOrAdmin`. The `created_by` column is plain
+TEXT so it stores either an admin id or a personal user id.
+
+### Files
+- [server.js](server.js) — `POST /api/courses` auth widened to user-or-admin; uses `actorIdentity(req)` for `created_by`
+- [public/tournaments.html](public/tournaments.html) — `_newCourse` state, `renderTees()`, `+ Add tee box`, per-tee color swatches; `saveManualCourse` posts the full `tees: [...]` array
+- [tests/manual/test-multi-tee-course.js](tests/manual/test-multi-tee-course.js) — E2E creates a 4-tee course (Black / Blue / White / Red) as a personal user and verifies every tee's per-hole yardages persist
+
+### Tests
+- 411/411 unit + integration passing
+- Manual: 4-tee course saved + round-tripped (Black 7020 yds → Red 5266 yds, per-hole yardages preserved)
+
+---
+
 ## v3.64.0 — 2026-06-02
 ### Session 81 — Manual stroke allocation override (WHS Rule 11 still default)
 

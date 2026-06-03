@@ -4694,7 +4694,7 @@ app.post('/api/courses/import', requireAuth, requireAdminOrSuper, (req, res) => 
 
 // Manual scorecard entry — { name, city, state, tees:[{ name, gender,
 // course_rating, slope_rating, holes:[{ par, stroke_index, yardage }] }] }
-app.post('/api/courses', requireAuth, requireAdminOrSuper, (req, res) => {
+app.post('/api/courses', requireUserOrAdmin, (req, res) => {
   const c = req.body || {};
   if (!c.name || !Array.isArray(c.tees) || !c.tees.length) {
     return res.status(400).json({ error: 'name and at least one tee required' });
@@ -4705,7 +4705,10 @@ app.post('/api/courses', requireAuth, requireAdminOrSuper, (req, res) => {
   }
   c.source = 'manual';
   c.num_holes = c.tees[0]?.holes?.length || 18;
-  res.json({ id: insertCourse(c, req.admin.id) });
+  // created_by takes either an admin id or a personal user id — the column is
+  // a plain TEXT so it doesn't care which one. Both flows are valid now.
+  const actor = actorIdentity(req);
+  res.json({ id: insertCourse(c, actor.id) });
 });
 
 app.get('/api/courses/:id', requireUserOrAdmin, (req, res) => {

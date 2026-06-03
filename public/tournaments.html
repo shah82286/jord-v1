@@ -55,6 +55,16 @@
   .sc-grid { display:grid; grid-template-columns:repeat(9,1fr); gap:6px; margin:var(--s-3) 0; }
   .sc-grid .h-cell label { font-size:10px; color:var(--ink-3); font-weight:700; display:block; text-align:center; }
   .sc-grid input { width:100%; padding:6px 2px; text-align:center; font-size:13px; border:1px solid var(--border); border-radius:6px; background:var(--surface); }
+  /* Per-tee yardage row inside the multi-tee course-add form. */
+  .tee-box { border:1px solid var(--border); border-radius:var(--r-md, var(--r-sm)); padding:var(--s-3); margin-top:var(--s-3); background:var(--surface); }
+  .tee-box-head { display:flex; align-items:center; gap:var(--s-2); margin-bottom:var(--s-2); }
+  .tee-box-head .tee-color { width:14px; height:14px; border-radius:50%; border:1px solid var(--border-2); flex-shrink:0; }
+  .tee-box-head input.tee-name { flex:1; font-weight:700; }
+  .tee-box-head .rm-tee { background:transparent; border:none; color:var(--ink-3); cursor:pointer; font-size:18px; padding:4px 8px; }
+  .tee-box-head .rm-tee:hover { color:var(--danger); }
+  .tee-yards { display:grid; grid-template-columns:repeat(9,1fr); gap:4px; margin-top:6px; }
+  .tee-yards .y-cell label { font-size:10px; color:var(--ink-3); font-weight:700; display:block; text-align:center; }
+  .tee-yards .y-cell input { width:100%; padding:4px 2px; text-align:center; font-size:12px; border:1px solid var(--border); border-radius:5px; background:var(--surface-2); }
   .search-result { display:flex; justify-content:space-between; align-items:center; gap:var(--s-3); padding:10px 12px; border-bottom:1px solid var(--border); }
   .seg { display:inline-flex; border:1px solid var(--border-2); border-radius:var(--r-sm); overflow:hidden; }
   .seg button { padding:8px 16px; background:var(--surface); border:none; cursor:pointer; font-weight:600; font-size:13px; color:var(--ink-2); }
@@ -513,41 +523,113 @@ async function doCourseSearch() {
     });
   } catch(e){ box.innerHTML = '<p class="mini">Search failed: '+esc(e.message)+'</p>'; }
 }
+// Multi-tee course state (kept on the closure so render/wire calls share it).
+const _newCourse = { tees: [] };
+const TEE_COLORS = { black:'#1a1a1a', blue:'#1f3f7a', white:'#FBF9F4',
+  gold:'#c9a227', red:'#a12c2c', green:'#2d5d36', silver:'#cccccc' };
+function _teeSwatch(name) {
+  const k = String(name || '').toLowerCase().split(/\s+/)[0];
+  return TEE_COLORS[k] || '#ddd';
+}
 function courseManualMode() {
-  let holes = '';
-  for (let h=1; h<=18; h++) holes += `<div class="h-cell"><label>${h}</label>
+  // Reset state on each open so reopening doesn't accumulate stale tees.
+  _newCourse.tees = [
+    { name: 'Blue',  gender: 'male',   course_rating: '', slope_rating: '', yards: Array(18).fill('') },
+    { name: 'White', gender: 'male',   course_rating: '', slope_rating: '', yards: Array(18).fill('') },
+  ];
+  let parSiHoles = '';
+  for (let h = 1; h <= 18; h++) parSiHoles += `<div class="h-cell"><label>${h}</label>
     <input type="number" min="3" max="6" value="4" data-par="${h}" />
-    <input type="number" min="1" max="18" value="${h}" data-si="${h}" />
-    <input type="number" min="0" placeholder="yds" data-yd="${h}" /></div>`;
+    <input type="number" min="1" max="18" value="${h}" data-si="${h}" /></div>`;
   $('#courseMode').innerHTML = `
-    <div class="field-grid" style="grid-template-columns:1fr 1fr">
+    <div class="field-grid" style="grid-template-columns:1fr 1fr 1fr">
       <div class="field"><label>Course name</label><input class="input" id="mName" /></div>
-      <div class="field"><label>Tee name</label><input class="input" id="mTee" value="White" /></div>
       <div class="field"><label>City</label><input class="input" id="mCity" /></div>
       <div class="field"><label>State</label><input class="input" id="mState" /></div>
-      <div class="field"><label>Course rating</label><input class="input" id="mCR" type="number" step="0.1" placeholder="71.2" /></div>
-      <div class="field"><label>Slope rating</label><input class="input" id="mSlope" type="number" placeholder="125" /></div>
     </div>
-    <p class="mini">Per hole: <strong>par</strong> · <strong>stroke index</strong> (1=hardest) · <strong>yardage</strong>.
-      Rating &amp; slope: <a href="https://ncrdb.usga.org/" target="_blank" rel="noopener">USGA NCRDB</a>.</p>
-    <div class="sc-grid">${holes}</div>
-    <button class="btn btn-primary" id="mSave">Save course</button>`;
+    <p class="mini" style="margin-top:var(--s-3)">Per hole: <strong>par</strong> + <strong>stroke index</strong> (1 = hardest). These are
+      the same across every tee box. Yardage + rating + slope are per-tee, below.</p>
+    <div class="sc-grid">${parSiHoles}</div>
+    <h3 style="font-family:var(--font-display);margin-top:var(--s-4)">Tee boxes</h3>
+    <p class="mini">Add a row per tee — Black, Blue, White, Gold, Red, etc. USGA NCRDB has every official rating/slope:
+      <a href="https://ncrdb.usga.org/" target="_blank" rel="noopener">ncrdb.usga.org</a>.</p>
+    <div id="teesPanel"></div>
+    <button class="btn btn-ghost" id="addTee" type="button">+ Add tee box</button>
+    <div style="margin-top:var(--s-4)"><button class="btn btn-primary" id="mSave">Save course</button></div>`;
   $('#mSave').onclick = saveManualCourse;
+  $('#addTee').onclick = () => {
+    _newCourse.tees.push({ name: '', gender: 'male', course_rating: '', slope_rating: '', yards: Array(18).fill('') });
+    renderTees();
+  };
+  renderTees();
+}
+function renderTees() {
+  const el = $('#teesPanel');
+  if (!el) return;
+  el.innerHTML = _newCourse.tees.map((t, ti) => `
+    <div class="tee-box" data-tee="${ti}">
+      <div class="tee-box-head">
+        <span class="tee-color" style="background:${_teeSwatch(t.name)}"></span>
+        <input class="input tee-name" placeholder="Tee name (e.g. Black)" value="${esc(t.name)}" data-tname="${ti}" />
+        <select class="input" style="width:120px" data-tgender="${ti}">
+          <option value="male"   ${t.gender==='male'?'selected':''}>Male</option>
+          <option value="female" ${t.gender==='female'?'selected':''}>Female</option>
+          <option value="any"    ${t.gender==='any'?'selected':''}>Any</option>
+        </select>
+        <input class="input" style="width:80px" type="number" step="0.1" placeholder="CR" value="${esc(t.course_rating)}" data-tcr="${ti}" title="Course rating" />
+        <input class="input" style="width:80px" type="number" placeholder="Slope" value="${esc(t.slope_rating)}" data-tslope="${ti}" title="Slope rating" />
+        ${_newCourse.tees.length > 1 ? `<button class="rm-tee" type="button" data-rm-tee="${ti}" title="Remove tee">×</button>` : ''}
+      </div>
+      <div class="tee-yards">${Array.from({length:18}, (_, i) => `
+        <div class="y-cell"><label>${i+1}</label>
+          <input type="number" min="0" placeholder="yds" value="${esc(t.yards[i] || '')}" data-tyd="${ti}.${i}" /></div>`).join('')}</div>
+    </div>`).join('');
+  // Wire up all the inputs to keep _newCourse in sync.
+  el.querySelectorAll('[data-tname]').forEach(i => i.oninput = e => {
+    _newCourse.tees[+i.dataset.tname].name = e.target.value;
+    // Re-render the swatch only — cheap full re-render.
+    renderTees();
+  });
+  el.querySelectorAll('[data-tgender]').forEach(i => i.onchange = e => { _newCourse.tees[+i.dataset.tgender].gender = e.target.value; });
+  el.querySelectorAll('[data-tcr]').forEach(i => i.oninput = e => { _newCourse.tees[+i.dataset.tcr].course_rating = e.target.value; });
+  el.querySelectorAll('[data-tslope]').forEach(i => i.oninput = e => { _newCourse.tees[+i.dataset.tslope].slope_rating = e.target.value; });
+  el.querySelectorAll('[data-tyd]').forEach(i => i.oninput = e => {
+    const [ti, idx] = i.dataset.tyd.split('.').map(Number);
+    _newCourse.tees[ti].yards[idx] = e.target.value;
+  });
+  el.querySelectorAll('[data-rm-tee]').forEach(b => b.onclick = () => {
+    _newCourse.tees.splice(+b.dataset.rmTee, 1); renderTees();
+  });
 }
 async function saveManualCourse() {
   const name = $('#mName').value.trim();
   if (!name) { JORD.warn('Course name required'); return; }
-  const holes = [];
-  for (let h=1; h<=18; h++) holes.push({ hole_number:h,
-    par:+$(`[data-par="${h}"]`).value||4, stroke_index:+$(`[data-si="${h}"]`).value||h,
-    yardage:+$(`[data-yd="${h}"]`).value||null });
+  if (!_newCourse.tees.length) { JORD.warn('Add at least one tee box'); return; }
+  if (_newCourse.tees.some(t => !t.name.trim())) { JORD.warn('Every tee needs a name'); return; }
+  // Per-hole par + SI is shared across tees; yardages are per-tee.
+  const parSi = [];
+  for (let h = 1; h <= 18; h++) parSi.push({
+    par: +$(`[data-par="${h}"]`).value || 4,
+    stroke_index: +$(`[data-si="${h}"]`).value || h,
+  });
+  const tees = _newCourse.tees.map(t => ({
+    name: t.name.trim(),
+    gender: t.gender || 'male',
+    course_rating: t.course_rating === '' ? null : Number(t.course_rating),
+    slope_rating:  t.slope_rating === ''  ? null : Number(t.slope_rating),
+    holes: Array.from({length:18}, (_, i) => ({
+      hole_number: i+1,
+      par: parSi[i].par,
+      stroke_index: parSi[i].stroke_index,
+      yardage: t.yards[i] === '' ? null : Number(t.yards[i]) || null,
+    })),
+  }));
   try {
-    await JORD.api('/api/courses',{method:'POST',body:{ name,
-      city:$('#mCity').value.trim(), state:$('#mState').value.trim(),
-      tees:[{ name:$('#mTee').value.trim()||'White', gender:'male',
-        course_rating:+$('#mCR').value||null, slope_rating:+$('#mSlope').value||null, holes }] }});
-    await loadAll(); renderHome(); JORD.success('Course saved');
-  } catch(e){ JORD.error(e.message); }
+    await JORD.api('/api/courses', { method: 'POST', body: {
+      name, city: $('#mCity').value.trim(), state: $('#mState').value.trim(), tees,
+    }});
+    await loadAll(); renderHome(); JORD.success(`Course saved with ${tees.length} tee box${tees.length===1?'':'es'}`);
+  } catch(e) { JORD.error(e.message); }
 }
 
 /* ─── wizard ───────────────────────────────────────────────────────── */
