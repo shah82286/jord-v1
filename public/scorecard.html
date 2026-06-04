@@ -22,6 +22,11 @@
   .hole-nav button:disabled { opacity:.35; }
   .p-row { display:flex; align-items:center; gap:var(--s-3); padding:12px 14px; border:1px solid var(--border);
     border-radius:var(--r-sm); background:var(--surface); margin-bottom:var(--s-2); }
+  /* Highlight the player who claimed this device via the share-link picker. */
+  .p-row.is-me        { border-color:var(--accent); background:rgba(184,136,77,0.06); }
+  .p-row.is-teammate  { border-left:3px solid var(--accent); }
+  .p-row .you-badge   { font-size:10px; font-weight:700; color:var(--accent);
+    letter-spacing:.08em; padding:3px 6px; border:1px solid var(--accent); border-radius:6px; }
   .p-row .p-name { flex:1; font-weight:600; }
   .p-row .p-name small { display:block; font-weight:400; color:var(--ink-3); font-size:11px; }
   .strokes { color:var(--accent); font-weight:700; letter-spacing:1px; }
@@ -426,6 +431,14 @@ function renderPlayers() {
   const hole=state.hole, par=holePar(hole);
   const h = state.holes.find(x=>x.hole_number===hole) || {};
   const totalHoles = state.holes.length || 18;
+  // "Whose phone is this?" — set when a guest claimed their name on the
+  // share-link landing page. We surface a YOU badge + faint accent border
+  // so they can find themselves in a big field, and we extend the
+  // highlight to teammates (same team_id) so they know which rows their
+  // score will roll up into.
+  const claimedId = (function(){ try { return localStorage.getItem('jord_claim_' + roundId) || null; } catch { return null; } })();
+  const claimedEntry = claimedId ? state.entries.find(e => e.id === claimedId) : null;
+  const myTeamId = claimedEntry && claimedEntry.team_id || null;
   $('#players').innerHTML = state.entries.map(e=>{
     const v=getScore(e.id,hole);
     const diff = v!=null ? v-par : null;
@@ -437,6 +450,9 @@ function renderPlayers() {
     const strokeMeta = stk > 0
       ? `<span class="strokes" title="${Array.isArray(e.members) && e.members.length ? 'Team' : 'Player'} gets ${stk} handicap stroke${stk>1?'s':''} on this hole">${dots} +${stk}</span>` : '';
     const groupPart = e.group_name && e.group_name !== e.player_name ? esc(e.group_name) : '';
+    const isMe = claimedId && e.id === claimedId;
+    const isTeammate = !isMe && myTeamId && e.team_id === myTeamId;
+    const youBadge = isMe ? `<span class="you-badge">YOU</span>` : '';
     // For team-card formats (scramble / foursomes / chapman), break out every
     // member of the team with their own handicap + per-hole stroke allocation.
     let membersHTML = '';
@@ -450,9 +466,9 @@ function renderPlayers() {
         </div>`;
       }).join('')}</div>`;
     }
-    return `<div class="p-row" style="${membersHTML ? 'flex-direction:column;align-items:stretch' : ''}">
+    return `<div class="p-row ${isMe ? 'is-me' : isTeammate ? 'is-teammate' : ''}" style="${membersHTML ? 'flex-direction:column;align-items:stretch' : ''}">
       <div style="display:flex;align-items:center;gap:var(--s-3);width:100%">
-        <div class="p-name" style="flex:1">${esc(e.player_name)}${teamHcpLabel}<small>${groupPart}${groupPart && strokeMeta ? ' · ' : ''}${strokeMeta}</small></div>
+        <div class="p-name" style="flex:1">${esc(e.player_name)}${youBadge ? ' ' + youBadge : ''}${teamHcpLabel}<small>${groupPart}${groupPart && strokeMeta ? ' · ' : ''}${strokeMeta}</small></div>
         <div class="vs-par ${diff<0?'under':diff>0?'over':''}">${diffTxt}</div>
         <div class="stepper">
           <button data-dec="${e.id}">−</button>

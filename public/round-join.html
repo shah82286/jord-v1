@@ -117,7 +117,21 @@
 <script>
 const esc = JORD.escapeHtml;
 const shareCode = location.pathname.split('/').filter(Boolean)[1];
-const state = { tournament: null, round: null, course: null, entries: [], me: null, justJoined: null };
+const state = { tournament: null, round: null, course: null, entries: [], me: null, justJoined: null, claimedEntryId: null };
+
+// Per-round "claim": a guest with the share link picks their name from the
+// dropdown and we remember which entry is theirs for this device. Keyed by
+// round id so a phone shared across multiple games doesn't get crossed up.
+function claimKey(roundId) { return 'jord_claim_' + roundId; }
+function readClaim(roundId) {
+  try { return localStorage.getItem(claimKey(roundId)) || null; } catch { return null; }
+}
+function writeClaim(roundId, entryId) {
+  try { localStorage.setItem(claimKey(roundId), entryId); } catch {}
+}
+function clearClaim(roundId) {
+  try { localStorage.removeItem(claimKey(roundId)); } catch {}
+}
 
 function fmtDate(s) {
   if (!s) return 'TBD';
@@ -170,6 +184,11 @@ async function load() {
     state.entries = data.entries || [];
     // Try to load the signed-in user (for the "join as you" prefill).
     try { state.me = await JORD.api('/api/users/me'); } catch {}
+    // Rehydrate any prior claim — but only if the entry still exists
+    // (creator may have removed/renamed players between visits).
+    const prior = readClaim(state.round.id);
+    if (prior && state.entries.some(e => e.id === prior)) state.claimedEntryId = prior;
+    else if (prior) clearClaim(state.round.id);
     render();
   } catch (e) {
     showError("Couldn't reach the server", 'Check your connection and try again.');
@@ -185,8 +204,15 @@ function showError(title, sub) {
 
 function render() {
   const t = state.tournament, round = state.round, course = state.course;
-  const meEntry = state.me && state.entries.find(e => e.user_id === state.me.id);
+  // "Who am I in this game" — preferred order:
+  //   1. signed-in user matched to an entry (creator stamped user_id)
+  //   2. localStorage claim from a prior visit on this device
+  const meEntry =
+    (state.me && state.entries.find(e => e.user_id === state.me.id)) ||
+    (state.claimedEntryId && state.entries.find(e => e.id === state.claimedEntryId)) ||
+    null;
   const youJustJoined = state.justJoined;
+  const fieldHasPlayers = state.entries.length > 0;
 
   document.title = `Join · ${t.name} · JORD Golf`;
   document.getElementById('view').innerHTML = `
@@ -204,6 +230,8 @@ function render() {
       <strong>You're in.</strong> Your scorecard is ready below — bookmark this page to find it again on game day.
     </div>` : ''}
 
+    ${meEntry ? renderImInTheGame(meEntry, round) : renderPickOrJoin(round, fieldHasPlayers)}
+
     <div class="rj-card">
       <h3>Players in this game (${state.entries.length})</h3>
       ${state.entries.length === 0
@@ -212,7 +240,7 @@ function render() {
             <div class="player-row ${meEntry && e.id === meEntry.id ? 'is-you' : ''}">
               <div class="num">${i + 1}</div>
               <div style="flex:1">
-                <div>${esc(e.player_name)}</div>
+                <div>${esc(e.player_name)}${e.team_name ? ` <span style="font-size:11px;color:var(--ink-3)">· ${esc(e.team_name)}</span>` : ''}</div>
                 ${e.course_handicap != null ? `<div class="meta">Course handicap ${e.course_handicap}</div>` : ''}
               </div>
               ${meEntry && e.id === meEntry.id ? '<span style="font-size:11px;color:var(--accent);font-weight:700">YOU</span>' : ''}
@@ -220,42 +248,119 @@ function render() {
           </div>`}
     </div>
 
-    ${meEntry
-      ? `<div class="rj-card">
-          <h3>You're in the game</h3>
-          <p style="color:var(--ink-2);font-size:14px;margin-bottom:var(--s-3)">Tap <strong>Open my scorecard</strong> on game day to enter scores hole-by-hole. The live leaderboard updates the moment anyone posts a score. Save this page to your phone for quick access.</p>
-          <div class="actions">
-            <a class="btn btn-accent btn-lg" href="/scorecard/${esc(round.id)}">Open my scorecard →</a>
-            <a class="btn btn-ghost" href="/live/${esc(round.id)}">Live leaderboard</a>
-          </div>
-        </div>`
-      : `<div class="rj-card">
-          <h3>Join the game</h3>
-          <p style="color:var(--ink-2);font-size:14px;margin-bottom:var(--s-3)">Add your name to the roster. No account needed — just type your name and you're in.</p>
-          <form class="join-form" id="join-form">
-            <div class="row">
-              <div class="field">
-                <label>Your name *</label>
-                <input type="text" id="f-name" required maxlength="120" autocomplete="name" placeholder="Pat O'Connor" value="${esc(state.me?.name || '')}" />
-              </div>
-              <div class="field">
-                <label>Handicap index (optional)</label>
-                <input type="number" id="f-hcp" step="0.1" min="-10" max="54" placeholder="14.2" value="${state.me?.handicap_index || ''}" />
-              </div>
-            </div>
-            <div class="err" id="err"></div>
-            <button class="btn btn-accent btn-lg btn-block" type="submit" id="submit">I'm in — join the game →</button>
-            ${!state.me ? `<p style="font-size:12px;color:var(--ink-3);text-align:center;margin-top:var(--s-3)">
-              Want to track this on your profile? <a href="/login" style="color:var(--accent);font-weight:600">Sign in or create an account</a>.
-            </p>` : ''}
-          </form>
-        </div>`}
-
     <div style="text-align:center;margin-top:var(--s-4)">
       <a class="pill-link" href="/clubhouse" style="font-size:13px;color:var(--ink-3)">← Back to JORD Clubhouse</a>
     </div>
   `;
+  wireClaim();
   wireForm();
+}
+
+// Once a player has been matched to an entry (either by signed-in user or
+// by claim), show the "Open my scorecard" CTA + the option to switch identity
+// if they picked the wrong name.
+function renderImInTheGame(meEntry, round) {
+  const teammates = meEntry.team_id
+    ? state.entries.filter(e => e.team_id === meEntry.team_id && e.id !== meEntry.id)
+    : [];
+  const teamLine = meEntry.team_name
+    ? `<div style="margin-top:6px;font-size:13px;color:var(--ink-2)">
+         <strong>${esc(meEntry.team_name)}</strong>${teammates.length
+           ? ` · with ${teammates.map(t => esc(t.player_name)).join(', ')}` : ''}
+       </div>`
+    : '';
+  return `<div class="rj-card">
+    <h3>You're playing as <span style="color:var(--accent)">${esc(meEntry.player_name)}</span></h3>
+    ${teamLine}
+    <p style="color:var(--ink-2);font-size:14px;margin:var(--s-3) 0">Tap <strong>Open my scorecard</strong> on game day to enter scores hole-by-hole — yours, your team's, and the whole group's. Bookmark this page on your phone for quick access.</p>
+    <div class="actions">
+      <a class="btn btn-accent btn-lg" href="/scorecard/${esc(round.id)}">Open my scorecard →</a>
+      <a class="btn btn-ghost" href="/live/${esc(round.id)}">Live leaderboard</a>
+    </div>
+    ${state.claimedEntryId ? `<p style="font-size:12px;color:var(--ink-3);text-align:center;margin-top:var(--s-3)">
+      Not you? <a href="#" id="clear-claim" style="color:var(--accent);font-weight:600">Pick a different name</a>
+    </p>` : ''}
+  </div>`;
+}
+
+// Two paths for a guest:
+//   (a) the host already added them → pick name from dropdown (primary)
+//   (b) they're new to the field → type their name (secondary, hidden under a toggle)
+function renderPickOrJoin(round, fieldHasPlayers) {
+  const claimOptions = state.entries.map(e =>
+    `<option value="${esc(e.id)}">${esc(e.player_name)}${e.team_name ? ' — ' + esc(e.team_name) : ''}</option>`
+  ).join('');
+  const pickHTML = fieldHasPlayers ? `
+    <div class="rj-card">
+      <h3>Find your name</h3>
+      <p style="color:var(--ink-2);font-size:14px;margin-bottom:var(--s-3)">The host already added the field. Pick yourself from the list — we'll remember on this phone.</p>
+      <form class="join-form" id="claim-form">
+        <div class="field">
+          <label>I'm…</label>
+          <select id="claim-select" required>
+            <option value="">— Pick your name —</option>
+            ${claimOptions}
+          </select>
+        </div>
+        <button class="btn btn-accent btn-lg btn-block" type="submit">That's me →</button>
+      </form>
+    </div>` : '';
+
+  // If the host already populated the field, hide the "new player" form by
+  // default — keeping it as a small disclosure stops people from accidentally
+  // creating a second copy of themselves.
+  const joinHTML = `
+    <div class="rj-card">
+      <h3>${fieldHasPlayers ? "Not on the list? Add yourself" : 'Join the game'}</h3>
+      ${fieldHasPlayers
+        ? `<p style="color:var(--ink-2);font-size:14px;margin-bottom:var(--s-3)">Only do this if the host didn't already add you — otherwise pick your name above.</p>`
+        : `<p style="color:var(--ink-2);font-size:14px;margin-bottom:var(--s-3)">Add your name to the roster. No account needed — just type your name and you're in.</p>`}
+      <form class="join-form" id="join-form">
+        <div class="row">
+          <div class="field">
+            <label>Your name *</label>
+            <input type="text" id="f-name" required maxlength="120" autocomplete="name" placeholder="Pat O'Connor" value="${esc(state.me?.name || '')}" />
+          </div>
+          <div class="field">
+            <label>Handicap index (optional)</label>
+            <input type="number" id="f-hcp" step="0.1" min="-10" max="54" placeholder="14.2" value="${state.me?.handicap_index || ''}" />
+          </div>
+        </div>
+        <div class="err" id="err"></div>
+        <button class="btn btn-accent btn-lg btn-block" type="submit" id="submit">I'm in — join the game →</button>
+        ${!state.me ? `<p style="font-size:12px;color:var(--ink-3);text-align:center;margin-top:var(--s-3)">
+          Want to track this on your profile? <a href="/login" style="color:var(--accent);font-weight:600">Sign in or create an account</a>.
+        </p>` : ''}
+      </form>
+    </div>`;
+
+  return pickHTML + joinHTML;
+}
+
+function wireClaim() {
+  const form = document.getElementById('claim-form');
+  if (form) {
+    form.onsubmit = (ev) => {
+      ev.preventDefault();
+      const sel = document.getElementById('claim-select');
+      const id = sel.value;
+      if (!id) return;
+      writeClaim(state.round.id, id);
+      state.claimedEntryId = id;
+      render();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+  }
+  const clear = document.getElementById('clear-claim');
+  if (clear) {
+    clear.onclick = (ev) => {
+      ev.preventDefault();
+      clearClaim(state.round.id);
+      state.claimedEntryId = null;
+      render();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+  }
 }
 
 function wireForm() {
@@ -284,6 +389,12 @@ function wireForm() {
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'Could not join');
       state.justJoined = true;
+      // Newly-joined guests get auto-claimed for this device so they don't
+      // have to find themselves in the dropdown on the next visit.
+      if (data && data.entry_id) {
+        writeClaim(state.round.id, data.entry_id);
+        state.claimedEntryId = data.entry_id;
+      }
       await load();
     } catch (e) {
       errBox.textContent = e.message;

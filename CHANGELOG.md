@@ -2,6 +2,66 @@
 
 ---
 
+## v3.68.0 — 2026-06-03
+### Skins toggles + best-ball team grid + share-link claim
+
+#### Skins game settings — two new toggles
+Both default to ON, so existing games are unchanged.
+- **Use handicaps (low net wins)** — ON: low NET score wins each skin
+  (current behavior). OFF: low GROSS (raw) wins — handicaps ignored.
+- **Carry tied skins forward** — ON: tied hole carries its skin to
+  the next hole (next hole worth 2). OFF: tied skin is dead, next
+  hole is back to 1.
+
+Lives next to **Value per skin** in the Skins game settings (wizard
++ tournament settings). Works for primary-format Skins AND for Skins
+side-bets layered on top of stroke / stableford / vegas / etc.
+
+- `lib/formats.js` — `allow_handicaps` + `allow_carryover` toggles.
+- `lib/scoring.js` — `buildSkins(entries, fmt, settings)` reads both
+  flags. Gross path skips `entryNet()`; no-carryover path stops
+  incrementing the running carry on tied holes.
+- Sanitizer + wizard renderer already supported `'toggle'` — no UI
+  plumbing needed.
+
+#### Best-ball: team row's per-hole grid fills in
+Previously the expanded team row in the live drawer showed all em-dashes
+even with member scores entered. The bestball engine knew which member
+won each hole on net (`winnerByHole`) but never attached a `scores` map
+to the team row, so the drawer rendered nothing.
+
+- `lib/scoring.js` — bestball branch now builds `teamScores` (gross
+  strokes of the winning member per hole) and `teamStrokeOverrides`
+  (that same member's strokes received) and attaches both to the team
+  row. The drawer already reads `row.scores` + `row.strokeOverrides`
+  — no UI change needed.
+
+#### Share link: pick your name from the dropdown
+When the host already added the field, a guest opening the share link
+now sees **Find your name** with a dropdown of all entries (with team
+labels) as the primary action. Pick → "That's me" → stored as
+`localStorage.jord_claim_<roundId>` for that device → page re-renders
+into "You're playing as Alex (Team 1 · with Bob, Carol) — Open my
+scorecard". Return visits skip the picker automatically.
+- The old "join as new player" form is now secondary ("Not on the
+  list? Add yourself") so guests don't duplicate themselves.
+- New-player joins via the form auto-claim too.
+- Stale claims (player removed/renamed by host) are dropped on
+  reload — picker reappears.
+- "Not you? Pick a different name" link lets them switch.
+- Scorecard now marks the claimed row with a **YOU** pill +
+  accent border, and gives teammates (same `team_id`) a thinner
+  accent stripe — easy spotting in a big field.
+
+- `server.js` — `/api/round-public/:shareCode` entries response now
+  LEFT-JOINs `round_teams` so each entry includes `team_name`.
+
+Test: `tests/manual/test-skins-gross.js` covers all skins modes
+(default-net, toggle-on-net, gross, carry-on, carry-off). 412/412
+main suite still passes.
+
+---
+
 ## v3.67.0 — 2026-06-03
 ### Session 87 — Clone tournament + Reset scores + UI audit
 

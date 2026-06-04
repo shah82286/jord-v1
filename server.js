@@ -5168,9 +5168,11 @@ app.get('/api/round-public/:shareCode', (req, res) => {
       course = { id: c.id, name: c.name, location: bits.join(', ') || null };
     }
   }
-  const entries = db.prepare(`SELECT e.id, e.team_id, e.is_team_card, p.name AS player_name, e.user_id, e.course_handicap
+  const entries = db.prepare(`SELECT e.id, e.team_id, e.is_team_card, p.name AS player_name, e.user_id, e.course_handicap,
+                                     rt.name AS team_name
                               FROM round_entries e
                               JOIN players p ON p.id = e.player_id
+                              LEFT JOIN round_teams rt ON rt.id = e.team_id
                               WHERE e.round_id=?
                               ORDER BY e.rowid`).all(round.id);
   res.json({
