@@ -856,8 +856,8 @@ function renderFormatPicker() {
     w.side_bets = []; // drop any side-bets that may not compose with the new primary
     renderWizard();
   });
-  if (sel && sel.settings && sel.settings.length) wireWagerPanel(sel, w);
-  if (sel) wireSideBetsPanel(sel, w);
+  if (sel && sel.settings && sel.settings.length) wireWagerPanel(sel, w, $('#fmtPicker'), renderFormatPicker);
+  if (sel) wireSideBetsPanel(sel, w, $('#fmtPicker'), renderFormatPicker);
 }
 
 // Side-bets the frontend will offer for each primary engine. Mirrors
@@ -910,6 +910,15 @@ function renderSideBetsPanel(fmt, w) {
                 <input class="input" type="number" step="${s.step||1}" min="${s.min??0}" data-sb-k="${sb.id}:${s.key}" data-t="number" value="${Number(v)||0}" />
               </div>`;
             }
+            if (s.type === 'toggle') {
+              const togId = `sb_tog_${sb.id}_${s.key}`;
+              return `<div class="field" style="grid-column:1/-1">
+                <div class="toggle-row">
+                  <input type="checkbox" id="${togId}" data-sb-tog="${sb.id}:${s.key}" ${v?'checked':''} />
+                  <label for="${togId}" style="cursor:pointer">${esc(s.label)}${s.hint?' '+help(s.hint):''}</label>
+                </div>
+              </div>`;
+            }
             return '';
           }).join('')}
         </div>` : ''}
@@ -923,9 +932,15 @@ function renderSideBetsPanel(fmt, w) {
 }
 
 // Wires the side-bets checkboxes + their per-field inputs into w.side_bets.
-function wireSideBetsPanel(fmt, w) {
+// rootEl + rerender are optional so the same helper drives both the wizard
+// picker and the Edit Game modal — pass a modal-local container + its own
+// remount callback when calling from anywhere besides the wizard.
+function wireSideBetsPanel(fmt, w, rootEl, rerender) {
   w.side_bets = w.side_bets || [];
-  const panel = $('#fmtPicker .fmt-sidebets');
+  const root = rootEl || document.querySelector('#fmtPicker');
+  const remount = rerender || renderFormatPicker;
+  if (!root) return;
+  const panel = root.querySelector('.fmt-sidebets');
   if (!panel) return;
   panel.querySelectorAll('input[data-sb]').forEach(cb => {
     cb.onchange = () => {
@@ -937,7 +952,7 @@ function wireSideBetsPanel(fmt, w) {
       } else if (!cb.checked && idx !== -1) {
         w.side_bets.splice(idx, 1);
       }
-      renderFormatPicker();
+      remount();
     };
   });
   panel.querySelectorAll('input[data-sb-k]').forEach(inp => {
@@ -947,6 +962,16 @@ function wireSideBetsPanel(fmt, w) {
       if (!sb) return;
       sb.settings = sb.settings || {};
       sb.settings[key] = Number(inp.value);
+    };
+  });
+  // Toggle inputs for side-bet settings (allow_handicaps, allow_carryover, etc.)
+  panel.querySelectorAll('input[data-sb-tog]').forEach(cb => {
+    cb.onchange = () => {
+      const [id, key] = cb.dataset.sbTog.split(':');
+      const sb = w.side_bets.find(sb => sb.format_id === id);
+      if (!sb) return;
+      sb.settings = sb.settings || {};
+      sb.settings[key] = cb.checked;
     };
   });
 }
@@ -1017,8 +1042,14 @@ function renderWagerPanel(fmt, w) {
 }
 
 // Wire input handlers for the wagering panel so edits flow into w.format_settings.
-function wireWagerPanel(fmt, w) {
-  const wager = $('#fmtPicker .fmt-wager');
+// rootEl + rerender are optional — defaults target the wizard's #fmtPicker so
+// existing callers keep working; pass a different root + rerender callback to
+// drive the Edit Game modal (same UI, different mount point).
+function wireWagerPanel(fmt, w, rootEl, rerender) {
+  const root = rootEl || document.querySelector('#fmtPicker');
+  const remount = rerender || renderFormatPicker;
+  if (!root) return;
+  const wager = root.querySelector('.fmt-wager');
   if (!wager) return;
   const cfg = w.format_settings = w.format_settings || defaultsForFormat(fmt.id);
   // Money / number / toggle scalar fields
@@ -1046,7 +1077,7 @@ function wireWagerPanel(fmt, w) {
       const k = btn.dataset.k;
       const i = +btn.dataset.rm;
       (cfg[k] || []).splice(i, 1);
-      renderFormatPicker();
+      remount();
     };
   });
   wager.querySelectorAll('[data-add]').forEach(btn => {
@@ -1054,7 +1085,7 @@ function wireWagerPanel(fmt, w) {
       const k = btn.dataset.add;
       cfg[k] = cfg[k] || [];
       cfg[k].push({ key: 'custom_' + (cfg[k].length + 1), label: 'New event', points: 1 });
-      renderFormatPicker();
+      remount();
     };
   });
 }
@@ -2032,12 +2063,49 @@ function openEditModal(t) {
   const nameInput = JORD.el('input', { class: 'input', value: t.name, id: 'eg-name' });
   const dateInput = JORD.el('input', { class: 'input', type: 'date', value: round.round_date || '', id: 'eg-date' });
 
+  // Wizard-shaped state object so the same renderWagerPanel /
+  // renderSideBetsPanel / wire* helpers drive the modal. Pre-seed with the
+  // tournament's saved format_settings + side_bets so an open-edit-close
+  // round-trip with no changes is a no-op.
+  const w = {
+    format: t.default_format,
+    format_settings: (t.format_settings && typeof t.format_settings === 'object')
+      ? JSON.parse(JSON.stringify(t.format_settings))
+      : defaultsForFormat(t.default_format),
+    side_bets: Array.isArray(t.side_bets) ? JSON.parse(JSON.stringify(t.side_bets)) : [],
+  };
+
+  const settingsBox = JORD.el('div', { id: 'eg-settings' });
+
   const body = JORD.el('div', { class: 'col gap-3' },
     JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Game name'), nameInput),
     JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Date'), dateInput),
     JORD.el('div', { class: 'field' }, JORD.el('label', null, 'Format'), fmtSelect),
+    settingsBox,
     JORD.el('p', { class: 'mini', style: { color: 'var(--ink-3)' } }, 'Course can be changed before the round starts — re-pick from the wizard for now.')
   );
+
+  // Render the format-specific wagering + side-bets controls into the modal.
+  // Re-runs on format change (reset settings to defaults for the new format).
+  function mountSettings() {
+    const allFmts = [...S.formats.individual, ...S.formats.pair, ...S.formats.team];
+    const sel = allFmts.find(f => f.id === w.format);
+    if (!sel) { settingsBox.innerHTML = ''; return; }
+    settingsBox.innerHTML =
+      (sel.settings && sel.settings.length ? renderWagerPanel(sel, w) : '') +
+      renderSideBetsPanel(sel, w);
+    if (sel.settings && sel.settings.length) wireWagerPanel(sel, w, settingsBox, mountSettings);
+    wireSideBetsPanel(sel, w, settingsBox, mountSettings);
+  }
+  mountSettings();
+  fmtSelect.addEventListener('change', () => {
+    if (w.format === fmtSelect.value) return;
+    w.format = fmtSelect.value;
+    // New format → reset settings + drop side-bets that won't compose.
+    w.format_settings = defaultsForFormat(w.format);
+    w.side_bets = [];
+    mountSettings();
+  });
 
   const saveBtn = JORD.el('button', { class: 'btn btn-primary', type: 'button' }, 'Save changes');
   const m = JORD.modal({ title: 'Edit game', body, footer: saveBtn });
@@ -2049,6 +2117,8 @@ function openEditModal(t) {
         name: nameInput.value.trim(),
         default_format: fmtSelect.value,
         round_date: dateInput.value || null,
+        format_settings: w.format_settings || {},
+        side_bets: w.side_bets || [],
       }});
       m.close();
       JORD.success('Game updated');

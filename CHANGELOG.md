@@ -2,6 +2,40 @@
 
 ---
 
+## v3.69.0 — 2026-06-17
+### Edit game settings post-creation
+
+The tournament detail page's **✎ Edit game** modal used to only let
+you change name / date / format. Now it shows the FULL format-settings
+panel — the same UI as the wizard — so every game setting (Skins
+toggles, Skins value, Nassau bets, Vegas multipliers, BBB / Dots /
+Snake points, side-bets, etc.) can be changed at any time on an
+existing tournament.
+
+Mechanics:
+- Wizard helpers `wireWagerPanel(fmt, w)` and `wireSideBetsPanel(fmt, w)`
+  now accept an optional `(rootEl, rerender)` pair so the same code
+  drives the wizard picker AND the Edit modal. Default args preserve
+  the wizard's existing call sites (no behavior change).
+- `openEditModal()` builds a wizard-shaped state object from the
+  tournament's saved `format_settings` + `side_bets`, mounts the same
+  wager + side-bets panels into the modal, and PATCHes the full
+  state when "Save changes" is hit. Format changes reset settings to
+  defaults for the new format (matching wizard behavior).
+- Side-bet settings renderer now handles `type: 'toggle'` (previously
+  only money / number) — so the new Skins toggles show up when Skins
+  is layered as a side-bet on top of stroke / stableford / etc.
+
+Server already accepted `format_settings` + `side_bets` on
+PATCH /api/tournaments/:id (sanitized against the format's schema).
+
+Test: `tests/manual/test-edit-settings.js` creates a Skins game,
+PATCHes the new toggles, then re-PATCHes with a different primary +
+a Skins side-bet to confirm side-bet settings round-trip too. 412/412
+main suite still green.
+
+---
+
 ## v3.68.0 — 2026-06-03
 ### Skins toggles + best-ball team grid + share-link claim
 
