@@ -390,17 +390,22 @@ code { font-family: var(--font-mono); font-size: 0.92em; background: var(--surfa
 .modal-backdrop.is-open { display: flex; }
 .modal {
   background: var(--surface); border-radius: var(--r-lg);
-  width: 100%; max-width: 520px; max-height: 90vh; overflow-y: auto;
+  width: 100%; max-width: 520px; max-height: 90vh;
+  /* Flex column so the body scrolls independently — header and footer
+   * stay pinned. Without this the entire modal scrolls as one block on
+   * mobile and the footer (e.g. "Save changes") drifts off-screen. */
+  display: flex; flex-direction: column;
   box-shadow: var(--shadow-lg); animation: pop var(--t-med);
 }
 .modal-lg { max-width: 800px; }
 .modal-header, .modal-footer {
+  flex: 0 0 auto;
   padding: var(--s-4) var(--s-5);
   display: flex; align-items: center; justify-content: space-between;
 }
 .modal-header { border-bottom: 1px solid var(--border); }
 .modal-footer { border-top: 1px solid var(--border); gap: var(--s-3); }
-.modal-body   { padding: var(--s-5); }
+.modal-body   { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: var(--s-5); }
 .modal-title  { font-family: var(--font-display); font-size: 22px; font-weight: 700; }
 .modal-close  { font-size: 24px; line-height: 1; color: var(--ink-2); padding: 4px 8px; border-radius: var(--r-sm); }
 .modal-close:hover { background: var(--surface-2); color: var(--ink); }

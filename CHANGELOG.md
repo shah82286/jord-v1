@@ -2,6 +2,41 @@
 
 ---
 
+## v3.70.0 — 2026-06-17
+### Mobile UX: modal scroll fix + cross-format sweep
+
+Two improvements after a full mobile-viewport (390×844) audit of every
+screen the recent changes touched.
+
+**Modal scroll on mobile (real bug fix)**
+- Long modals (Edit Game, when format settings expand the body) used to
+  scroll the entire modal — header and footer drifted off-screen, so
+  the "Save changes" button could end up below the visible area on
+  short viewports.
+- Now `.modal` is a flex column with `max-height:90vh`; header + footer
+  are `flex:0 0 auto` (pinned), and only the body scrolls
+  (`flex:1 1 auto; min-height:0; overflow-y:auto`). Save button stays
+  glued to the bottom no matter how tall the body grows.
+- Benefits every modal in the app, not just Edit Game.
+
+**Cross-format sweep (no source changes — coverage only)**
+- `tests/manual/test-all-formats-e2e.js` exercises every one of the 28
+  formats: create tournament → add the right roster shape (team-card
+  vs individual based on `fmt.allowance` type) → start round → post a
+  full hole card → fetch leaderboard → assert rows exist → for formats
+  with settings, PATCH-flip a setting and confirm round-trip.
+- 28/28 currently green, including all the toggles + best-ball team
+  grid + post-creation settings edits added in v3.68/v3.69.
+
+**Mobile screenshot tour (no source changes — coverage only)**
+- `tests/manual/test-mobile-tour.js` walks Clubhouse → wizard format
+  settings → tournament detail → Edit Game modal → share-link landing
+  → scorecard → live leaderboard → expanded team drawer, all at
+  iPhone-ish viewport. Saves PNGs to `tests/screenshots/mobile-*.png`
+  for visual review.
+
+---
+
 ## v3.69.0 — 2026-06-17
 ### Edit game settings post-creation
 
