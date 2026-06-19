@@ -21,17 +21,24 @@
     .event-card > .row { width: 100%; }
   }
 
-  /* Tooltip system */
-  .help-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
-    border-radius: 50%; background: var(--surface-2); color: var(--ink-2); font-size: 11px; font-weight: 700;
-    cursor: help; margin-left: 4px; position: relative; flex-shrink: 0; }
-  .help-icon:hover { background: var(--accent); color: var(--primary-ink); }
+  /* Tooltip system — hover on desktop, tap-to-toggle on touch. JS at
+     end of body adds .is-open on click and closes on outside-click. */
+  .help-icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+    border-radius: 50%; background: var(--surface-2); color: var(--ink-2); font-size: 12px; font-weight: 700;
+    cursor: help; margin-left: 4px; position: relative; flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent; user-select: none; }
+  .help-icon:hover,
+  .help-icon.is-open { background: var(--accent); color: var(--primary-ink); }
   .tooltip { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
     background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 9px 11px;
-    font-size: 12px; color: var(--ink); width: 230px; white-space: normal; line-height: 1.45;
+    font-size: 12px; color: var(--ink); width: 230px; max-width: calc(100vw - 32px); white-space: normal; line-height: 1.45;
     text-align: left; font-weight: 400; text-transform: none; letter-spacing: 0;
     z-index: 1000; margin-bottom: 6px; box-shadow: var(--shadow-md); pointer-events: none; }
-  .help-icon:hover .tooltip { display: block; }
+  .help-icon:hover .tooltip,
+  .help-icon.is-open .tooltip { display: block; }
+  /* On touch devices the bubble must be tappable so users can select text /
+     hit a link inside — pointer-events:none is desktop-only via hover model. */
+  .help-icon.is-open .tooltip { pointer-events: auto; }
   .label-with-help { display: flex; align-items: center; gap: 0; }
   /* Per-game settings containers — shown only when that game is toggled on */
   .game-settings { border: 1px solid var(--border); border-radius: var(--r-md);
@@ -4116,6 +4123,25 @@
 
 
 
+})();
+</script>
+
+<!-- Tap-friendly help bubbles. Hover handles desktop via CSS; this script
+     adds the tap path for touch devices. Click any .help-icon to toggle its
+     tooltip; click outside (or on another .help-icon) to close it. -->
+<script>
+(function () {
+  document.addEventListener('click', (e) => {
+    const icon = e.target.closest('.help-icon');
+    // Close every open bubble that isn't the one we just touched.
+    document.querySelectorAll('.help-icon.is-open').forEach(o => {
+      if (o !== icon) o.classList.remove('is-open');
+    });
+    if (icon) {
+      e.stopPropagation();
+      icon.classList.toggle('is-open');
+    }
+  });
 })();
 </script>
 </body>

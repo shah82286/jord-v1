@@ -2,6 +2,40 @@
 
 ---
 
+## v3.72.0 — 2026-06-18
+### Tap-friendly help bubbles + filled gaps in admin.html (#HELP-BUBBLES)
+
+The `ℹ` info bubbles on the admin Settings + Course Map tabs used to
+work only on desktop hover. On mobile, organizers had no way to read
+the explanation for things like the rough/OOB penalty modes — the
+hover never fired on touch. Now bubbles also respond to tap.
+
+**Tap-to-toggle behavior** (added to both `admin/editor.html` and
+`admin.html`):
+- Tap any `.help-icon` → tooltip opens, only one at a time
+- Tap another `.help-icon` → focus transfers (previous closes)
+- Tap anywhere outside → all open bubbles close
+- Tap the same icon again → toggles off
+- Hover still works on desktop (CSS path unchanged)
+
+CSS got a small polish too: icon size bumped 18→22 px for a hittable
+mobile target, tooltips width-capped at `calc(100vw - 32px)` so they
+never push off-screen, and they get `pointer-events:auto` only when
+opened by tap (so users can long-press to select text). All 5 paths
+verified by `tests/manual/shot-help-bubbles.js` (isolated fixture so
+the test doesn't need admin auth).
+
+**Filled the legacy `admin.html` gap**: it had only 3 bubbles vs ~20+
+in the new editor. Added the same `ℹ` bubbles + wording that the new
+editor uses on the LD scoring block (Admin phone, Starts, Ends,
+Contests, Allow rough/OOB, Rough penalty mode + fixed yards, OOB
+penalty mode + fixed yards, Hole distance, Off-green penalty). Both
+editors now cover the same fields with the same explanations.
+
+414/414 main suite green.
+
+---
+
 ## v3.71.0 — 2026-06-18
 ### Per-event branding + delete-ownership guard (#PHASE-2)
 

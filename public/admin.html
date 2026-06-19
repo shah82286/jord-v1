@@ -21,16 +21,22 @@
     .event-card > .row { width: 100%; }
   }
 
-  /* Tooltip system */
-  .help-icon { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px;
-    border-radius: 50%; background: var(--surface-2); color: var(--ink-2); font-size: 11px; font-weight: 700;
-    cursor: help; margin-left: 4px; position: relative; flex-shrink: 0; }
-  .help-icon:hover { background: var(--accent); color: var(--primary-ink); }
+  /* Tooltip system — hover on desktop, tap-to-toggle on touch. JS at end
+     of body adds .is-open on click and closes on outside-click. */
+  .help-icon { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+    border-radius: 50%; background: var(--surface-2); color: var(--ink-2); font-size: 12px; font-weight: 700;
+    cursor: help; margin-left: 4px; position: relative; flex-shrink: 0;
+    -webkit-tap-highlight-color: transparent; user-select: none; }
+  .help-icon:hover,
+  .help-icon.is-open { background: var(--accent); color: var(--primary-ink); }
   .tooltip { display: none; position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
-    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 8px 10px;
-    font-size: 12px; color: var(--ink); white-space: nowrap; z-index: 1000; margin-bottom: 4px;
-    box-shadow: var(--shadow-md); }
-  .help-icon:hover .tooltip { display: block; }
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-md); padding: 9px 11px;
+    font-size: 12px; color: var(--ink); width: 230px; max-width: calc(100vw - 32px); white-space: normal; line-height: 1.45;
+    text-align: left; font-weight: 400; text-transform: none; letter-spacing: 0;
+    z-index: 1000; margin-bottom: 6px; box-shadow: var(--shadow-md); pointer-events: none; }
+  .help-icon:hover .tooltip,
+  .help-icon.is-open .tooltip { display: block; }
+  .help-icon.is-open .tooltip { pointer-events: auto; }
   .label-with-help { display: flex; align-items: center; gap: 0; }
   .event-meta { display: flex; gap: var(--s-3); flex-wrap: wrap; align-items: center; margin-top: 6px; color: var(--ink-2); font-size: 13px; }
   .editor-grid { display: grid; grid-template-columns: 320px 1fr; gap: var(--s-5); }
@@ -339,26 +345,29 @@
                   <div id="venue-suggestions" style="position:relative"></div>
                 </div>
                 <div class="field">
-                  <label>Admin phone (players see a "Call Admin" button)</label>
-                  <input class="input" type="tel" name="admin_phone" placeholder="+1 555 000 0000" title="Players can tap this number on the scan result screen if they have a question. Optional.">
+                  <label class="label-with-help">Admin phone <span class="help-icon">ℹ<span class="tooltip">A contact number for the day. If set, players see a "Call Admin" button on the scan result screen so they can reach you with questions. Optional.</span></span></label>
+                  <input class="input" type="tel" name="admin_phone" placeholder="+1 555 000 0000">
                   <div class="hint">Optional. If set, a "Call Admin" button appears after players submit their shot.</div>
                 </div>
                 <div class="field">
-                  <label>Starts</label>
-                  <input class="input" type="datetime-local" name="starts_at" required title="Tournament start date and time">
+                  <label class="label-with-help">Starts <span class="help-icon">ℹ<span class="tooltip">When the tournament begins. This is for your records and scheduling — players still can't register or submit shots until you press "Start tournament".</span></span></label>
+                  <input class="input" type="datetime-local" name="starts_at" required>
                 </div>
                 <div class="field">
-                  <label>Ends</label>
-                  <input class="input" type="datetime-local" name="ends_at" required title="Tournament end date and time">
+                  <label class="label-with-help">Ends <span class="help-icon">ℹ<span class="tooltip">When the tournament is scheduled to wrap up. For your records — scoring closes when you press "End tournament", not automatically at this time.</span></span></label>
+                  <input class="input" type="datetime-local" name="ends_at" required>
                 </div>
               </div>
 
               <hr class="divider">
-              <h4>Contests</h4>
+              <h4 class="label-with-help">Contests <span class="help-icon">ℹ<span class="tooltip">Choose which game(s) you're running. Switch one on to reveal its scoring settings below.</span></span></h4>
               <div class="row gap-4 row-wrap">
-                <label class="switch" title="Track how far each team drives. GPS captures ball landing distance from the tee box."><input type="checkbox" name="has_longest_drive"><span class="switch-track"></span><span class="switch-label">Team Longest Drive</span></label>
-                <label class="switch" title="Track which team lands closest to the flagstick. GPS captures distance from pin."><input type="checkbox" name="has_closest_pin"><span class="switch-track"></span><span class="switch-label">Closest to the Pin</span></label>
-                <label class="switch" title="Add each team's Longest Drive + Closest to Pin scores together for one combined leaderboard."><input type="checkbox" name="combined_scoring"><span class="switch-track"></span><span class="switch-label">Combined scoring</span></label>
+                <label class="switch"><input type="checkbox" name="has_longest_drive"><span class="switch-track"></span><span class="switch-label">Team Longest Drive</span></label>
+                <span class="help-icon">ℹ<span class="tooltip">Tracks how far each team drives. Players GPS-capture where their ball lands; distance is measured from the tee box. Switching this on reveals the Longest Drive scoring rules.</span></span>
+                <label class="switch"><input type="checkbox" name="has_closest_pin"><span class="switch-track"></span><span class="switch-label">Closest to the Pin</span></label>
+                <span class="help-icon">ℹ<span class="tooltip">Tracks which team lands closest to the flagstick. Distance is measured from the ball to the pin. Switching this on reveals the Closest to Pin scoring rules.</span></span>
+                <label class="switch"><input type="checkbox" name="combined_scoring"><span class="switch-track"></span><span class="switch-label">Combined scoring</span></label>
+                <span class="help-icon">ℹ<span class="tooltip">Adds each team's Longest Drive and Closest to Pin results into one combined leaderboard. Only relevant when both games are switched on.</span></span>
               </div>
 
               <!-- LD settings collapse when has_longest_drive is off (v3.53) -->
@@ -366,35 +375,37 @@
                 <hr class="divider">
                 <h4>Longest Drive — penalty rules</h4>
                 <div class="row gap-4 row-wrap">
-                  <label class="switch" title="If enabled, shots that land in the rough are still counted — but with a yardage deduction. If disabled, rough shots score zero."><input type="checkbox" name="allow_rough"><span class="switch-track"></span><span class="switch-label">Allow rough scoring</span></label>
-                  <label class="switch" title="If enabled, out-of-bounds and lost balls are still counted — but with a yardage deduction. If disabled, OOB/lost shots score zero."><input type="checkbox" name="allow_oob"><span class="switch-track"></span><span class="switch-label">Allow OOB / lost</span></label>
+                  <label class="switch"><input type="checkbox" name="allow_rough"><span class="switch-track"></span><span class="switch-label">Allow rough scoring</span></label>
+                  <span class="help-icon">ℹ<span class="tooltip">On: shots that land in the rough still count, with a yardage deduction (set the penalty below). Off: any shot in the rough scores zero.</span></span>
+                  <label class="switch"><input type="checkbox" name="allow_oob"><span class="switch-track"></span><span class="switch-label">Allow OOB / lost</span></label>
+                  <span class="help-icon">ℹ<span class="tooltip">On: out-of-bounds and lost balls still count, with a yardage deduction. Off: an OOB or lost ball scores zero.</span></span>
                 </div>
                 <div class="field-grid">
                   <div class="field">
-                    <label>Rough penalty mode</label>
-                    <select class="select" name="rough_penalty_mode" title="Perpendicular: penalty = exact distance from ball to the nearest fairway edge. Fixed: subtract a set number of yards regardless of position.">
+                    <label class="label-with-help">Rough penalty mode <span class="help-icon">ℹ<span class="tooltip">Perpendicular: the penalty equals the exact distance from the ball to the nearest fairway edge. Fixed: subtract the same set number of yards no matter where the ball sits.</span></span></label>
+                    <select class="select" name="rough_penalty_mode">
                       <option value="perpendicular">Perpendicular</option>
                       <option value="fixed">Fixed yards</option>
                     </select>
                   </div>
                   <div class="field">
-                    <label>Rough fixed yards</label>
-                    <input class="input" type="number" name="rough_fixed_yards" min="0" title="Yards subtracted from raw distance when ball lands in rough (Fixed mode only). e.g. enter 10 to subtract 10 yards.">
+                    <label class="label-with-help">Rough fixed yards <span class="help-icon">ℹ<span class="tooltip">Yards subtracted from the raw distance when a ball lands in the rough. Used only when Rough penalty mode is set to "Fixed yards".</span></span></label>
+                    <input class="input" type="number" name="rough_fixed_yards" min="0">
                   </div>
                   <div class="field">
-                    <label>OOB penalty mode</label>
-                    <select class="select" name="oob_penalty_mode" title="Half hole: penalty = 50% of the total hole distance (e.g. 150 yds on a 300 yd hole). Fixed: subtract a set number of yards.">
+                    <label class="label-with-help">OOB penalty mode <span class="help-icon">ℹ<span class="tooltip">Half hole: the penalty is 50% of the total hole distance (e.g. 150 yds on a 300 yd hole). Fixed: subtract the same set number of yards.</span></span></label>
+                    <select class="select" name="oob_penalty_mode">
                       <option value="half_hole">Half hole (50%)</option>
                       <option value="fixed">Fixed yards</option>
                     </select>
                   </div>
                   <div class="field">
-                    <label>OOB fixed yards</label>
-                    <input class="input" type="number" name="oob_fixed_yards" min="0" title="Yards subtracted from raw distance for OOB or lost balls (Fixed mode only).">
+                    <label class="label-with-help">OOB fixed yards <span class="help-icon">ℹ<span class="tooltip">Yards subtracted from the raw distance for an out-of-bounds or lost ball. Used only when OOB penalty mode is set to "Fixed yards".</span></span></label>
+                    <input class="input" type="number" name="oob_fixed_yards" min="0">
                   </div>
                   <div class="field">
-                    <label>Hole distance (yards)</label>
-                    <input class="input" type="number" name="hole_distance_yards" min="0" value="300" title="Measure the straight-line distance from the tee box to the pin in yards. Used to calculate the 'half hole' OOB penalty. Walk it off or use a rangefinder on the day.">
+                    <label class="label-with-help">Hole distance (yards) <span class="help-icon">ℹ<span class="tooltip">The straight-line distance from the tee box to the pin, in yards. Used to calculate the "half hole" OOB penalty. Walk it off or use a rangefinder on the day.</span></span></label>
+                    <input class="input" type="number" name="hole_distance_yards" min="0" value="300">
                     <div class="hint">Measure tee-to-pin with a rangefinder, or look it up from course data.</div>
                     <button type="button" class="btn btn-ghost" style="margin-top:6px;font-size:12px;padding:5px 10px" onclick="lookupHoleDistance()">🔍 Look up from course data</button>
                   </div>
@@ -407,8 +418,8 @@
                 <h4>Closest to Pin — penalty rules</h4>
                 <div class="field-grid">
                   <div class="field">
-                    <label>Off-green penalty (feet)</label>
-                    <input class="input" type="number" name="cp_off_green_penalty_ft" min="0" value="0" title="Feet added to a player's pin distance if their ball does not land on the green. 0 = no penalty.">
+                    <label class="label-with-help">Off-green penalty (feet) <span class="help-icon">ℹ<span class="tooltip">Feet added to a player's measured pin distance when their ball does not land on the green. Enter 0 for no penalty — off-green shots then count at their raw distance.</span></span></label>
+                    <input class="input" type="number" name="cp_off_green_penalty_ft" min="0" value="0">
                     <div class="hint">Added to distance when ball is off the green. 0 = off-green shots count at their raw distance.</div>
                   </div>
                 </div>
@@ -3359,6 +3370,24 @@
 
 
 
+})();
+</script>
+
+<!-- Tap-friendly help bubbles. Hover handles desktop via CSS; this script
+     adds the tap path for touch devices. Click any .help-icon to toggle its
+     tooltip; click outside (or on another .help-icon) to close it. -->
+<script>
+(function () {
+  document.addEventListener('click', (e) => {
+    const icon = e.target.closest('.help-icon');
+    document.querySelectorAll('.help-icon.is-open').forEach(o => {
+      if (o !== icon) o.classList.remove('is-open');
+    });
+    if (icon) {
+      e.stopPropagation();
+      icon.classList.toggle('is-open');
+    }
+  });
 })();
 </script>
 </body>
