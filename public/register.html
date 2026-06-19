@@ -135,7 +135,7 @@
   /* ── Renders ── */
   function getRoot() {
     var r = document.getElementById('root');
-    if (!r) { r = document.createElement('div'); r.id = 'root'; r.className = 'reg-wrap'; document.body.appendChild(r); }
+    if (!r) { r = document.createElement('div'); r.id = 'root'; r.className = 'reg-wrap'; document.body.appendChild(r); if (JORD.renderFooter) JORD.renderFooter(); }
     return r;
   }
 

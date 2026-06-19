@@ -2752,6 +2752,15 @@ app.patch('/api/events/:id', requireAuth, requireAdminOrSuper, (req, res) => {
 // Delete event (cascade)
 app.delete('/api/events/:id', requireAuth, requireAdminOrSuper, (req, res) => {
   const id = req.params.id;
+  // Ownership guard: only a super admin or the event's creator can delete it.
+  // Assigned co-admins and reps can see the event but must not destroy it.
+  if (req.admin.role !== 'super') {
+    const ev = db.prepare('SELECT admin_id FROM events WHERE id=?').get(id);
+    if (!ev) return res.status(404).json({ error: 'Event not found' });
+    if (ev.admin_id !== req.admin.id) {
+      return res.status(403).json({ error: 'Only the event creator or a super admin can delete this event.' });
+    }
+  }
   db.prepare('DELETE FROM admin_corrections WHERE event_id=?').run(id);
   db.prepare('DELETE FROM rep_alerts WHERE event_id=?').run(id);
   db.prepare('DELETE FROM sms_log WHERE event_id=?').run(id);
@@ -3174,7 +3183,7 @@ app.get('/api/ball/:code', (req, res) => {
            e.fairway_polygon, e.rough_polygon, e.oob_polygon, e.green_polygon, e.pin_lat, e.pin_lon,
            e.ctp_green_polygon, e.cp_off_green_penalty_ft,
            e.hole_distance_yards, e.oob_penalty_mode, e.rough_penalty_mode,
-           e.admin_phone
+           e.admin_phone, e.brand_enabled, e.brand_logo, e.brand_accent
     FROM balls b
     JOIN events e ON e.id=b.event_id
     LEFT JOIN teams t ON t.id=b.team_id
@@ -3189,7 +3198,8 @@ app.get('/api/ball/:code', (req, res) => {
     : db.prepare('SELECT * FROM tee_boxes WHERE event_id=? AND hole_type=? LIMIT 1')
         .get(ball.event_id, 'longest_drive');
 
-  const { fairway_polygon, rough_polygon, oob_polygon, green_polygon, pin_lat, pin_lon, ...pub } = ball;
+  const { fairway_polygon, rough_polygon, oob_polygon, green_polygon, pin_lat, pin_lon,
+          brand_enabled, brand_logo, brand_accent, ...pub } = ball;
   res.json({
     ...pub,
     player_name:       `${ball.first_name||''} ${ball.last_name||''}`.trim(),
@@ -3201,7 +3211,12 @@ app.get('/api/ball/:code', (req, res) => {
     rough_polygon:     rough_polygon   || null,
     oob_polygon:       oob_polygon     || null,
     green_polygon:     green_polygon   || null,
-    pin_lat, pin_lon
+    pin_lat, pin_lon,
+    // Branding — only sent when the organizer enabled it, so the scan page
+    // can mesh its logo + accent into the player-facing look.
+    branding: brand_enabled
+      ? { logo: brand_logo || null, accent: brand_accent || null }
+      : null
   });
 });
 

@@ -489,6 +489,35 @@
                 </div>
               </div>
 
+              <div class="game-settings">
+                <div class="game-settings-head">🎨 Branding</div>
+                <label class="switch" title="Apply your logo + accent color to the player-facing registration, leaderboard, and scan pages."><input type="checkbox" name="brand_enabled"><span class="switch-track"></span><span class="switch-label">Use my branding on player pages</span></label>
+                <div id="brand-fields" class="col gap-3" style="margin-top:12px">
+                  <div class="field">
+                    <label>Logo</label>
+                    <div class="row gap-3" style="align-items:center;flex-wrap:wrap">
+                      <div id="brand-logo-preview" style="width:140px;height:90px;background:#fff;border:1px solid var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;padding:8px;flex-shrink:0">
+                        <span class="mini" style="color:var(--ink-3)">No logo</span>
+                      </div>
+                      <div style="flex:1;min-width:200px">
+                        <input type="file" id="brand-logo-file" accept="image/png,image/jpeg,image/svg+xml,image/webp" style="display:none">
+                        <button type="button" class="btn btn-ghost" id="brand-logo-btn" title="Upload a PNG or JPG logo (max 2.5 MB)">⬆ Upload logo</button>
+                        <button type="button" class="btn btn-ghost" id="brand-logo-remove" style="color:var(--danger);display:none;margin-left:6px">Remove</button>
+                        <div class="hint" id="brand-logo-msg">PNG or JPG, ideally with a transparent background. Max 2.5 MB.</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <label>Accent color</label>
+                    <div class="row gap-2" style="align-items:center">
+                      <input type="color" name="brand_accent" id="brand-accent" value="#B8884D" style="width:48px;height:36px;padding:2px;border:1px solid var(--border);border-radius:8px;cursor:pointer" title="Buttons, links, and highlights on player pages use this color">
+                      <input class="input" id="brand-accent-hex" placeholder="#B8884D" maxlength="7" style="max-width:120px;font-family:var(--font-mono)">
+                    </div>
+                    <div class="hint">Buttons, links, and highlights on the player-facing pages use this color.</div>
+                  </div>
+                </div>
+              </div>
+
               <div class="row gap-3 mt-3">
                 <button class="btn btn-primary" type="submit" title="Save all tournament settings">Save settings</button>
               </div>
@@ -2152,6 +2181,23 @@
   });
 
   // ── Settings form ──
+  // Holds the event's logo as a base64 data URL between load and save.
+  let brandLogoData = null;
+  function refreshBrandLogo() {
+    const prev = document.getElementById('brand-logo-preview');
+    const rm   = document.getElementById('brand-logo-remove');
+    const btn  = document.getElementById('brand-logo-btn');
+    if (!prev) return;
+    if (brandLogoData) {
+      prev.innerHTML = '<img src="' + brandLogoData + '" alt="Logo" style="max-width:100%;max-height:100%;object-fit:contain">';
+      if (rm)  rm.style.display = '';
+      if (btn) btn.textContent = '⬆ Replace logo';
+    } else {
+      prev.innerHTML = '<span class="mini" style="color:var(--ink-3)">No logo</span>';
+      if (rm)  rm.style.display = 'none';
+      if (btn) btn.textContent = '⬆ Upload logo';
+    }
+  }
   function fillSettings() {
     const f = $('#form-settings');
     for (const k of ['name', 'venue', 'admin_phone']) f[k].value = currentEvent[k] || '';
@@ -2168,6 +2214,15 @@
     for (const k of ['rough_fixed_yards', 'oob_fixed_yards', 'hole_distance_yards', 'cp_off_green_penalty_ft']) f[k].value = currentEvent[k] || 0;
     /* Admin-only zone view toggles default to all on when opening editor */
     document.querySelectorAll('[data-admin-zone-toggle]').forEach(cb => { cb.checked = true; });
+    // Branding fields
+    brandLogoData = currentEvent.brand_logo || null;
+    if (f.brand_enabled) f.brand_enabled.checked = !!currentEvent.brand_enabled;
+    const acc = currentEvent.brand_accent || '#B8884D';
+    const validAcc = /^#[0-9a-fA-F]{6}$/.test(acc) ? acc : '#B8884D';
+    if (f.brand_accent) f.brand_accent.value = validAcc;
+    const accHex = document.getElementById('brand-accent-hex');
+    if (accHex) accHex.value = validAcc;
+    refreshBrandLogo();
     syncGameSettings();
   }
 
@@ -2234,10 +2289,58 @@
     body.venue_lon = parseFloat(document.getElementById('venue-lon').value) || null;
     ['rough_fixed_yards', 'oob_fixed_yards', 'hole_distance_yards', 'cp_off_green_penalty_ft'].forEach(k => body[k] = parseFloat(f[k].value) || 0);
     ['has_longest_drive', 'has_closest_pin', 'combined_scoring', 'allow_rough', 'allow_oob'].forEach(k => body[k] = f[k].checked ? 1 : 0);
+    // Branding
+    body.brand_enabled = f.brand_enabled && f.brand_enabled.checked ? 1 : 0;
+    const accVal = (document.getElementById('brand-accent-hex').value || (f.brand_accent && f.brand_accent.value) || '').trim();
+    body.brand_accent = /^#[0-9a-fA-F]{6}$/.test(accVal) ? accVal : null;
+    body.brand_logo = brandLogoData || null;
     currentEvent = await JORD.api('/api/events/' + currentEvent.id, { method: 'PATCH', body });
     JORD.success('Settings saved');
+    // Re-apply (or clear) the meshed admin look immediately so the change is visible.
+    if (body.brand_enabled && JORD.applyBranding) JORD.applyBranding({ logo: body.brand_logo, accent: body.brand_accent });
     fillHeader();
   });
+
+  // ── Branding controls wiring (static elements — wire once) ──
+  (function wireBranding() {
+    const fileInput = document.getElementById('brand-logo-file');
+    const uploadBtn = document.getElementById('brand-logo-btn');
+    const removeBtn = document.getElementById('brand-logo-remove');
+    const msg       = document.getElementById('brand-logo-msg');
+    const colorInp  = document.getElementById('brand-accent');
+    const hexInp    = document.getElementById('brand-accent-hex');
+    const BRAND_MAX = 2_500_000;
+    if (uploadBtn) uploadBtn.onclick = () => fileInput.click();
+    if (removeBtn) removeBtn.onclick = () => {
+      brandLogoData = null;
+      refreshBrandLogo();
+      if (msg) { msg.textContent = 'Logo cleared — press Save settings to apply.'; msg.style.color = 'var(--ink-2)'; }
+    };
+    if (fileInput) fileInput.onchange = () => {
+      const file = fileInput.files && fileInput.files[0];
+      if (!file) return;
+      if (file.size > BRAND_MAX) {
+        if (msg) { msg.textContent = 'Image is too large (' + (file.size / 1024 / 1024).toFixed(1) + ' MB). Try one under 2.5 MB.'; msg.style.color = 'var(--danger)'; }
+        fileInput.value = '';
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => {
+        brandLogoData = reader.result;            // data:image/...;base64,...
+        const f = $('#form-settings');
+        if (f && f.brand_enabled) f.brand_enabled.checked = true;  // uploading implies "use my branding"
+        refreshBrandLogo();
+        if (msg) { msg.textContent = 'Logo selected — press Save settings to apply.'; msg.style.color = 'var(--ink-2)'; }
+        fileInput.value = '';                     // allow re-selecting the same file later
+      };
+      reader.readAsDataURL(file);
+    };
+    // Keep the color picker and the hex text input in sync.
+    if (colorInp && hexInp) {
+      colorInp.oninput = () => { hexInp.value = colorInp.value; };
+      hexInp.oninput   = () => { const v = hexInp.value.trim(); if (/^#[0-9a-fA-F]{6}$/.test(v)) colorInp.value = v; };
+    }
+  })();
 
   // ── Admin map zone visibility (local view only — does NOT save) ──
   // Toggles fill + stroke layers on the admin editor map so admins can

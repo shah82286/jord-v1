@@ -291,6 +291,23 @@
     return bar;
   };
 
+  /**
+   * Append a slim "Powered by JORD Golf" footer to the page. Idempotent —
+   * safe to call on every render. Used on the player-facing contest pages
+   * (registration, scan) so the JORD brand always shows, even when an
+   * organizer has applied their own logo + accent up top.
+   */
+  APP.renderFooter = function () {
+    if (document.querySelector('footer.jord-powered')) return;
+    const f = APP.el('footer', { class: 'jord-powered', style: {
+      textAlign: 'center', padding: '28px 16px 36px', marginTop: '32px',
+      borderTop: '1px solid var(--border)', color: 'var(--ink-3)',
+      fontSize: '12px', letterSpacing: '0.04em'
+    } }, 'Powered by ', APP.el('strong', { style: { color: 'var(--ink-2)' } }, 'JORD Golf'));
+    document.body.appendChild(f);
+    return f;
+  };
+
   /* ─── Event branding (charity events) ─────────────────────────────── */
   function _hexToRgb(h) {
     h = String(h || '').trim().replace(/^#/, '');

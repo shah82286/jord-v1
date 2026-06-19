@@ -385,6 +385,7 @@
           rough_polygon: ev.rough_polygon || null,
           oob_polygon: ev.oob_polygon || null,
           admin_phone: ev.admin_phone || null,
+          branding: ev.branding || null,
           tee_box: teeBox
         };
         renderScanUI();
@@ -444,6 +445,8 @@
   /* ─── Main scan UI ─── */
   function renderScanUI() {
     if (!ballData) return;
+    // Mesh the organizer's logo + accent into the page when branding is on.
+    if (ballData.branding && JORD.applyBranding) JORD.applyBranding(ballData.branding);
     var root = getRoot();
     root.innerHTML = '';
 
@@ -1203,7 +1206,7 @@
 
   function getRoot() {
     var r = document.getElementById('root');
-    if (!r) { r = document.createElement('div'); r.id = 'root'; r.className = 'scan-wrap'; document.body.appendChild(r); }
+    if (!r) { r = document.createElement('div'); r.id = 'root'; r.className = 'scan-wrap'; document.body.appendChild(r); if (JORD.renderFooter) JORD.renderFooter(); }
     return r;
   }
 })();

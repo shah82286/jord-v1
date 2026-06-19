@@ -2,6 +2,50 @@
 
 ---
 
+## v3.71.0 — 2026-06-18
+### Per-event branding + delete-ownership guard (#PHASE-2)
+
+Organizers can now brand the original LD/CTP contest product with their
+own logo + accent color, and the player-facing pages always credit JORD.
+
+#### Branding (half A)
+The event Settings tab gains a **🎨 Branding** section: a "Use my
+branding on player pages" toggle, a logo upload (base64, ≤2.5 MB, same
+guard as the event-site logo), and an accent-color picker (swatch +
+hex, kept in sync). Stored on the already-existing
+`events.brand_enabled` / `brand_logo` / `brand_accent` columns via the
+existing `PATCH /api/events/:id` whitelist.
+
+- The settings UI was added to **both** editors in the codebase:
+  `public/admin/editor.html` (the canonical editor reached by
+  `/admin/events/:id`) and the legacy embedded editor in
+  `public/admin.html` (new-event flow). Same field names + endpoint.
+- `JORD.applyBranding()` (logo + accent mesh) now fires on **scan.html**
+  (`renderScanUI` + demo-mode `ballData.branding`); register +
+  leaderboard already applied it. `/api/ball/:code` now returns the
+  `branding` object (was missing — only `/public` and `/info` had it).
+- **leaderboard.html** logo gained the `jord-logo-img` class so the
+  org logo swaps in when branding is on.
+- **"Powered by JORD Golf" footer (always on)** — new idempotent
+  `JORD.renderFooter()` appended on register + scan; leaderboard's
+  existing footer reworded to lead with "Powered by JORD Golf".
+
+#### Delete-ownership guard (half B)
+The rep-role work already scoped the events list + super-only buttons.
+Closed the one remaining gap:
+- `DELETE /api/events/:id` now 403s unless the caller is a super admin
+  or the event's creator (`admin_id`). Assigned co-admins and reps can
+  see an event but can't destroy it.
+- The 🗑 delete button in the events list is hidden for everyone except
+  the super admin and the creator (matches the server guard).
+
+Tests: `tests/manual/test-branding.js` (persist → /public → validate →
+delete guard, incl. a non-creator 403 check) + `tests/manual/shot-branding.js`
+(Puppeteer captures of the branded register/scan/leaderboard + the admin
+Branding section). 412/412 main suite still green.
+
+---
+
 ## v3.70.0 — 2026-06-17
 ### Mobile UX: modal scroll fix + cross-format sweep
 
