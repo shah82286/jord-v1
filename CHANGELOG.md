@@ -2,6 +2,40 @@
 
 ---
 
+## v3.73.0 — 2026-06-18
+### Sponsor logos on the public event site (#PHASE-2 follow-up)
+
+Charity organizers can now upload a logo on each sponsorship — the
+DB column + API endpoints supported `image_data` already (since
+v3.45's auction work), but the sponsor admin UI never exposed an
+upload and the public event-site never rendered it. Sponsors showed
+as emoji + name only. Now they show as branded cards.
+
+**Three connected fixes:**
+- `public/admin/event-site-editor.html` — sponsor edit card grows a
+  "Logo (optional, ≤2.5 MB)" file input + "Remove logo" button, with
+  a 48px preview thumbnail in the collapsed card head. Mirrors the
+  store-item pattern with per-card staging so multiple edits don't
+  clobber each other.
+- `public/event-site.html` — sponsor cards now render the logo in a
+  16:9 contained frame above the type pill, with a subtle background
+  so transparent PNGs look clean.
+- `server.js` (schema fix) — `registration_packages.package_kind`,
+  `sponsor_type`, and `image_data` were declared as ALTER TABLE
+  migrations at line 304-308, BUT those run before the CREATE TABLE
+  at line ~850. On a fresh DB the ALTERs silently failed and the
+  columns went missing — only existing prod DBs had them (from the
+  long-ago first migration). Baked the three columns into the
+  canonical CREATE TABLE. The old ALTERs stay as no-ops for already-
+  migrated DBs. Surfaced by a sandbox-DB E2E test attempting to POST
+  a sponsorship and getting "table has no column named package_kind".
+
+Test: `tests/manual/test-sponsor-logo.js` — sandbox server + admin
+auth → create sponsorship → PATCH a logo → GET round-trip → PATCH
+replace → PATCH null (clear). 4/4 pass. 414/414 main suite green.
+
+---
+
 ## v3.72.0 — 2026-06-18
 ### Tap-friendly help bubbles + filled gaps in admin.html (#HELP-BUBBLES)
 

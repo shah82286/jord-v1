@@ -857,6 +857,14 @@ db.exec(`
     quantity_limit   INTEGER,
     sort_order       INTEGER DEFAULT 0,
     active           INTEGER DEFAULT 1,
+    -- package_kind/sponsor_type/image_data started life as ALTER TABLE
+    -- migrations (lines 304-308) — but those run BEFORE this CREATE, so
+    -- on a fresh DB they silently failed and the columns went missing.
+    -- Bake them into the canonical schema so fresh DBs work too. The
+    -- old ALTERs stay in place as no-ops for already-migrated prod DBs.
+    package_kind     TEXT DEFAULT 'registration',
+    sponsor_type     TEXT,
+    image_data       TEXT,
     created_at       DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
   );

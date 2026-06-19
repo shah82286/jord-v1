@@ -567,8 +567,12 @@ function renderSponsorships() {
   $('#sponsorList').innerHTML = items.map(p => `
     <div class="pkg" data-pkg="${p.id}">
       <div class="pkg-head">
-        <div><strong>${esc(p.name)}</strong>
-          <div class="pkg-meta">${fmtPrice(p.price_cents)} · sponsorship${p.quantity_limit?' · limit '+p.quantity_limit:''}</div>
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
+          ${p.image_data ? `<img src="${esc(p.image_data)}" alt="" style="width:48px;height:48px;object-fit:contain;border-radius:6px;border:1px solid var(--border);background:var(--surface);flex-shrink:0;padding:2px" />` : ''}
+          <div style="min-width:0">
+            <strong>${esc(p.name)}</strong>
+            <div class="pkg-meta">${fmtPrice(p.price_cents)} · sponsorship${p.quantity_limit?' · limit '+p.quantity_limit:''}</div>
+          </div>
         </div>
         <div style="display:flex;gap:6px">
           <button class="btn btn-ghost" data-edit-sponsor="${p.id}">Edit</button>
@@ -580,12 +584,20 @@ function renderSponsorships() {
           <div class="field"><label>Name</label><input class="input" data-spf="name" data-id="${p.id}" value="${esc(p.name)}" /></div>
           <div class="field"><label>Price (USD)</label><input class="input" type="number" min="0" step="0.01" data-spf="price" data-id="${p.id}" value="${(Number(p.price_cents)||0)/100}" /></div>
           <div class="field"><label>Quantity limit</label><input class="input" type="number" min="0" data-spf="qty" data-id="${p.id}" value="${p.quantity_limit??''}" /></div>
+          <div class="field"><label>Logo (optional, ≤2.5 MB)</label>
+            <input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" data-spf="file" data-id="${p.id}" />
+            ${p.image_data ? `<button class="btn btn-ghost" type="button" data-clear-sponsor="${p.id}" style="margin-top:6px;color:#a33;font-size:12px;padding:4px 10px">Remove logo</button>` : ''}
+          </div>
           <div class="field" style="grid-column:1/-1"><label>Description</label>
             <textarea class="textarea" data-spf="desc" data-id="${p.id}" rows="2">${esc(p.description||'')}</textarea></div>
         </div>
         <button class="btn btn-primary" data-save-sponsor="${p.id}">Save sponsorship</button>
       </div>
     </div>`).join('');
+
+  // Stage uploaded logo per-sponsor — same pattern as store items so multiple
+  // edit cards can be open at once without clobbering each other's photos.
+  const stagedLogos = state._stagedSponsorLogos = state._stagedSponsorLogos || {};
 
   $('#sponsorList').querySelectorAll('[data-edit-sponsor]').forEach(b => b.onclick = () => {
     const el = $(`#sponsorEdit-${b.dataset.editSponsor}`);
@@ -601,6 +613,18 @@ function renderSponsorships() {
       JORD.success('Sponsorship deleted');
     } catch(e){ JORD.error(e.message); }
   });
+  $('#sponsorList').querySelectorAll('[data-clear-sponsor]').forEach(b => b.onclick = () => {
+    stagedLogos[b.dataset.clearSponsor] = '';   // explicit clear on save
+    b.style.display = 'none';
+  });
+  $('#sponsorList').querySelectorAll('[data-spf="file"]').forEach(input => input.onchange = () => {
+    const f = input.files[0];
+    if (!f) return;
+    if (f.size > 2_500_000) { alert(`Logo too large (${(f.size/1024/1024).toFixed(1)} MB). Try one under 2.5 MB.`); input.value=''; return; }
+    const r = new FileReader();
+    r.onload = () => { stagedLogos[input.dataset.id] = r.result; };
+    r.readAsDataURL(f);
+  });
   $('#sponsorList').querySelectorAll('[data-save-sponsor]').forEach(b => b.onclick = async () => {
     const id = b.dataset.saveSponsor;
     const get = (k) => $(`#sponsorList [data-spf="${k}"][data-id="${id}"]`).value.trim();
@@ -611,10 +635,14 @@ function renderSponsorships() {
       quantity_limit: get('qty') === '' ? null : Number(get('qty')),
       package_kind: 'sponsorship',
     };
+    // Send image_data only when staged (new upload or explicit clear),
+    // so unrelated edits don't accidentally wipe an existing logo.
+    if (stagedLogos[id] !== undefined) body.image_data = stagedLogos[id] || null;
     try {
       await JORD.api(`/api/admin/events/${eventId}/packages/${id}`, { method:'PATCH', body });
       const p = state.packages.find(x => x.id === id);
-      if (p) Object.assign(p, body);
+      if (p) Object.assign(p, body, body.image_data !== undefined ? { image_data: body.image_data } : {});
+      delete stagedLogos[id];
       renderSponsorships();
       JORD.success('Sponsorship saved');
     } catch(e){ JORD.error(e.message); }
