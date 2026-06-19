@@ -117,10 +117,10 @@ async function api(method, pathname, body, token) {
       const teamName = 'Team ' + ['Alpha','Bravo','Charlie','Delta','Echo'][t - 1];
       const p1Code = nextCode();
 
-      // player 1 registers their ball
+      // player 1 registers their ball — email + phone now required server-side
       const r1 = await api('POST', `/api/events/${eid}/register-player`, {
         drop_code: p1Code, first_name: 'P1', last_name: teamName, player_index: 1,
-        email: `p1.${t}@example.com`,
+        email: `p1.${t}@example.com`, phone: `+1555000${1000 + t}`,
       });
       // player 1 finalizes the team immediately (new flow)
       const fin = await api('POST', `/api/events/${eid}/finalize-team`, {
@@ -138,6 +138,7 @@ async function api(method, pathname, body, token) {
         const c = nextCode();
         const join = await api('POST', `/api/events/${eid}/teams/by-share-code/${share}/add-player`, {
           drop_code: c, first_name: 'P' + p, last_name: teamName,
+          email: `p${p}.${t}@example.com`, phone: `+1555${100 + p}${1000 + t}`,
         });
         check(`${teamName}: player ${p} joins via share code`, join.status === 200,
           `status ${join.status} ${JSON.stringify(join.data)}`);
@@ -173,6 +174,7 @@ async function api(method, pathname, body, token) {
     // duplicate / already-used code
     const dup = await api('POST', `/api/events/${eid}/register-player`, {
       drop_code: t0.codes[0], first_name: 'Dup', last_name: 'Player', player_index: 1,
+      email: 'dup@example.com', phone: '+15550009999',
     });
     check('duplicate code rejected (400, "already registered")',
       dup.status === 400 && /already registered/i.test(dup.data.error || ''),
@@ -181,6 +183,7 @@ async function api(method, pathname, body, token) {
     // unknown code not in the pool
     const unknown = await api('POST', `/api/events/${eid}/register-player`, {
       drop_code: 'NOTAREALCODE', first_name: 'Ghost', last_name: 'Player', player_index: 1,
+      email: 'ghost@example.com', phone: '+15550008888',
     });
     check('unknown code rejected (404, "not found")',
       unknown.status === 404 && /not found/i.test(unknown.data.error || ''),
@@ -189,6 +192,7 @@ async function api(method, pathname, body, token) {
     // 5th player onto a full team
     const overfull = await api('POST', `/api/events/${eid}/teams/by-share-code/${t0.share}/add-player`, {
       drop_code: nextCode(), first_name: 'Fifth', last_name: 'Wheel',
+      email: 'fifth@example.com', phone: '+15550007777',
     });
     check('5th player to a full team rejected (400, "4 players")',
       overfull.status === 400 && /4 players|max/i.test(overfull.data.error || ''),
@@ -197,6 +201,7 @@ async function api(method, pathname, body, token) {
     // join via a bad share code
     const badShare = await api('POST', `/api/events/${eid}/teams/by-share-code/ZZZZZZ/add-player`, {
       drop_code: nextCode(), first_name: 'No', last_name: 'Team',
+      email: 'noteam@example.com', phone: '+15550006666',
     });
     check('join with unknown share code rejected (404)',
       badShare.status === 404, `status ${badShare.status} ${JSON.stringify(badShare.data)}`);
@@ -207,6 +212,7 @@ async function api(method, pathname, body, token) {
     await api('PATCH', `/api/events/${eid}`, { status: 'active' }, token);
     const activeReg = await api('POST', `/api/events/${eid}/register-player`, {
       drop_code: nextCode(), first_name: 'Active', last_name: 'Player', player_index: 1,
+      email: 'active@example.com', phone: '+15550005555',
     });
     check('registration works when status = active', activeReg.status === 200,
       `status ${activeReg.status} ${JSON.stringify(activeReg.data)}`);
@@ -215,6 +221,7 @@ async function api(method, pathname, body, token) {
     await api('PATCH', `/api/events/${eid}`, { status: 'ended' }, token);
     const endedReg = await api('POST', `/api/events/${eid}/register-player`, {
       drop_code: nextCode(), first_name: 'Late', last_name: 'Player', player_index: 1,
+      email: 'late@example.com', phone: '+15550004444',
     });
     check('registration blocked when status = ended (403)',
       endedReg.status === 403 && /ended/i.test(endedReg.data.error || ''),
@@ -222,6 +229,7 @@ async function api(method, pathname, body, token) {
 
     const endedJoin = await api('POST', `/api/events/${eid}/teams/by-share-code/${t0.share}/add-player`, {
       drop_code: nextCode(), first_name: 'Late', last_name: 'Joiner',
+      email: 'lj@example.com', phone: '+15550003333',
     });
     check('joining blocked when status = ended (403)',
       endedJoin.status === 403, `status ${endedJoin.status} ${JSON.stringify(endedJoin.data)}`);
