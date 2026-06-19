@@ -8,6 +8,7 @@
     "dev": "nodemon server.js",
     "test": "node tests/run-tests.js",
     "test:live": "node tests/live-tests.js",
+    "test:manual": "node tests/run-manual.js",
     "test:watch": "node tests/watch.js",
     "test:mobile": "node tests/mobile-visual.js",
     "test:regression": "node tests/regression-tests.js",
