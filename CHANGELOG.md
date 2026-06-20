@@ -2,6 +2,44 @@
 
 ---
 
+## v3.74.0 — 2026-06-19
+### Clubhouse: Active / Finished tabs for the games list
+
+As users play more rounds, the "Your games" list got jumbled — every
+game (in setup, mid-play, long over) sat in one grid. Now there's a
+two-tab filter at the top.
+
+**UX:**
+- Tabs: **Active** (anything not fully finished) | **Finished** (every
+  round in the tournament is `status='ended'`)
+- Live counts in the tab labels
+- Active is the default; selection persists in sessionStorage so
+  opening a game + navigating back keeps the tab you picked
+- Smart fallback — if your only games are finished, the page lands
+  on Finished automatically instead of an empty Active state
+- Finished games get a clear red `FINISHED` badge
+- The "+ New game" tile only appears on Active (the action on
+  Finished is "review past results", not start a new one)
+- Empty-state messaging per tab: "No active games — start a round"
+  vs "No finished games yet — your past rounds will live here once
+  you tap End"
+
+**Why infer from round status instead of `tournament.status`:**
+`tournament.status` doesn't auto-update when rounds end (server.js
+:5163 only flips the round). For a single-round casual user, the
+question is "can I still enter scores?" which maps to round status,
+not tournament status. So a game is "finished" only when every
+round in it has been ended.
+
+**Mobile-friendly:** pill-style tab strip, 36px hit targets,
+horizontally scrollable if it ever grows past the viewport.
+
+Test: `tests/manual/shot-clubhouse-tabs.js` seeds 1 active + 1
+finished game, screenshots both tab states at 390px, asserts counts
++ filter + sessionStorage persistence. 414/414 main suite green.
+
+---
+
 ## v3.73.0 — 2026-06-18
 ### Sponsor logos on the public event site (#PHASE-2 follow-up)
 

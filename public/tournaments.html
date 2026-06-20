@@ -48,6 +48,21 @@
   .tile-body .meta { font-size:12.5px; color:var(--ink-2); margin:2px 0 5px; }
   .tile-new { border-style:dashed; justify-content:center; text-align:center; color:var(--ink-2);
     font-weight:600; font-family:var(--font-display); font-size:1.05rem; }
+  /* Games-list tabs — Active / Finished filter at the top of "Your games".
+     Mobile-friendly: 44px hit targets, scrolls horizontally if it ever needs to. */
+  .games-tabs { display:flex; gap:4px; margin:0 0 var(--s-3); padding:4px;
+    background:var(--surface-2); border-radius:var(--r-md); width:fit-content;
+    max-width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  .games-tab { background:transparent; border:none; padding:8px 14px; min-height:36px;
+    border-radius:6px; font-family:inherit; font-size:13.5px; font-weight:600;
+    color:var(--ink-2); cursor:pointer; white-space:nowrap;
+    -webkit-tap-highlight-color:transparent; }
+  .games-tab:hover { color:var(--ink); }
+  .games-tab.is-active { background:var(--surface); color:var(--ink); box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .games-tab .count { font-weight:500; color:var(--ink-3); margin-left:4px; font-size:12px; }
+  .games-tab.is-active .count { color:var(--ink-2); }
+  .games-empty { padding:var(--s-5) var(--s-4); text-align:center; color:var(--ink-3);
+    font-size:14px; border:1px dashed var(--border); border-radius:var(--r-md); }
   .tile-course { cursor:default; }
   .tile-course:hover { transform:none; border-color:var(--border); box-shadow:none; }
   .tile-x { position:absolute; top:10px; right:10px; width:30px; height:30px; border-radius:50%;
@@ -257,7 +272,12 @@ const topbarRight = HAS_ADMIN_TOKEN
       JORD.el('button',{class:'btn btn-ghost',type:'button',on:{click:_logout}},'Log out'));
 document.getElementById('topbar').appendChild(JORD.renderTopbar('Clubhouse', topbarRight));
 
-const S = { courses:[], tournaments:[], formats:null, wiz:null };
+const S = {
+  courses:[], tournaments:[], formats:null, wiz:null,
+  // Games-list filter — persists across navigation so opening a game and
+  // coming back doesn't blow your tab back to default.
+  gamesTab: (() => { try { return sessionStorage.getItem('jord_games_tab') || 'active'; } catch { return 'active'; } })(),
+};
 
 /* A format is pickable when it auto-scores OR uses manual scoring (the
  * round still saves and runs; the leaderboard just doesn't auto-tally
@@ -294,6 +314,7 @@ function renderHome() {
     <div id="upgradeCard"></div>
 
     <h2 class="sec-head">Your games</h2>
+    <div id="trnTabs"></div>
     <div id="trnList" class="tile-grid"></div>
 
     <div class="sec-head-row">
@@ -421,21 +442,79 @@ function openUpgradeModal() {
   });
 }
 
+// A game is "finished" when every round has been explicitly ended by the
+// host. Tournament.status doesn't auto-update when rounds end (see
+// server.js:5163), so we infer from the rounds array — which is the
+// status players actually care about ("can I still enter scores?").
+function isGameFinished(t) {
+  return Array.isArray(t.rounds) && t.rounds.length > 0 &&
+         t.rounds.every(r => r.status === 'ended');
+}
+
 function renderTrnList() {
+  const tabsEl = $('#trnTabs');
   const el = $('#trnList');
   const icon = t => t.type==='reds_blues' ? '⚔️' : t.type==='casual' ? '⛳' : '🏆';
   const label = t => t.type==='reds_blues' ? 'Reds vs Blues' : t.type==='casual' ? 'Casual round' : 'Tournament';
-  el.innerHTML = S.tournaments.map(t => `
-    <div class="tile" data-open="${t.id}">
+
+  const active   = S.tournaments.filter(t => !isGameFinished(t));
+  const finished = S.tournaments.filter(t =>  isGameFinished(t));
+  // If the persisted tab points at an empty bucket on first paint, fall
+  // back to the other one — saves a user with only finished games from
+  // staring at "No active games".
+  if (S.gamesTab === 'active'   && !active.length   && finished.length) S.gamesTab = 'finished';
+  if (S.gamesTab === 'finished' && !finished.length && active.length)   S.gamesTab = 'active';
+
+  const tab = (key, lbl, count) => `
+    <button class="games-tab ${S.gamesTab===key?'is-active':''}" data-tab="${key}">
+      ${lbl}<span class="count">${count}</span>
+    </button>`;
+  tabsEl.innerHTML = `<div class="games-tabs" role="tablist">
+    ${tab('active',   'Active',   active.length)}
+    ${tab('finished', 'Finished', finished.length)}
+  </div>`;
+  tabsEl.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => {
+    if (S.gamesTab === b.dataset.tab) return;
+    S.gamesTab = b.dataset.tab;
+    try { sessionStorage.setItem('jord_games_tab', S.gamesTab); } catch {}
+    renderTrnList();
+  });
+
+  const visible = S.gamesTab === 'finished' ? finished : active;
+  const tileFor = t => {
+    // Finished games use a check + dim the badge to "ended" tone; in-progress
+    // games keep the live status badge (setup / active) so the host can see
+    // at a glance which need to be started vs are mid-play.
+    const roundLine = `${t.rounds.length} round${t.rounds.length>1?'s':''}`;
+    const finished = isGameFinished(t);
+    const badge = finished
+      ? `<span class="badge badge-danger">finished</span>`
+      : `<span class="badge ${t.status==='active'?'badge-success':''}">${esc(t.status)}</span>`;
+    return `<div class="tile" data-open="${t.id}">
       <button class="tile-del" data-del="${t.id}" title="Delete game" aria-label="Delete game">×</button>
       <div class="tile-icon">${icon(t)}</div>
       <div class="tile-body">
         <h3>${esc(t.name)}</h3>
-        <div class="meta">${label(t)} · ${t.rounds.length} round${t.rounds.length>1?'s':''}</div>
-        <span class="badge ${t.status==='active'?'badge-success':t.status==='ended'?'badge-danger':''}">${esc(t.status)}</span>
+        <div class="meta">${label(t)} · ${roundLine}</div>
+        ${badge}
       </div>
-    </div>`).join('') +
-    `<div class="tile tile-new" data-new="1"><div>＋<br>New game</div></div>`;
+    </div>`;
+  };
+
+  // Empty-state per tab + always show "+ New game" tile on Active so the
+  // primary CTA is one tap away. Finished tab skips the new tile — the
+  // action there is "look at past results", not start something new.
+  if (!visible.length) {
+    const emptyMsg = S.gamesTab === 'finished'
+      ? 'No finished games yet — your past rounds will live here once you tap "End" on them.'
+      : 'No active games — start a round above to invite friends and score live.';
+    el.innerHTML = `<div class="games-empty" style="grid-column:1/-1">${emptyMsg}</div>` +
+      (S.gamesTab === 'active' ? `<div class="tile tile-new" data-new="1"><div>＋<br>New game</div></div>` : '');
+  } else {
+    el.innerHTML = visible.map(tileFor).join('') +
+      (S.gamesTab === 'active' ? `<div class="tile tile-new" data-new="1"><div>＋<br>New game</div></div>` : '');
+  }
+
   el.querySelectorAll('[data-open]').forEach(b => b.onclick = (ev) => {
     // Ignore clicks that came from the delete X on top of the tile.
     if (ev.target.closest('[data-del]')) return;
@@ -453,7 +532,8 @@ function renderTrnList() {
       renderHome();
     } catch (e) { JORD.error && JORD.error(e.message || 'Could not delete'); }
   });
-  el.querySelector('[data-new]').onclick = () => go('new/type');
+  const newTile = el.querySelector('[data-new]');
+  if (newTile) newTile.onclick = () => go('new/type');
 }
 
 function renderCourseList() {
