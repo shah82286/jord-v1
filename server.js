@@ -4752,6 +4752,89 @@ app.delete('/api/courses/:id', requireAuth, requireAdminOrSuper, (req, res) => {
   res.json({ ok: true });
 });
 
+// Edit a course (PUT = full replace, ID-preserving). The frontend fetches
+// the full course (including each tee's id), edits, and PUTs the whole
+// tree back. We match tees by id so existing round_entries.tee_id refs
+// stay valid — a renamed tee keeps the same id. Tees without an id are
+// new; tees whose ids aren't in the body are deleted.
+//
+// Auth: course creator OR super admin — same trust model as creation.
+// Note: changing pars / SI / yardage on a course already used by a round
+// can affect future leaderboard renders (the engine re-reads par at
+// scoring time). The UI surfaces this caveat; we don't block, because
+// the only alternative (clone-then-edit) is worse UX.
+app.put('/api/courses/:id', requireUserOrAdmin, (req, res) => {
+  const courseId = req.params.id;
+  const existing = db.prepare('SELECT * FROM courses WHERE id=?').get(courseId);
+  if (!existing) return res.status(404).json({ error: 'Course not found' });
+  const actor = actorIdentity(req);
+  const isSuper = req.admin && req.admin.role === 'super';
+  if (!isSuper && existing.created_by !== actor.id) {
+    return res.status(403).json({ error: 'Only the course creator can edit this course.' });
+  }
+  const c = req.body || {};
+  if (!c.name || !Array.isArray(c.tees) || !c.tees.length) {
+    return res.status(400).json({ error: 'name and at least one tee required' });
+  }
+  for (const t of c.tees) {
+    t.par_total = (t.holes || []).reduce((s, h) => s + (Number(h.par) || 0), 0);
+    t.yardage_total = (t.holes || []).reduce((s, h) => s + (Number(h.yardage) || 0), 0) || null;
+  }
+  const numHoles = c.tees[0]?.holes?.length || existing.num_holes || 18;
+  const existingTeeIds = new Set(
+    db.prepare('SELECT id FROM course_tees WHERE course_id=?').all(courseId).map(r => r.id)
+  );
+  const keptTeeIds = new Set();
+  const tx = db.transaction(() => {
+    db.prepare(`UPDATE courses SET name=?, club_name=?, city=?, state=?, country=?,
+                                   lat=?, lon=?, num_holes=? WHERE id=?`).run(
+      c.name, c.club_name || null, c.city || null, c.state || null, c.country || null,
+      c.lat ?? null, c.lon ?? null, numHoles, courseId);
+    for (const t of c.tees) {
+      let teeId = (t.id && existingTeeIds.has(t.id)) ? t.id : null;
+      if (teeId) {
+        // Renamed / re-rated tee — UPDATE in place so round_entries.tee_id
+        // refs are preserved. Per-hole rows go through delete+insert.
+        db.prepare(`UPDATE course_tees SET name=?, gender=?, par_total=?,
+                                            yardage_total=?, course_rating=?, slope_rating=?
+                    WHERE id=?`).run(
+          t.name || 'Tee', t.gender || 'male', t.par_total ?? null, t.yardage_total ?? null,
+          t.course_rating ?? null, t.slope_rating ?? null, teeId);
+        db.prepare('DELETE FROM tee_holes WHERE tee_id=?').run(teeId);
+      } else {
+        teeId = uid('TEE');
+        db.prepare(`INSERT INTO course_tees
+          (id,course_id,name,gender,par_total,yardage_total,course_rating,slope_rating)
+          VALUES (?,?,?,?,?,?,?,?)`).run(
+          teeId, courseId, t.name || 'Tee', t.gender || 'male',
+          t.par_total ?? null, t.yardage_total ?? null,
+          t.course_rating ?? null, t.slope_rating ?? null);
+      }
+      keptTeeIds.add(teeId);
+      (t.holes || []).forEach((h, i) => {
+        db.prepare(`INSERT INTO tee_holes (id,tee_id,hole_number,par,stroke_index,yardage)
+          VALUES (?,?,?,?,?,?)`).run(
+          uid('CH'), teeId, h.hole_number || i + 1, Number(h.par) || 0,
+          h.stroke_index ?? null, h.yardage ?? null);
+      });
+    }
+    // Any tee the user removed from the editor → drop it. Cascade kills
+    // its tee_holes. Existing rounds that still reference it will fall
+    // back to the course's first tee in gatherRoundEntries (line ~4480).
+    for (const oldId of existingTeeIds) {
+      if (!keptTeeIds.has(oldId)) {
+        db.prepare('DELETE FROM course_tees WHERE id=?').run(oldId);
+      }
+    }
+  });
+  try { tx(); } catch (err) { return res.status(500).json({ error: err.message }); }
+  // Bust the in-memory tee→holes cache for every affected tee so the
+  // next leaderboard render sees the new per-hole pars.
+  for (const id of existingTeeIds) delete _holesCache[id];
+  for (const id of keptTeeIds)     delete _holesCache[id];
+  res.json({ id: courseId, ok: true });
+});
+
 // --- tournament + round endpoints --------------------------------------------
 
 // Game-format catalog — drives the setup wizard's format picker. Open to

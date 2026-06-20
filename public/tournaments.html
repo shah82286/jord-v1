@@ -548,14 +548,35 @@ function renderCourseList() {
         <h3>${esc(c.name)}</h3>
         <div class="meta">${esc([c.city,c.state].filter(Boolean).join(', ')) || 'Course'} · ${c.num_holes||18} holes</div>
       </div>
+      <button class="tile-x" data-edit="${c.id}" title="Edit course" style="right:46px">✎</button>
       <button class="tile-x" data-del="${c.id}" title="Delete course">✕</button>
     </div>`).join('');
+  el.querySelectorAll('[data-edit]').forEach(b => b.onclick = async (ev) => {
+    ev.stopPropagation();
+    await openCourseEdit(b.dataset.edit);
+  });
   el.querySelectorAll('[data-del]').forEach(b => b.onclick = async (ev) => {
     ev.stopPropagation();
     if (!await JORD.confirm('Delete this course?', { danger:true })) return;
     try { await JORD.api('/api/courses/'+b.dataset.del,{method:'DELETE'}); await loadAll(); renderHome(); }
     catch(e){ JORD.error(e.message); }
   });
+}
+
+// Fetch a course in full + open the course panel in edit mode for it. Reuses
+// the manual-entry form so the UX matches "Add course". The fetched tree
+// keeps each tee's id so the server can match and preserve them on save
+// (round_entries.tee_id stays valid even if the user renames a tee).
+async function openCourseEdit(courseId) {
+  try {
+    const full = await JORD.api('/api/courses/' + encodeURIComponent(courseId));
+    const p = $('#coursePanel');
+    p.innerHTML = `<div class="inline-panel"><div id="courseMode"></div></div>`;
+    courseManualMode(full);
+    // Scroll the editor into view so the user sees the form (the course
+    // tile they clicked is usually well below the fold on mobile).
+    p.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) { JORD.error(e.message || 'Could not load course'); }
 }
 
 /* ─── add course (search / manual) ─────────────────────────────────── */
@@ -619,21 +640,52 @@ function _teeSwatch(name) {
   const k = String(name || '').toLowerCase().split(/\s+/)[0];
   return TEE_COLORS[k] || '#ddd';
 }
-function courseManualMode() {
-  // Reset state on each open so reopening doesn't accumulate stale tees.
-  _newCourse.tees = [
-    { name: 'Blue',  gender: 'male',   course_rating: '', slope_rating: '', yards: Array(18).fill('') },
-    { name: 'White', gender: 'male',   course_rating: '', slope_rating: '', yards: Array(18).fill('') },
-  ];
+// Both Add Course and Edit Course mount here. When `editCourse` is passed,
+// the form is prefilled with that course's data, the save button targets
+// PUT /api/courses/:id, and each tee carries its existing id so the server
+// can preserve it (round_entries.tee_id refs stay valid).
+function courseManualMode(editCourse) {
+  const isEdit = !!editCourse;
+  // First tee carries the per-hole par/SI on edit — pars are shared across
+  // tees so we lift them off whichever tee we find first.
+  const firstTeeHoles = isEdit && editCourse.tees?.[0]?.holes ? editCourse.tees[0].holes : null;
+  const parFor = (h) => firstTeeHoles?.find(x => x.hole_number === h)?.par ?? 4;
+  const siFor  = (h) => firstTeeHoles?.find(x => x.hole_number === h)?.stroke_index ?? h;
+  if (isEdit) {
+    _newCourse.tees = (editCourse.tees || []).map(t => ({
+      id: t.id,                              // preserved by the PUT handler
+      name: t.name || '',
+      gender: t.gender || 'male',
+      course_rating: t.course_rating ?? '',
+      slope_rating:  t.slope_rating  ?? '',
+      yards: Array.from({length: 18}, (_, i) =>
+        (t.holes?.find(h => h.hole_number === i + 1)?.yardage ?? '')),
+    }));
+  } else {
+    _newCourse.tees = [
+      { name: 'Blue',  gender: 'male',   course_rating: '', slope_rating: '', yards: Array(18).fill('') },
+      { name: 'White', gender: 'male',   course_rating: '', slope_rating: '', yards: Array(18).fill('') },
+    ];
+  }
   let parSiHoles = '';
   for (let h = 1; h <= 18; h++) parSiHoles += `<div class="h-cell"><label>${h}</label>
-    <input type="number" min="3" max="6" value="4" data-par="${h}" />
-    <input type="number" min="1" max="18" value="${h}" data-si="${h}" /></div>`;
+    <input type="number" min="3" max="6" value="${parFor(h)}" data-par="${h}" />
+    <input type="number" min="1" max="18" value="${siFor(h)}" data-si="${h}" /></div>`;
+  const titleBar = isEdit
+    ? `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--s-3)">
+         <h3 style="font-family:var(--font-display);margin:0">✎ Edit ${esc(editCourse.name)}</h3>
+         <button class="btn btn-ghost" type="button" id="mCancel" style="padding:6px 12px;font-size:13px">Cancel</button>
+       </div>
+       <p class="mini" style="background:rgba(184,136,77,0.10);border:1px solid rgba(184,136,77,0.30);padding:10px 12px;border-radius:var(--r-md);margin-bottom:var(--s-3)">
+         ⚠️ Changing pars or yardage will affect future leaderboard renders on this course. Already-recorded scores stay as-is.
+       </p>`
+    : '';
   $('#courseMode').innerHTML = `
+    ${titleBar}
     <div class="field-grid" style="grid-template-columns:1fr 1fr 1fr">
-      <div class="field"><label>Course name</label><input class="input" id="mName" /></div>
-      <div class="field"><label>City</label><input class="input" id="mCity" /></div>
-      <div class="field"><label>State</label><input class="input" id="mState" /></div>
+      <div class="field"><label>Course name</label><input class="input" id="mName" value="${esc(editCourse?.name || '')}" /></div>
+      <div class="field"><label>City</label><input class="input" id="mCity" value="${esc(editCourse?.city || '')}" /></div>
+      <div class="field"><label>State</label><input class="input" id="mState" value="${esc(editCourse?.state || '')}" /></div>
     </div>
     <p class="mini" style="margin-top:var(--s-3)">Per hole: <strong>par</strong> + <strong>stroke index</strong> (1 = hardest). These are
       the same across every tee box. Yardage + rating + slope are per-tee, below.</p>
@@ -643,9 +695,11 @@ function courseManualMode() {
       <a href="https://ncrdb.usga.org/" target="_blank" rel="noopener">ncrdb.usga.org</a>.</p>
     <div id="teesPanel"></div>
     <button class="btn btn-ghost" id="addTee" type="button">+ Add tee box</button>
-    <div style="margin-top:var(--s-4)"><button class="btn btn-primary" id="mSave">Save course</button></div>`;
-  $('#mSave').onclick = saveManualCourse;
+    <div style="margin-top:var(--s-4)"><button class="btn btn-primary" id="mSave">${isEdit ? 'Save changes' : 'Save course'}</button></div>`;
+  $('#mSave').onclick = () => isEdit ? saveCourseEdit(editCourse.id) : saveManualCourse();
+  if (isEdit) $('#mCancel').onclick = () => { $('#coursePanel').innerHTML = ''; };
   $('#addTee').onclick = () => {
+    // New tee = no id → server will INSERT (vs UPDATE for tees with id).
     _newCourse.tees.push({ name: '', gender: 'male', course_rating: '', slope_rating: '', yards: Array(18).fill('') });
     renderTees();
   };
@@ -693,18 +747,22 @@ function renderTees() {
     _newCourse.tees.splice(+b.dataset.rmTee, 1); renderTees();
   });
 }
-async function saveManualCourse() {
+// Build the course body from the live form state — shared by save (POST)
+// and edit (PUT). Returns null + warns the user on validation failure.
+function buildCourseBodyFromForm() {
   const name = $('#mName').value.trim();
-  if (!name) { JORD.warn('Course name required'); return; }
-  if (!_newCourse.tees.length) { JORD.warn('Add at least one tee box'); return; }
-  if (_newCourse.tees.some(t => !t.name.trim())) { JORD.warn('Every tee needs a name'); return; }
-  // Per-hole par + SI is shared across tees; yardages are per-tee.
+  if (!name) { JORD.warn('Course name required'); return null; }
+  if (!_newCourse.tees.length) { JORD.warn('Add at least one tee box'); return null; }
+  if (_newCourse.tees.some(t => !t.name.trim())) { JORD.warn('Every tee needs a name'); return null; }
   const parSi = [];
   for (let h = 1; h <= 18; h++) parSi.push({
     par: +$(`[data-par="${h}"]`).value || 4,
     stroke_index: +$(`[data-si="${h}"]`).value || h,
   });
+  // Carry tee.id through on edit so the server matches + preserves the row
+  // (round_entries.tee_id refs survive a rename).
   const tees = _newCourse.tees.map(t => ({
+    ...(t.id ? { id: t.id } : {}),
     name: t.name.trim(),
     gender: t.gender || 'male',
     course_rating: t.course_rating === '' ? null : Number(t.course_rating),
@@ -716,11 +774,27 @@ async function saveManualCourse() {
       yardage: t.yards[i] === '' ? null : Number(t.yards[i]) || null,
     })),
   }));
+  return { name, city: $('#mCity').value.trim(), state: $('#mState').value.trim(), tees };
+}
+
+async function saveManualCourse() {
+  const body = buildCourseBodyFromForm();
+  if (!body) return;
   try {
-    await JORD.api('/api/courses', { method: 'POST', body: {
-      name, city: $('#mCity').value.trim(), state: $('#mState').value.trim(), tees,
-    }});
-    await loadAll(); renderHome(); JORD.success(`Course saved with ${tees.length} tee box${tees.length===1?'':'es'}`);
+    await JORD.api('/api/courses', { method: 'POST', body });
+    await loadAll(); renderHome();
+    JORD.success(`Course saved with ${body.tees.length} tee box${body.tees.length===1?'':'es'}`);
+  } catch(e) { JORD.error(e.message); }
+}
+
+async function saveCourseEdit(courseId) {
+  const body = buildCourseBodyFromForm();
+  if (!body) return;
+  try {
+    await JORD.api('/api/courses/' + encodeURIComponent(courseId), { method: 'PUT', body });
+    $('#coursePanel').innerHTML = '';
+    await loadAll(); renderHome();
+    JORD.success(`Course updated`);
   } catch(e) { JORD.error(e.message); }
 }
 

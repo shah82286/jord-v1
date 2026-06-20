@@ -2,6 +2,51 @@
 
 ---
 
+## v3.75.0 — 2026-06-19
+### Edit your courses post-creation (no more retypes)
+
+Courses used to be create-only — typo in a tee name, wrong slope, off-
+by-one par? Recreate the whole thing and re-link every game. Now there's
+an ✎ Edit button on each course tile that opens the same manual-entry
+form pre-populated with the course's current data.
+
+**Server: `PUT /api/courses/:id` (full replace, ID-preserving)**
+The risky bit was data integrity — `round_entries.tee_id` points at
+individual tee rows. A naive delete-and-reinsert would have orphaned
+those refs and silently broken handicap math on past rounds. So the
+PUT matches tees by id:
+- Each existing tee carries its id in the body → server UPDATEs that
+  row in place (renaming a tee, changing its slope, etc. preserves the
+  id, so `round_entries.tee_id` refs stay valid)
+- New tees (no id) → INSERT with a fresh id
+- Tees omitted from the body → DELETE (cascades to their tee_holes)
+- Per-hole rows always delete-and-reinsert (nothing else points at
+  their ids)
+- In-memory tee→holes cache busted for every affected tee
+
+Auth: course creator OR super admin. Validated by E2E.
+
+**UI:**
+- ✎ button on every course tile (alongside the existing ✕ delete)
+- Opens the existing manual-entry form, prefilled — same control set
+  the user already knows from "Add course"
+- Edit mode shows a soft warning: "Changing pars/yardage will affect
+  future leaderboard renders on this course. Already-recorded scores
+  stay as-is."
+- Cancel button to bail without saving
+- Save → PUT → toast → list refreshes
+
+**Test:** `tests/manual/test-course-edit.js` covers 11 paths in one
+sweep: create a course with 3 tees, register a player on Blue,
+PUT-edit (rename Blue→Championship, drop Red, add Gold, change hole-1
+par 4→5), then assert all the IDs are preserved correctly AND the
+round_entry's tee_id still resolves on the course payload to the
+edited Championship row. Plus ownership check (non-creator → 403).
+
+414/414 main suite green.
+
+---
+
 ## v3.74.0 — 2026-06-19
 ### Clubhouse: Active / Finished tabs for the games list
 
