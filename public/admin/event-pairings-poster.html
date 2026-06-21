@@ -143,17 +143,73 @@
       .toolbar { display:none !important; }
       .stage { padding:0; }
       .poster { transform:none !important; box-shadow:none; }
+      .mobile-view { display:none !important; }
+    }
+
+    /* ── Mobile-friendly view ─────────────────────────────────────────
+     * Below 720 px the 24×36 poster scales to ~14% — unreadable on a
+     * phone. Hide the poster preview and render a clean readable list
+     * of the same data (event title, groups w/ hole+tee+roster, sponsor
+     * thank-yous). Toolbar swaps in a hint that print/PDF works best
+     * from desktop. Above 720 px nothing changes. */
+    .mobile-view { display:none; }
+    .mobile-hint { display:none; }
+    @media (max-width: 720px) {
+      .toolbar .desktop-only { display:none !important; }
+      .mobile-hint { display:inline-block; font-size:12px; color:#E5C690; }
+      .stage { display:none; }
+      .mobile-view { display:block; background:#FAF7F2; color:#1A1A1A;
+        min-height:calc(100vh - 60px); padding:16px 14px 40px; }
+      .mv-head { padding:8px 4px 18px; border-bottom:1px solid #D4CFC4; margin-bottom:18px; }
+      .mv-head .eyebrow { font-size:11px; letter-spacing:.26em; text-transform:uppercase;
+        color:#B8884D; font-weight:700; }
+      .mv-head h1 { font-family:'Playfair Display', Georgia, serif; font-size:1.6rem;
+        line-height:1.1; margin:6px 0 8px; font-weight:700; }
+      .mv-head .meta { font-size:13px; color:#5A5A5A; display:flex; gap:14px; flex-wrap:wrap; }
+      .mv-head .meta strong { color:#1A1A1A; }
+      .mv-group { background:#fff; border:1px solid #D4CFC4; border-radius:10px;
+        padding:14px 16px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,.04); }
+      .mv-group .top { display:flex; align-items:center; justify-content:space-between; gap:10px;
+        padding-bottom:8px; border-bottom:1px solid #F0EBE2; margin-bottom:8px; }
+      .mv-group .top .name { font-family:'Playfair Display', Georgia, serif; font-size:1.15rem;
+        font-weight:600; flex:1; min-width:0; word-break:break-word; }
+      .mv-group .hole-pill { background:#1A1A1A; color:#FAF7F2; padding:5px 10px;
+        border-radius:6px; font-weight:700; font-size:13px; white-space:nowrap; flex-shrink:0;
+        font-family:'Playfair Display', Georgia, serif; }
+      .mv-group .hole-pill .lbl { font-size:9px; letter-spacing:.1em; opacity:.7;
+        display:block; line-height:1; font-family:inherit; font-weight:600; }
+      .mv-group .hole-pill .num { font-size:18px; line-height:1.1; }
+      .mv-group .meta { font-size:12.5px; color:#5A5A5A; margin-bottom:6px; }
+      .mv-group .meta strong { color:#1A1A1A; }
+      .mv-group ol { margin:0; padding-left:22px; font-size:14px; line-height:1.7; }
+      .mv-group ol li.empty { color:#9A9A9A; font-style:italic; list-style:none; padding-left:0; }
+      .mv-sponsors { margin-top:24px; padding-top:18px; border-top:1px solid #D4CFC4; }
+      .mv-sponsors .lbl { font-size:11px; letter-spacing:.26em; text-transform:uppercase;
+        color:#B8884D; font-weight:700; margin-bottom:12px; }
+      .mv-sponsors .grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:12px; }
+      .mv-sponsors .sp { background:#fff; border:1px solid #D4CFC4; border-radius:8px;
+        padding:10px; display:flex; flex-direction:column; align-items:center; gap:6px;
+        text-align:center; }
+      .mv-sponsors .sp img { max-width:100%; max-height:48px; object-fit:contain; }
+      .mv-sponsors .sp .nm { font-size:12px; font-weight:600; line-height:1.3; }
+      .mv-sponsors .sp .sub { font-size:10px; color:#5A5A5A; text-transform:uppercase;
+        letter-spacing:.06em; }
+      .mv-foot { text-align:center; padding:18px 0 4px; color:#9A9A9A; font-size:11.5px; }
+      .mv-foot .brand { font-family:'Playfair Display', Georgia, serif; color:#5A5A5A; }
+      .mv-foot .brand .acc { color:#B8884D; }
     }
   </style>
 </head>
 <body>
 
 <div class="toolbar">
-  <strong>Pairings poster · 24 × 36 in</strong>
+  <strong class="desktop-only">Pairings poster · 24 × 36 in</strong>
+  <strong style="display:none" class="mobile-hint">📱 Mobile-friendly view</strong>
+  <span class="mobile-hint">— print/PDF works best from desktop</span>
   <span class="pill" id="tz-pill" style="display:none"></span>
   <span class="grow"></span>
   <a class="ghost" id="back-link" href="#">← Back to pairings</a>
-  <button id="print-btn" disabled>Print / Save as PDF</button>
+  <button id="print-btn" disabled class="desktop-only">Print / Save as PDF</button>
 </div>
 
 <div class="stage">
@@ -161,6 +217,10 @@
     <div style="grid-column:1/-1;padding:1in;color:var(--poster-ink-2)">Loading pairings…</div>
   </div>
 </div>
+
+<!-- Mobile-only readable alternate. Same data as the poster, but plain
+     cards at phone-friendly sizes. CSS hides this above 720 px. -->
+<div class="mobile-view" id="mobile-view"><p style="color:#5A5A5A">Loading…</p></div>
 
 <script src="/js/jord.js"></script>
 <script src="/admin/_shared/auth.js"></script>
@@ -306,7 +366,58 @@ function render(ev, d, sponsors) {
       <div>Printed ${esc(new Date().toLocaleString('en-US', iana ? { timeZone: iana } : {}))}</div>
     </div>
   `;
+  // Render the mobile-friendly view in parallel — CSS picks which to show.
+  renderMobile(ev, d, sponsors, groups, abbrev, dateLine, venue, logoSrc);
   rescale();
+}
+
+// Mobile-friendly alternate of the poster — same data, phone-readable
+// sizing. Triggered alongside the desktop render; CSS hides whichever
+// view doesn't match the viewport.
+function renderMobile(ev, d, sponsors, groups, abbrev, dateLine, venue, logoSrc) {
+  const groupCard = (g) => {
+    const holePill = g.starting_hole != null
+      ? `<div class="hole-pill"><span class="lbl">HOLE</span><span class="num">${g.starting_hole}</span></div>`
+      : `<div class="hole-pill"><span class="lbl">TEE</span><span class="num">${esc(g.tee_time || '—')}</span></div>`;
+    const meta = [];
+    if (g.starting_hole != null && g.tee_time) meta.push(`<strong>${esc(g.tee_time)}</strong>${abbrev ? ' ' + esc(abbrev) : ''}`);
+    if (g.cart_numbers) meta.push(`Cart <strong>${esc(g.cart_numbers)}</strong>`);
+    const members = g.members || [];
+    return `<div class="mv-group">
+      <div class="top">
+        <div class="name">${esc(g.name || 'Group')}</div>
+        ${holePill}
+      </div>
+      ${meta.length ? `<div class="meta">${meta.join(' · ')}</div>` : ''}
+      <ol>${members.length ? members.map(m => `<li>${esc(m.player_name || '')}</li>`).join('') : '<li class="empty">No players assigned yet</li>'}</ol>
+    </div>`;
+  };
+  const sponsorBlock = (sponsors && sponsors.length) ? `
+    <div class="mv-sponsors">
+      <div class="lbl">Thank you to our sponsors</div>
+      <div class="grid">${sponsors.map(s => `<div class="sp">
+        ${s.image_data ? `<img src="${esc(s.image_data)}" alt="${esc(s.name || '')}" />` : ''}
+        <div class="nm">${esc(s.name || 'Sponsor')}</div>
+        ${s.sponsor_type ? `<div class="sub">${esc(String(s.sponsor_type).replace(/_/g, ' '))}</div>` : ''}
+      </div>`).join('')}</div>
+    </div>` : '';
+  $('#mobile-view').innerHTML = `
+    <div class="mv-head">
+      <div class="eyebrow">Pairings · Tee Sheet</div>
+      <h1>${esc(ev?.name || 'Tournament')}</h1>
+      <div class="meta">
+        ${dateLine ? `<span>📅 <strong>${esc(dateLine)}</strong></span>` : ''}
+        ${venue ? `<span>📍 <strong>${esc(venue)}</strong></span>` : ''}
+        ${abbrev ? `<span>🕐 <strong>${esc(abbrev)}</strong></span>` : ''}
+      </div>
+    </div>
+    ${groups.length ? groups.map(groupCard).join('') :
+      '<div style="padding:30px 16px;text-align:center;color:#a33">No pairings yet — head back to the pairings page to create groups.</div>'}
+    ${sponsorBlock}
+    <div class="mv-foot">
+      <div class="brand">Powered by <span class="acc">JORD</span> Golf</div>
+    </div>
+  `;
 }
 
 function renderCard(g, abbrev) {

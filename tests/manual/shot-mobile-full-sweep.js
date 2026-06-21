@@ -130,6 +130,14 @@ async function api(method, p, body, headers = {}) {
       try { await api('PATCH', `/api/admin/events/${ev.id}/packages/${sp.id}`, { image_data: SAMPLE_LOGO }, adminH); }
       catch (e) { console.log('  (sponsor PATCH failed: ' + e.message + ')'); }
     }
+    // Seed 2 pairing groups so the poster has actual content to render
+    for (const g of [
+      { name: 'Group 1', starting_hole: 1, tee_time: '08:00 AM', cart_numbers: '12, 13', sort_order: 0 },
+      { name: 'Group 2', starting_hole: 2, tee_time: '08:08 AM', cart_numbers: '14, 15', sort_order: 1 },
+    ]) {
+      try { await api('POST', `/api/admin/events/${ev.id}/pairings/groups`, g, adminH); }
+      catch (e) { console.log('  (pairing group POST failed: ' + e.message + ')'); }
+    }
 
     // Personal user + game + scores so we have personal-side data
     const sup = await api('POST', '/api/users/signup', {

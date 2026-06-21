@@ -2,6 +2,36 @@
 
 ---
 
+## v3.79.0 — 2026-06-19
+### Pairings poster: mobile-friendly readable view
+
+The pairings-poster page at `/admin/events/:id/pairings/poster` is
+designed as a 24×36" print sheet. The CSS-transform-scaled preview
+shrinks to ~14% on a 390 px viewport — unreadable on a phone.
+Organizers occasionally pull this up between holes to check who's
+playing where; the squished poster was useless for that.
+
+Now: below 720 px the page hides the scaled poster and renders a
+clean readable list of the same data:
+- Branded title block (eyebrow / Playfair title / date · venue · TZ)
+- One white card per group with a HOLE/TEE pill, tee-time + cart
+  numbers, member roster
+- "Thank you to our sponsors" grid below — logos when present,
+  name pills otherwise
+- "Powered by JORD Golf" footer
+- Toolbar swaps "Pairings poster · 24 × 36 in" for a
+  "— print/PDF works best from desktop" hint
+
+Above 720 px nothing changes — desktop / print path untouched. The
+mobile view is rendered in parallel with the desktop view by the
+same render() call; CSS picks which to show.
+
+Closes the only flagged-not-fixed item from the v3.78 sweep.
+
+415/415 main suite green.
+
+---
+
 ## v3.78.0 — 2026-06-19
 ### Mobile-sweep audit: schema cleanup + topbar wrap + static-path fix
 
