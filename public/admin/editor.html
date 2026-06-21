@@ -832,9 +832,15 @@
 <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 <script src="/js/jord.js"></script>
+<script src="/js/jord-help-agent.js"></script>
 <script>
 (async function () {
   const $ = JORD.$, $$ = JORD.$$, el = JORD.el;
+  // AI Help Agent floating widget — passes the current event id so the
+  // assistant has context. Page label helps it know what surface the
+  // admin is on.
+  const _hpEventId = (location.pathname.match(/\/admin\/events\/([^/]+)/) || [])[1] || null;
+  JORD.mountHelpAgent({ eventId: _hpEventId, page: 'event-editor' });
 
   // ── Gate ──
   const gate = $('#gate'), app = $('#app');

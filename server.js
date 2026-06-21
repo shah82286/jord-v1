@@ -19,6 +19,7 @@ const handicap  = require('./lib/handicap');         // WHS handicap math
 const scoring   = require('./lib/scoring');          // scoring engine
 const formats   = require('./lib/formats');          // game-format catalog
 const stripeHelper = require('./lib/stripe');        // Stripe Connect + Checkout
+const aiHelp    = require('./lib/aiHelp');           // AI Help Agent (#PHASE-3)
 const tzLookup     = require('tz-lookup');           // IANA time zone from lat/lon
 
 // Resolve IANA time zone (e.g. "America/Chicago") from venue coordinates.
@@ -44,6 +45,13 @@ try {
     if (k && !k.startsWith('#')) env[k.trim()] = v.join('=').trim();
   });
 } catch {}
+// Hydrate process.env from .env for any lib that reads its own env (the
+// existing `env.X || process.env.X` pattern below only works for vars
+// server.js explicitly destructures). Don't override Railway-set values
+// — process.env takes precedence when both exist.
+for (const k of Object.keys(env)) {
+  if (process.env[k] === undefined && env[k] !== '') process.env[k] = env[k];
+}
 
 const PORT           = env.PORT           || process.env.PORT           || 3000;
 const APP_URL        = env.APP_URL        || process.env.APP_URL         || `http://localhost:${PORT}`;
@@ -639,6 +647,53 @@ try { db.exec("ALTER TABLE events ADD COLUMN brand_enabled INTEGER DEFAULT 0"); 
 try { db.exec("ALTER TABLE events ADD COLUMN brand_logo TEXT"); } catch {}               // base64 data URL
 try { db.exec("ALTER TABLE events ADD COLUMN brand_accent TEXT"); } catch {}             // hex color
 try { db.exec("ALTER TABLE events ADD COLUMN brand_url TEXT"); } catch {}
+
+// ─── AI Help Agent (v3.77, #PHASE-3) ─────────────────────────────────────────
+// Sessions group turns of the same conversation. Messages store the full
+// transcript so the assistant has context across turns AND the super admin
+// can review the conversation when an admin escalates. Escalations queue
+// the conversation for a super-admin "I need a human" handoff.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS ai_help_sessions (
+    id          TEXT PRIMARY KEY,
+    admin_id    TEXT NOT NULL,
+    event_id    TEXT,
+    started_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+  CREATE INDEX IF NOT EXISTS idx_ai_sess_admin ON ai_help_sessions(admin_id, last_at DESC);
+
+  CREATE TABLE IF NOT EXISTS ai_help_messages (
+    id              TEXT PRIMARY KEY,
+    session_id      TEXT NOT NULL,
+    admin_id        TEXT NOT NULL,
+    role            TEXT NOT NULL,   -- 'user' | 'assistant'
+    content         TEXT NOT NULL,
+    tokens_in       INTEGER DEFAULT 0,
+    tokens_out      INTEGER DEFAULT 0,
+    tokens_cache_r  INTEGER DEFAULT 0,
+    tokens_cache_w  INTEGER DEFAULT 0,
+    created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES ai_help_sessions(id) ON DELETE CASCADE
+  );
+  CREATE INDEX IF NOT EXISTS idx_ai_msg_session ON ai_help_messages(session_id, created_at);
+  -- Index for the daily-cap rollup query.
+  CREATE INDEX IF NOT EXISTS idx_ai_msg_admin_day ON ai_help_messages(admin_id, created_at);
+
+  CREATE TABLE IF NOT EXISTS ai_help_escalations (
+    id          TEXT PRIMARY KEY,
+    session_id  TEXT NOT NULL,
+    admin_id    TEXT NOT NULL,
+    event_id    TEXT,
+    note        TEXT,              -- optional admin-written note
+    status      TEXT DEFAULT 'open', -- 'open' | 'acked' | 'closed'
+    acked_by    TEXT,              -- super admin id
+    acked_at    DATETIME,
+    created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES ai_help_sessions(id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_ai_esc_status ON ai_help_escalations(status, created_at DESC);
+`);
 
 // ═══ TOURNAMENT SCORING — Live Leaderboard (Phase 1) ═════════════════════════
 // Full-round stroke-play scoring, separate from the LD/CTP contest system.
@@ -8403,6 +8458,7 @@ const pages = { '/': 'landing.html', '/landing': 'landing.html', '/about': 'abou
   '/admin/events/:id':       'admin/editor.html',
   '/admin/events/:id/:tab':  'admin/editor.html',
   '/admin/stripe-connect':       'admin/stripe-connect.html',
+  '/admin/help-escalations':     'admin/help-escalations.html', // super-only AI Help review
   '/register/:id': 'register.html',
   '/team/:eid/:share': 'team.html',
   '/scan': 'scan.html', '/scan/:code': 'scan.html', '/leaderboard/:id': 'leaderboard.html',
@@ -8434,6 +8490,155 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason, promise) => {
   console.error('[FATAL] Unhandled rejection at:', promise, 'reason:', reason);
   process.exit(1);
+});
+
+// ─── AI HELP AGENT (#PHASE-3, v3.77) ─────────────────────────────────────────
+// Chat endpoint that wraps Claude with JORD's domain knowledge + daily
+// per-admin token cap + escalation queue. requireAuth gates everything;
+// any logged-in admin/rep can use the chat. Super-admin endpoints sit
+// under /api/super/... for the escalation review side.
+
+function aiHelpDailyUsage(adminId) {
+  // Today = SQLite "date('now')" — matches the messages.created_at format.
+  const row = db.prepare(`SELECT
+      COALESCE(SUM(tokens_in + tokens_out + tokens_cache_w), 0) AS tokens
+    FROM ai_help_messages
+    WHERE admin_id=? AND date(created_at) = date('now')`).get(adminId);
+  return row?.tokens || 0;
+}
+
+app.get('/api/admin/help-agent/usage-today', requireAuth, (req, res) => {
+  const used = aiHelpDailyUsage(req.admin.id);
+  res.json({ used, cap: aiHelp.dailyTokenCap(), remaining: Math.max(0, aiHelp.dailyTokenCap() - used) });
+});
+
+// Load a session's message history — used by the widget on reopen so
+// the admin sees their last conversation.
+app.get('/api/admin/help-agent/sessions/:sessionId', requireAuth, (req, res) => {
+  const sess = db.prepare('SELECT * FROM ai_help_sessions WHERE id=? AND admin_id=?')
+    .get(req.params.sessionId, req.admin.id);
+  if (!sess) return res.status(404).json({ error: 'Session not found' });
+  const msgs = db.prepare(`SELECT id, role, content, created_at
+    FROM ai_help_messages WHERE session_id=? ORDER BY created_at`).all(sess.id);
+  res.json({ session: sess, messages: msgs });
+});
+
+app.post('/api/admin/help-agent/chat', requireAuth, async (req, res) => {
+  const b = req.body || {};
+  const userMsg = String(b.message || '').trim();
+  if (!userMsg) return res.status(400).json({ error: 'message is required' });
+  if (userMsg.length > 4000) return res.status(400).json({ error: 'message too long (4000 char limit)' });
+
+  // Daily cap check — count today's input+output+cache-write tokens (cache-
+  // read isn't billed at full rate so it doesn't count toward the cap).
+  const usedToday = aiHelpDailyUsage(req.admin.id);
+  if (usedToday >= aiHelp.dailyTokenCap()) {
+    return res.status(429).json({
+      error: 'Daily AI help cap reached',
+      message: `You've used your AI help quota for today (${usedToday.toLocaleString()}/${aiHelp.dailyTokenCap().toLocaleString()} tokens). The cap resets at midnight UTC. If you're stuck, click "Escalate to super admin" for human help.`,
+      used: usedToday, cap: aiHelp.dailyTokenCap(),
+    });
+  }
+
+  // Resolve / create session.
+  let sessionId = b.session_id;
+  let history = [];
+  if (sessionId) {
+    const sess = db.prepare('SELECT id FROM ai_help_sessions WHERE id=? AND admin_id=?')
+      .get(sessionId, req.admin.id);
+    if (!sess) sessionId = null;
+    else {
+      // Load the last ~12 turns so the context window stays manageable.
+      history = db.prepare(`SELECT role, content FROM ai_help_messages
+        WHERE session_id=? ORDER BY created_at DESC LIMIT 24`).all(sessionId).reverse();
+    }
+  }
+  if (!sessionId) {
+    sessionId = uid('AIH');
+    db.prepare('INSERT INTO ai_help_sessions (id, admin_id, event_id) VALUES (?,?,?)')
+      .run(sessionId, req.admin.id, b.context?.event_id || null);
+  }
+
+  // Auto-fill context from the event id when present, so the system
+  // prompt can ground its answers in the admin's current event.
+  let context = b.context || null;
+  if (context?.event_id && !context.event_name) {
+    const ev = db.prepare('SELECT name, status FROM events WHERE id=?').get(context.event_id);
+    if (ev) { context.event_name = ev.name; context.event_status = ev.status; }
+  }
+
+  try {
+    const { reply, usage } = await aiHelp.chat({ history, userMessage: userMsg, context });
+    // Persist both turns + token usage atomically.
+    const userMsgId = uid('AIM');
+    const asstMsgId = uid('AIM');
+    const writeBoth = db.transaction(() => {
+      db.prepare(`INSERT INTO ai_help_messages
+        (id, session_id, admin_id, role, content, tokens_in, tokens_out, tokens_cache_r, tokens_cache_w)
+        VALUES (?,?,?,?,?,0,0,0,0)`).run(userMsgId, sessionId, req.admin.id, 'user', userMsg);
+      db.prepare(`INSERT INTO ai_help_messages
+        (id, session_id, admin_id, role, content, tokens_in, tokens_out, tokens_cache_r, tokens_cache_w)
+        VALUES (?,?,?,?,?,?,?,?,?)`).run(
+        asstMsgId, sessionId, req.admin.id, 'assistant', reply,
+        usage.input, usage.output, usage.cache_read, usage.cache_creation);
+      db.prepare('UPDATE ai_help_sessions SET last_at=CURRENT_TIMESTAMP WHERE id=?').run(sessionId);
+    });
+    writeBoth();
+    res.json({
+      session_id: sessionId,
+      reply,
+      usage_today: aiHelpDailyUsage(req.admin.id),
+      cap: aiHelp.dailyTokenCap(),
+      stuck_hint: aiHelp.looksStuck(userMsg), // UI can highlight the Escalate button when true
+    });
+  } catch (err) {
+    console.error('[AI Help] chat error:', err.message);
+    res.status(500).json({ error: 'AI service is temporarily unavailable. Try again in a moment, or use the Escalate button for human help.' });
+  }
+});
+
+// Admin escalates the current session — files an entry for super-admin
+// review. Sends back the escalation id so the widget can confirm.
+app.post('/api/admin/help-agent/escalate', requireAuth, (req, res) => {
+  const b = req.body || {};
+  if (!b.session_id) return res.status(400).json({ error: 'session_id is required' });
+  const sess = db.prepare('SELECT * FROM ai_help_sessions WHERE id=? AND admin_id=?')
+    .get(b.session_id, req.admin.id);
+  if (!sess) return res.status(404).json({ error: 'Session not found' });
+  // De-dupe: don't open a 2nd open escalation on the same session.
+  const existing = db.prepare(`SELECT id FROM ai_help_escalations
+    WHERE session_id=? AND status='open'`).get(b.session_id);
+  if (existing) return res.json({ id: existing.id, status: 'already_open' });
+  const id = uid('AIE');
+  db.prepare(`INSERT INTO ai_help_escalations (id, session_id, admin_id, event_id, note)
+    VALUES (?,?,?,?,?)`).run(id, b.session_id, req.admin.id, sess.event_id || null,
+      String(b.note || '').slice(0, 1000));
+  res.json({ id, status: 'open' });
+});
+
+// Super-admin view of all open escalations + the full conversation
+// transcript for each. Acked escalations stay queryable for audit.
+app.get('/api/super/help-agent/escalations', requireAuth, requireSuper, (req, res) => {
+  const filter = req.query.status || 'open';
+  const rows = db.prepare(`SELECT e.*, a.name AS admin_name, a.email AS admin_email,
+                                  ev.name AS event_name
+                           FROM ai_help_escalations e
+                           LEFT JOIN admins a ON a.id = e.admin_id
+                           LEFT JOIN events ev ON ev.id = e.event_id
+                           WHERE e.status=? ORDER BY e.created_at DESC LIMIT 50`).all(filter);
+  for (const r of rows) {
+    r.messages = db.prepare(`SELECT role, content, created_at
+      FROM ai_help_messages WHERE session_id=? ORDER BY created_at`).all(r.session_id);
+  }
+  res.json({ escalations: rows });
+});
+
+app.post('/api/super/help-agent/escalations/:id/ack', requireAuth, requireSuper, (req, res) => {
+  const r = db.prepare(`UPDATE ai_help_escalations
+    SET status='acked', acked_by=?, acked_at=CURRENT_TIMESTAMP
+    WHERE id=? AND status='open'`).run(req.admin.id, req.params.id);
+  if (!r.changes) return res.status(404).json({ error: 'Escalation not found or already acked' });
+  res.json({ ok: true });
 });
 
 // ─── START ────────────────────────────────────────────────────────────────────

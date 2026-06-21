@@ -2,6 +2,81 @@
 
 ---
 
+## v3.77.0 — 2026-06-19
+### AI Help Agent + HANDOFF refresh (#PHASE-3, #DOCS-REFRESH)
+
+#### AI Help Agent — floating chat for the admin console
+Claude-powered help widget embedded on the admin pages. Aware of the
+current event context (id, name, status). Daily token cap per admin
+to prevent runaway costs. Escalation queue when the assistant can't
+solve it and the admin needs a human.
+
+**Server (`lib/aiHelp.js` + new endpoints)**
+- Sonnet 4.6 via `@anthropic-ai/sdk` (new dep). Long system prompt
+  describing JORD's three products + admin nav map; uses prompt
+  caching (`cache_control: ephemeral`) so the static block bills
+  once per ~5-min window per session.
+- `POST /api/admin/help-agent/chat` — accepts `{ message, session_id?,
+  context: { event_id?, event_name?, event_status?, page? } }`. Auto-
+  fills name + status from the event id when provided. Returns the
+  reply, current session id, today's token usage + cap, and a
+  `stuck_hint` flag the UI uses to highlight the Escalate button.
+- `GET /api/admin/help-agent/usage-today` — admin's running total +
+  the cap (default 50,000 tokens/day, env-overridable via
+  `AI_HELP_DAILY_TOKEN_CAP`).
+- `GET /api/admin/help-agent/sessions/:id` — load history for reopen.
+- `POST /api/admin/help-agent/escalate` — files an escalation entry
+  for super-admin review; de-dupes on session.
+- `GET /api/super/help-agent/escalations?status=open|acked` — super-
+  only review queue with full conversation transcripts.
+- `POST /api/super/help-agent/escalations/:id/ack` — close out an
+  escalation after the super admin handles it.
+- Daily cap returns 429 with a friendly message + a nudge to use the
+  Escalate button.
+
+**Frontend (`public/js/jord-help-agent.js` + new super page)**
+- `JORD.mountHelpAgent({ eventId, page })` — drop-in floating
+  bottom-right chat. Mounted from `admin/editor.html` (auto-grabs
+  event id from URL) and legacy `admin.html`.
+- Persists `session_id` in `sessionStorage` so reopening the panel
+  continues the same conversation.
+- Tools: `+ New chat` (drop session), `🆘 Escalate to super admin`
+  (with optional note). Escalate button highlights red when the
+  server returns `stuck_hint=true`.
+- Header shows live "X% of daily quota" meter; turns red over 90%.
+- Mini markdown rendering (code blocks, bold, bullets) so the chat
+  stays readable.
+- New page `/admin/help-escalations` (super-only) — Open / Acked
+  tabs, full transcript per escalation, Acknowledge button, mailto
+  shortcut to reply directly.
+
+**Test:** `tests/manual/test-ai-help-agent.js` (10 paths) — uses a
+file-swapped fake `aiHelp` module to mock the Anthropic SDK so the
+test runs offline. Covers: auth gate, session round-trip, history
+load, escalation + de-dupe, super-admin transcript view, ack,
+daily-cap 429. Restores the real `aiHelp.js` on exit.
+
+**Schema:** 3 new tables (`ai_help_sessions`, `ai_help_messages`,
+`ai_help_escalations`) with indexes for the daily-rollup query and
+the open-escalations queue.
+
+**Plumbing fix:** server.js now hydrates `process.env` from `.env`
+after parsing, so any library that reads its own env (like
+`aiHelp.js` reading `ANTHROPIC_API_KEY` + `AI_HELP_DAILY_TOKEN_CAP`)
+sees the values. Doesn't override Railway-set vars. Quiet win that
+unblocks future lib modules from re-implementing env loading.
+
+#### Docs refresh
+- HANDOFF.md jumped from v3.47 (stale 29 versions) to v3.76 with the
+  Personal Clubhouse arc + charity-polish themes summarized + new
+  files map + updated priorities.
+- TODO.md marks `#HELP-BUBBLES`, `#PHASE-2`, `#REG-SIM-TEST` ✓ DONE
+  with version pointers.
+
+415/415 main suite green.
+
+---
+
 ## v3.76.0 — 2026-06-19
 ### Scorecard mobile polish + sponsor logos on poster + #TEST-COLOR fix
 

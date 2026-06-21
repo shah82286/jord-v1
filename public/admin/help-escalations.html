@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>AI Help Escalations · JORD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/jord.css" />
+<style>
+  .esc-wrap { max-width: 980px; margin: 0 auto; padding: var(--s-5) var(--s-4); }
+  .esc-head { display:flex; align-items:center; justify-content:space-between; margin-bottom:var(--s-4); }
+  .esc-head h1 { font-family:var(--font-display); font-size:1.7rem; margin:0; }
+  .esc-tabs { display:flex; gap:6px; background:var(--surface-2); padding:4px;
+    border-radius:var(--r-md); width:fit-content; margin-bottom:var(--s-4); }
+  .esc-tabs button { background:none; border:none; padding:8px 14px; border-radius:6px;
+    font-family:inherit; font-size:13.5px; font-weight:600; color:var(--ink-2); cursor:pointer; }
+  .esc-tabs button.is-active { background:var(--surface); color:var(--ink); }
+  .esc-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-md);
+    padding:var(--s-3) var(--s-4); margin-bottom:var(--s-3); }
+  .esc-card h3 { font-family:var(--font-display); font-size:1.1rem; margin:0 0 4px; }
+  .esc-card .meta { font-size:12.5px; color:var(--ink-2); margin-bottom:var(--s-2); }
+  .esc-card .note { font-size:13.5px; padding:8px 12px; background:rgba(184,136,77,0.10);
+    border-left:3px solid var(--accent); margin:var(--s-2) 0; border-radius:4px; }
+  .esc-card .msgs { background:var(--surface-2); border-radius:6px; padding:10px 12px;
+    font-size:13px; line-height:1.5; max-height:300px; overflow-y:auto; }
+  .esc-card .msg { padding:6px 0; }
+  .esc-card .msg.role-user::before { content:'👤 '; }
+  .esc-card .msg.role-assistant::before { content:'🤖 '; }
+  .esc-card .msg .role { font-size:11px; color:var(--ink-3); text-transform:uppercase;
+    letter-spacing:.06em; margin-right:6px; }
+  .esc-actions { display:flex; gap:8px; margin-top:var(--s-3); }
+  .esc-empty { text-align:center; color:var(--ink-3); padding:var(--s-7) var(--s-4); }
+</style>
+</head>
+<body>
+<div class="esc-wrap" id="app">
+  <p class="mini">Loading…</p>
+</div>
+<script src="/js/jord.js"></script>
+<script>
+(async function () {
+  const $ = JORD.$, esc = JORD.escapeHtml;
+  // Super-admin only — non-super tokens get a friendly bounce.
+  try {
+    const me = await JORD.api('/api/auth/me');
+    if (!me || me.role !== 'super') {
+      $('#app').innerHTML = `<p style="text-align:center;padding:60px 20px;color:#a33">
+        Super admin only. <a href="/admin" style="color:var(--accent)">← Back to admin</a></p>`;
+      return;
+    }
+  } catch {
+    location.href = '/admin'; return;
+  }
+  let tab = 'open';
+  await load();
+
+  async function load() {
+    $('#app').innerHTML = `
+      <div class="esc-head">
+        <h1>🆘 AI Help Escalations</h1>
+        <a class="btn btn-ghost" href="/admin">← Back to admin</a>
+      </div>
+      <div class="esc-tabs">
+        <button data-t="open"   class="${tab==='open'?'is-active':''}">Open</button>
+        <button data-t="acked"  class="${tab==='acked'?'is-active':''}">Acknowledged</button>
+      </div>
+      <div id="esc-list"><p class="mini">Loading…</p></div>`;
+    document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => { tab = b.dataset.t; load(); });
+    await renderList();
+  }
+
+  async function renderList() {
+    try {
+      const r = await JORD.api('/api/super/help-agent/escalations?status=' + encodeURIComponent(tab));
+      const list = r.escalations || [];
+      const el = $('#esc-list');
+      if (!list.length) {
+        el.innerHTML = `<div class="esc-empty">
+          No ${tab} escalations. ${tab === 'open' ? 'Quiet day — nobody needs human help right now.' : ''}
+        </div>`;
+        return;
+      }
+      el.innerHTML = list.map(e => `
+        <div class="esc-card">
+          <h3>${esc(e.admin_name || 'Admin')}${e.event_name ? ' — ' + esc(e.event_name) : ''}</h3>
+          <div class="meta">
+            ${esc(e.admin_email || '')} · escalated ${esc(new Date(e.created_at).toLocaleString())}
+            ${e.acked_at ? ` · acked ${esc(new Date(e.acked_at).toLocaleString())}` : ''}
+          </div>
+          ${e.note ? `<div class="note">${esc(e.note)}</div>` : ''}
+          <div class="msgs">
+            ${(e.messages || []).map(m => `<div class="msg role-${esc(m.role)}">
+              <span class="role">${esc(m.role)}</span>${esc(m.content)}
+            </div>`).join('') || '<em>No messages.</em>'}
+          </div>
+          ${tab === 'open' ? `<div class="esc-actions">
+            <button class="btn btn-primary" data-ack="${esc(e.id)}">Acknowledge</button>
+            ${e.admin_email ? `<a class="btn btn-ghost" href="mailto:${esc(e.admin_email)}?subject=Re%3A%20JORD%20help%20request">Email admin</a>` : ''}
+          </div>` : ''}
+        </div>`).join('');
+      document.querySelectorAll('[data-ack]').forEach(b => b.onclick = async () => {
+        b.disabled = true;
+        try {
+          await JORD.api('/api/super/help-agent/escalations/' + encodeURIComponent(b.dataset.ack) + '/ack', { method: 'POST' });
+          JORD.toast('Acknowledged', 'success');
+          await load();
+        } catch (err) {
+          b.disabled = false; alert(err.message);
+        }
+      });
+    } catch (e) {
+      $('#esc-list').innerHTML = `<p class="mini" style="color:#a33">Could not load: ${esc(e.message)}</p>`;
+    }
+  }
+})();
+</script>
+</body>
+</html>

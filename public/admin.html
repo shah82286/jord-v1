@@ -665,9 +665,15 @@
 <script src="https://api.mapbox.com/mapbox-gl-js/plugins/mapbox-gl-draw/v1.4.3/mapbox-gl-draw.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 <script src="/js/jord.js"></script>
+<script src="/js/jord-help-agent.js"></script>
 <script>
 (async function () {
   const $ = JORD.$, $$ = JORD.$$, el = JORD.el;
+  // AI Help Agent floating widget. Legacy admin.html has no event in
+  // the URL — context.event_id will be filled in after the admin opens
+  // an event (currentEventId on the page state). For now we mount with
+  // page label only; context can be added per-call later.
+  JORD.mountHelpAgent({ page: 'admin-legacy' });
 
   // ── Gate ──
   const gate = $('#gate'), app = $('#app');

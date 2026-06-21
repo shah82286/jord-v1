@@ -15,6 +15,7 @@
     "test:all": "node tests/run-tests.js && node tests/regression-tests.js && node tests/live-tests.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.105.0",
     "@aws-sdk/client-s3": "^3.1045.0",
     "better-sqlite3": "^12.9.0",
     "cors": "^2.8.5",

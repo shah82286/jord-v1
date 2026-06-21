@@ -45,8 +45,13 @@ Deployed to Railway. Live at https://tournament.jordgolf.com. SSL auto-managed b
 **#PRE-2 — Wire up or formally defer SMS/email (Klaviyo)** ✓
 Completed May 2026. Full Klaviyo integration live. 4 event metrics fire from the server: `jord_registered`, `jord_ball_scanned`, `jord_tournament_ended`, `jord_dethroned`. 4 Klaviyo Flows built and set to Live — each delivers a branded dark-theme HTML email + SMS. Players opted in at registration receive messages automatically. Real Klaviyo API key set in Railway environment variables.
 
-**#PHASE-2 — Tournament admin experience: limited UI + per-event branding**
-Restrict tournament-admin panel UI (hide super-only buttons, scope event list). Add per-event branding: logo upload + accent color picker on Settings tab. Apply branding on register/leaderboard/scan pages with "Powered by JORD Golf" footer. Sales-value feature — every tournament looks branded.
+**#PHASE-2 — Tournament admin experience: limited UI + per-event branding** ✓ DONE
+v3.71 (branding + delete-ownership guard), v3.73 (sponsor logo upload
++ render on event-site), v3.76 (sponsor logos on the printed pairings
+poster). Per-event logo + accent color applied on register/leaderboard/
+scan via `JORD.applyBranding()`. Always-on "Powered by JORD Golf"
+footer via `JORD.renderFooter()`. Only super or event creator can
+delete (`DELETE /api/events/:id` ownership guard).
 
 **#PHASE-3 — AI Help Agent**
 Claude-powered floating chat widget on admin panel. Aware of current event context (status, ball count, recent alerts). Escalation alerts to super admin dashboard when admin gets stuck. Note: usage-priced — watch costs.
@@ -75,11 +80,20 @@ Klaviyo **rejected** the transactional status on a JORD email — Shaheen is con
 **#EMAIL-DEPLOY — Deploy the all-Klaviyo email build to Railway**
 Commits `733ecae` (route transactional email through Klaviyo) + `00cc475` (doc) + `3339d0e` (IPv4 DNS fix) are pushed to GitHub but not yet deployed. Manually deploy `main` in Railway so the new email routing goes live. Then re-test password reset end-to-end once the `jord_password_reset` flow exists.
 
-**#REG-SIM-TEST — Run the 20-player registration simulation**
-`scripts/test-registration-flow.js` was built (spins up a sandboxed server on a temp DB, registers ~20 players across 5 teams, exercises duplicate-code / full-team / pre-tournament edge cases) but never run end-to-end. Run it, fix anything it surfaces, before the next real tournament.
+**#REG-SIM-TEST — Run the 20-player registration simulation** ✓ DONE
+v3.70 / commit `05e9413`. Sim ran end-to-end clean once test was
+updated for the post-2026-05 server contract (email + phone now
+required server-side on `/api/events/:id/register-player`). 40/40
+pass: 5 teams × 4 players, plus duplicate-code / unknown-code / full-
+team / bad-share-code / setup+active+ended status gates.
 
-**#HELP-BUBBLES — Info tooltips across tournament setup screens**
-Add clickable `ℹ`/`!` info bubbles next to every setting, input, and toggle on the admin Settings + Course Map tabs so a non-technical tournament director can self-serve. The `.help-icon`/`.tooltip` CSS already exists in the editor — extend it comprehensively and make it tap-friendly on mobile (hover doesn't work on touch).
+**#HELP-BUBBLES — Info tooltips across tournament setup screens** ✓ DONE
+v3.72. Tap-friendly: click any `.help-icon` to toggle its tooltip,
+click outside to close, hover still works on desktop. CSS + JS shared
+between `admin/editor.html` and the legacy `admin.html`. Also filled
+the ~17-bubble gap in `admin.html` so both editors cover the same
+fields (penalty modes, hole distance, off-green, etc.) with the same
+wording. Verified by `tests/manual/shot-help-bubbles.js` (5 paths).
 
 **#RAILWAY-AUTODEPLOY — Wire Railway auto-deploy from GitHub** ✓ DONE
 Confirmed working May 2026 — pushes to `main` auto-trigger Railway

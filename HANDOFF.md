@@ -9,8 +9,8 @@ Paste everything below the line into your first message when starting a new sess
 I'm building **JORD Golf Tournament System** — a SaaS web app that started as a Longest Drive / Closest to Pin on-course contest tool and has expanded into a full **enterprise charity-tournament platform** competing with EventCaddy. It now has three layered products:
 
 1. **Original LD/CTP contests** — Mapbox satellite course setup, players scan a QR code on their ball to GPS-submit shots, live leaderboard.
-2. **Clubhouse** (`/clubhouse`) — 20-format game scoring engine for casual rounds + tournaments (stroke, scramble, match play, skins, etc.) with full WHS handicap math.
-3. **Enterprise tournament platform** — brandable public event sites at `/e/:slug`, online registration with **real Stripe Connect payments**, organizer dashboard, day-of check-in, walk-ups, pairings + hole assignments. Currently sandbox; switches to live keys via #STRIPE-LIVE.
+2. **Clubhouse** (`/clubhouse`) — **28-format** scoring engine for casual rounds + tournaments (stroke, scramble, match play, skins w/ handicap+carryover toggles, vegas, nassau, bbb, dots, snake, best-ball, foursomes, chapman, sixes, rumble, etc.) with full WHS handicap math, multi-tee courses, drag-reorder players, drag-and-share scorecard, per-tournament settings editor, Active/Finished archive tabs, course-edit-in-place.
+3. **Enterprise tournament platform** — brandable public event sites at `/e/:slug` with **per-event logo + accent**, online registration with **real Stripe Connect payments**, organizer dashboard, day-of check-in, walk-ups, pairings + hole assignments + sponsor-branded printed poster. Currently sandbox; switches to live keys via #STRIPE-LIVE.
 
 ### Tech stack
 - **Backend**: Node.js + Express, SQLite via `better-sqlite3`. ~5,000-line `server.js`.
@@ -32,15 +32,135 @@ Super admin login: `shah82286@gmail.com` / `jord2026` (password = `ADMIN_PASSWOR
 
 ---
 
-## Current state — v3.47.0 (2026-05-26)
+## Current state — v3.76.0 (2026-06-19)
 
-> **Snapshot context**: The entire platform spec (E1–E5) is now
-> feature-complete. The last handoff (at v3.43) marked E3 done; since
-> then the **scoring↔pairings bridge** (v3.44), the **full E4 silent
-> auction MVP** (v3.45), and **both halves of E5 — event store +
-> supplies marketplace** (v3.46–v3.47) shipped. Plus a hotfix pass
-> (v3.43.1) caught four bugs from the post-deploy review.
-> **319/319 unit tests passing.**
+> **Snapshot context**: E1-E5 charity-tournament platform finished at
+> v3.47 (see "Previous arcs" below). Since then the focus has been
+> the **personal-user Clubhouse + casual tournament product** (v3.50-
+> v3.66), then a polish pass on the charity side (v3.71-v3.76:
+> per-event branding, sponsor logos, help bubbles, archive tabs,
+> course edit). The platform now serves three audiences cleanly:
+> on-course LD/CTP contests, personal-user casual rounds, and
+> branded charity tournaments. **414/414 unit tests passing.**
+
+### What's shipped since v3.47 (this arc)
+
+Themes, not strict chronology — see CHANGELOG.md for the per-version
+detail. Grouped by surface area:
+
+#### Personal Clubhouse + casual-tournament engine
+- **28-format catalog** (`lib/formats.js`). Beyond v3.47's 20, added
+  vegas, nassau, sixes, dots, snake, BBB, rumble, duplicate-scramble,
+  match-play variants, low-net-team, etc. Format engines in
+  `lib/scoring.js` cover all 28 — verified by
+  `tests/manual/test-all-formats-e2e.js` (28/28 green: create
+  tournament → roster → score → fetch leaderboard → PATCH-flip a
+  setting).
+- **Personal-user accounts** with `users` table + `x-user-token` —
+  sign up at `/login`, manage at `/account`. Can host casual rounds
+  without admin access. Stripe path is admin-only.
+- **Wizard** in [tournaments.html](public/tournaments.html) drives
+  game creation: type (casual / reds_blues / tournament) → course
+  (search + manual entry w/ multi-tee) → format (picker + per-format
+  wager panel) → players (drag-reorder, edit, stroke-allocation
+  overrides). All wager + side-bet settings configurable.
+- **Share-link join page** at `/round/:shareCode`
+  ([round-join.html](public/round-join.html)): host already populated
+  the field? Guest picks their name from a dropdown ("That's me →")
+  → stored in `localStorage` per device → scorecard marks them YOU
+  with accent border + thinner stripe on their teammates' rows.
+  Falls back to add-yourself form if host left field empty.
+- **Score entry** ([scorecard.html](public/scorecard.html)) shared
+  by the whole group via the share link. One-tap stepper, mobile-
+  polished at 375 px, per-hole strokes-given panel, side-game event
+  capture (BBB / Dots / Snake / Greenies etc.).
+- **Live leaderboard** ([live.html](public/live.html)) with SSE
+  streaming. Tabs for primary + each side-bet. Expandable team rows
+  for best-ball / scramble show per-member scorecard + winner outline
+  (saffron) on the "ball used" cells.
+- **Card view** ([card.html](public/card.html)) renders a printable
+  paper scorecard with eagle/birdie/bogey/double shape annotations
+  in classic golf typography.
+- **Banter chat** keyed on the share code — real-time SSE group chat
+  for everyone with the link. Always-on FAB at bottom-right.
+- **Tournament settings editor** (v3.69) — the Edit Game modal mounts
+  the same wager + side-bets UI as the wizard. Change Skins value,
+  flip handicap rules, swap formats — any setting, any time.
+- **Active / Finished tabs** on the Clubhouse (v3.74). Finished =
+  every round in the tournament is `status='ended'`. Selection
+  persists in sessionStorage.
+- **Course edit** (v3.75) — PUT `/api/courses/:id` with tee-id
+  preservation (matches by id, UPDATE-in-place for renames; INSERT
+  new tees; DELETE omitted ones). Prevents orphaning
+  `round_entries.tee_id` on already-played rounds.
+- **Clone + reset** (v3.67) — duplicate a tournament's full setup
+  (format, settings, side-bets, players, teams) without scores;
+  reset-scores wipes a round back to setup.
+
+#### Charity-tournament polish
+- **Per-event branding** (v3.71) — logo upload + accent color picker
+  on the Settings tab. Applies on register / scan / leaderboard
+  player-facing pages via `JORD.applyBranding()`. Always-on "Powered
+  by JORD Golf" footer via `JORD.renderFooter()`.
+- **Delete-ownership guard** (v3.71) — only super or event creator
+  can DELETE; UI hides the button for co-admins / reps.
+- **Tap-friendly help bubbles** (v3.72, closes #HELP-BUBBLES) — the
+  `ℹ` tooltips on admin Settings + Course Map work on touch now
+  (tap to open, outside-click to close, hover still on desktop).
+  Filled the gap in legacy `admin.html` so it matches the new
+  editor's ~25 bubbles.
+- **Sponsor logos** (v3.73 + v3.76) — admin upload UI, public event-
+  site sponsor cards render the logo in a 16:9 contained frame, and
+  the **printed pairings poster** has a "Thank you to our sponsors"
+  strip with 2"×1.1" logo panels.
+- **Schema fix** (v3.73) — `registration_packages.package_kind /
+  sponsor_type / image_data` were declared as ALTER TABLE migrations
+  at line 304 BEFORE the CREATE TABLE at line ~850, so they silently
+  failed on fresh DBs. Baked into canonical schema; existing prod
+  DBs unaffected.
+
+#### Skins + Best-ball engine work
+- **Skins toggles** (v3.68) — `allow_handicaps` (low net vs low
+  gross), `allow_carryover` (tied skins carry or die). Both default
+  ON. Works for primary Skins AND Skins-as-side-bet.
+- **Best-ball team grid** (v3.68 fix) — the team row's per-hole
+  scorecard in the live drawer used to render all em-dashes even
+  with member scores in. Engine now attaches `teamScores` (gross of
+  the winning member per hole) + `teamStrokeOverrides` so the
+  drawer's existing render fills in correctly.
+
+#### Cross-cutting UX
+- **Modal scroll** (v3.70) — `.modal` is a flex column with body as
+  the only scroll region. Header + footer pinned. Benefits every
+  modal in the app — the Edit Game modal in particular was clipping
+  the Save button on short phones.
+- **Scorecard 375 px polish** (v3.76) — `@media (max-width: 400px)`
+  tightens padding / button / val-box / hole-nav sizes a notch
+  without changing layout. Above 400 px untouched.
+- **#TEST-COLOR** (v3.76) — fairway/green swap on `/test` GPS sim
+  now matches the rest of the app's `ZONE_COLORS`.
+
+### What's in `tests/manual/` (sandbox-server E2Es)
+- `test-all-formats-e2e.js` — sweep 28 formats end-to-end (create
+  tournament → score → leaderboard → PATCH settings)
+- `test-edit-settings.js` — PATCH round-trip on `format_settings` +
+  `side_bets`
+- `test-clone-reset.js` — clone setup + reset-scores
+- `test-skins-gross.js` — both skins toggles in 5 modes
+- `test-course-edit.js` — PUT with tee-id preservation (11 paths,
+  including the ownership 403 check)
+- `test-sponsor-logo.js` — PATCH round-trip on sponsor `image_data`
+- `test-branding.js`, `test-mobile-tour.js`, `test-ui-audit.js`,
+  `shot-help-bubbles.js`, `shot-clubhouse-tabs.js` — visual /
+  Puppeteer
+
+---
+
+## Previous arcs
+
+### v3.47.0 (2026-05-26) — E1–E5 charity platform feature-complete
+
+> **319/319 unit tests passing at that point.** Pre-Clubhouse era.
 
 ### What's shipped since v3.43 (this session arc)
 
@@ -189,8 +309,10 @@ Mobile visual: `node tests/mobile-visual.js` (Puppeteer iPhone 14 + Pixel 7 view
 
 ## What was in-flight when we stopped
 
-Nothing — the v3.47 session ended on a clean push of the full E5 arc.
-There is no pending work to resume.
+Nothing — v3.76 ended on a clean push (scorecard 375 px polish + sponsor
+logos on poster + #TEST-COLOR). Working tree is clean. The most-
+actionable next item is **#DROP-INTEGRATION Phase A** (CSV-export half,
+unblocked); after that, **#PHASE-3 AI Help Agent**.
 
 ---
 
@@ -206,32 +328,46 @@ There is no pending work to resume.
 
 ---
 
-## Next priorities (post-roadmap)
+## Next priorities
 
-### Deferred / blocked
-- **Klaviyo email blast for donations + sponsors + auction** — deferred
-  behind `#KLAVIYO-FLOWS` until the 6 dashboard flows are built.
-- **`#STRIPE-LIVE`** — still on sandbox keys. Flipping to live needs a
-  fresh `whsec_`, a re-onboarded JORD platform Connect account, and an
-  end-to-end test with a real card + refund.
-- **`#STRIPE-TERMINAL`** — Tap-to-Pay / BBPOS reader for in-person card
-  payments at the registration desk.
-- **`#OAUTH-1`** — Google + Microsoft SSO, waiting on client app
+### Code work that can ship from this session
+
+- **#DROP-INTEGRATION Phase A** (in progress, paused on Drop API) —
+  the **CSV-export half** is unblocked. Build the data model +
+  export endpoint + admin sync panel + 24h-delayed scheduler so the
+  organizer has a manual handoff today. Phase B (actual API push)
+  swaps in 30 minutes once Drop's dev team answers their queue.
+- **#PHASE-3 — AI Help Agent** — Claude-powered floating chat widget
+  on admin pages. Aware of current event context. Cost-priced — gate
+  with a daily token cap per admin to start. ~1-2 days for a useful
+  MVP.
+- **#PHASE-5 — Klaviyo welcome email plumbing** for new admins / reps
+  (server-side `sendKlaviyo('jord_admin_welcome', ...)` wiring; Flow
+  itself is Shaheen's piece — gated behind #KLAVIYO-FLOWS).
+
+### Shaheen-blocked (hard production blockers)
+- **#KLAVIYO-TRANSACTIONAL** — support ticket still open with Klaviyo
+  on transactional-status approval. Until approved, password-reset
+  + welcome emails can't reach non-marketing-opted users.
+- **#KLAVIYO-FLOWS** — 5 Flows pending in the Klaviyo dashboard;
+  `jord_password_reset` is the critical one (nobody can reset a
+  password without it).
+- **#STRIPE-LIVE** — sandbox → live flip. 7 steps including fresh
+  webhook secret + organizer re-onboard + end-to-end real-card test.
+- **#EMAIL-DEPLOY** — Klaviyo-routing commits pushed to GitHub but
+  not yet deployed to Railway. One-click Railway redeploy.
+
+### Operational reminders
+- **#SECURITY-1** — quarterly key rotation reminders (Mapbox /
+  Anthropic / Klaviyo) on Jan 1 / Apr 1 / Jul 1 / Oct 1.
+- **#OAUTH-1** — Google + Microsoft SSO, waiting on client app
   registration in Google Cloud + Azure AD.
-- **`#KLAVIYO-TRANSACTIONAL`** — Klaviyo support ticket still open on
-  transactional-status approval for a JORD email.
 
-### Smaller polish items worth picking up
-- **Sponsorship logos on poster + public site** — the catalog is in
-  place but we still only render names, not images. ~1 hr.
-- **Reps invite flow** — `/admin/events/:id/reps` UI exists; one-click
-  "Invite by email" with magic-link onboarding is the next step.
-- **Multi-product cart for the supplies marketplace** — phase 1 is
-  single-product-per-checkout. Cart deferred to phase 3.
-- **Sponsorship logo display on event-site cards** — sponsor section
-  could lead with logos instead of emoji chips when an image is uploaded.
-- **International shipping for the JORD shop** — currently US-only;
-  one-line change to the `allowed_countries` whitelist.
+### Deferred / on hold
+- **#STRIPE-TERMINAL** — Tap-to-Pay / BBPOS reader. Needs a native
+  mobile wrapper (Capacitor) first.
+- **#DROP-INTEGRATION Phase B** — push to Drop. Waiting on Drop dev
+  team's API answers.
 
 ### Bigger directions (if the platform pivots)
 - Mobile PWA / offline scoring for the on-course experience.
@@ -239,15 +375,6 @@ There is no pending work to resume.
   when they're outbid in the auction, etc.).
 - Partner integrations: GHIN handicap verification, USGA event
   registration import, Square / Clover POS sync for in-person sales.
-
-### Operational TODOs (in TODO.md)
-See the "Deferred / blocked" subsection above for details. Pending IDs:
-- **#STRIPE-LIVE** — flip from sandbox to live keys.
-- **#STRIPE-TERMINAL** — in-person card payments at the registration desk.
-- **#KLAVIYO-FLOWS** — 6 Flows pending in the Klaviyo dashboard.
-- **#KLAVIYO-TRANSACTIONAL** — Klaviyo transactional-status approval.
-- **#OAUTH-1** — Google + Microsoft SSO client IDs.
-- **#HELP-BUBBLES** — ✅ Shipped in v3.39.1.
 
 ---
 
@@ -265,12 +392,12 @@ See the "Deferred / blocked" subsection above for details. Pending IDs:
 ## Files map (current state)
 | File / dir | Purpose |
 |------|---------|
-| `server.js` | All API routes, SSE, DB schema, Stripe webhook (raw-body BEFORE express.json), middleware. ~5,000 lines. |
-| `lib/formats.js` | 20-format game catalog |
-| `lib/handicap.js` | WHS handicap math |
-| `lib/scoring.js` | Scoring engines for all 20 formats |
-| `lib/stripe.js` | Stripe Connect helper (createConnectAccount, createCheckoutSession, verifyWebhook, mapAccountStatus) |
-| `lib/golfCourseApi.js` | golfcourseapi.com client |
+| `server.js` | All API routes, SSE, DB schema, Stripe webhook (raw-body BEFORE express.json), middleware. ~8,000 lines now. |
+| `lib/formats.js` | **28-format** game catalog (added vegas, nassau, sixes, dots, snake, BBB, rumble, duplicate-scramble, match-play variants, low-net-team since v3.47) |
+| `lib/handicap.js` | WHS handicap math (Rule 11 + Appendix C/E) |
+| `lib/scoring.js` | Scoring engines for all 28 formats — strokes, stableford, skins (w/ handicap+carryover toggles), best-ball (w/ teamScores per hole), scramble, match, vegas, nassau, BBB, dots, snake, rumble, low-net, duplicate, erado |
+| `lib/stripe.js` | Stripe Connect helper (createConnectAccount, createCheckoutSession, verifyWebhook, mapAccountStatus, createDirectCheckoutSession for JORD Shop) |
+| `lib/golfCourseApi.js` | golfcourseapi.com client (course search + import) |
 | `public/admin/event-site-editor.html` | Organizer event-site + packages editor |
 | `public/admin/stripe-connect.html` | Stripe Connect onboarding UI |
 | `public/admin/event-registrations.html` | Registrations dashboard + refunds + add-ons |
@@ -288,9 +415,12 @@ See the "Deferred / blocked" subsection above for details. Pending IDs:
 | `public/event-register.html` | Public registration form at `/e/:slug/register` |
 | `public/event-confirmation.html` | Post-checkout thank-you at `/e/:slug/confirmation/:regId` |
 | `public/login.html` | Personal user (player) sign-in / sign-up |
-| `public/tournaments.html` | `/clubhouse` hub — create games via hash-routed wizard |
-| `public/scorecard.html` | Score entry with stroke-allocation dots |
-| `public/live.html` | Round leaderboard |
+| `public/account.html` | Personal user account: email/password change, GHIN, home club |
+| `public/tournaments.html` | `/clubhouse` hub — create games via hash-routed wizard. Active/Finished tabs. Course list w/ Edit (PUT-based, tee-id-preserving). |
+| `public/round-join.html` | Public share-link landing — "Find your name" dropdown if host populated field; fallback to add-yourself form. Persists claim per-device in localStorage. |
+| `public/scorecard.html` | Score entry with stroke-allocation dots; YOU pill + teammate stripe; 375 px polished |
+| `public/live.html` | Round leaderboard. Tabs per side-bet. Expandable team rows w/ per-member scorecard + winner outline (best-ball). |
+| `public/card.html` | Printable paper scorecard w/ eagle/birdie/bogey shape annotations |
 | `public/tournament-live.html` | Cumulative tournament leaderboard |
 | `public/admin.html` | Admin panel (original) — event CRUD, course map, ball pool |
 | `public/leaderboard.html` | Original LD/CTP live leaderboard |
@@ -298,9 +428,10 @@ See the "Deferred / blocked" subsection above for details. Pending IDs:
 | `public/css/jord.css` | Shared cream editorial design system |
 | `public/js/jord.js` | Frontend library — API client (dual-token), toasts, helpers |
 | `scripts/seed-event-site.js` | Idempotent demo event-site seed (Fairway Fund) |
-| `tests/run-tests.js` | 319 unit tests — routes, scoring, sponsorships, donations, auction, marketplace, plus inline-script syntax check across every public HTML page |
+| `tests/run-tests.js` | **414 unit tests** — routes, scoring, sponsorships, donations, auction, marketplace, plus inline-script syntax check across every public HTML page |
+| `tests/manual/*.js` | Sandbox-server E2Es — spin up `server.js` on a temp port + DB and drive flows over HTTP. See "What's in tests/manual/" above. |
 | `tests/mobile-visual.js` | Puppeteer iPhone 14 + Pixel 7 mobile visual regression |
-| `CHANGELOG.md` | Full version history; v3.43.1 through v3.47 cover the latest session arc (post-v3.43 hotfix + E4 + E5) |
+| `CHANGELOG.md` | Full version history; v3.47 through v3.76 covers the personal Clubhouse arc + charity polish |
 | `TODO.md` | Numbered backlog — reference by # (e.g. "let's do #STRIPE-LIVE") |
 | `ENTERPRISE-PLATFORM-SPEC.md` | E1-E5 phased plan + competitive map vs EventCaddy |
 | `LEADERBOARD-SPEC.md` | Clubhouse scoring spec |
