@@ -753,6 +753,7 @@ db.exec(`
     type            TEXT DEFAULT 'tournament',  -- tournament | casual
     name            TEXT NOT NULL,
     admin_id        TEXT,                       -- null for casual rounds
+    user_id         TEXT,                       -- personal-user owner (v3.50+)
     event_id        TEXT,                       -- optional link to events table
     default_format  TEXT DEFAULT 'stroke_gross',
     num_rounds      INTEGER DEFAULT 1,
@@ -761,6 +762,8 @@ db.exec(`
     banter_enabled  INTEGER DEFAULT 1,
     status          TEXT DEFAULT 'setup',       -- setup | active | ended
     share_code      TEXT,                       -- short code for the join link
+    format_settings TEXT,                       -- JSON per-format wager / point settings
+    side_bets       TEXT,                       -- JSON [{ format_id, settings }] (v3.60)
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP
   );
 
@@ -781,16 +784,22 @@ db.exec(`
     name            TEXT,                       -- "Group 1"
     tee_time        TEXT,
     starting_hole   INTEGER DEFAULT 1,
+    pairing_group_id TEXT,                      -- pairings→scoring bridge (v3.44)
     FOREIGN KEY (round_id) REFERENCES rounds(id) ON DELETE CASCADE
   );
 
   CREATE TABLE IF NOT EXISTS round_entries (
-    id              TEXT PRIMARY KEY,
-    round_id        TEXT NOT NULL,
-    player_id       TEXT NOT NULL,
-    tee_id          TEXT,
-    group_id        TEXT,
-    course_handicap INTEGER,                    -- computed at setup from WHS
+    id                       TEXT PRIMARY KEY,
+    round_id                 TEXT NOT NULL,
+    player_id                TEXT NOT NULL,
+    tee_id                   TEXT,
+    group_id                 TEXT,
+    course_handicap          INTEGER,             -- computed at setup from WHS
+    user_id                  TEXT,                -- personal-user who joined (v3.50+)
+    stroke_overrides         TEXT,                -- JSON { holeNum: strokes } manual allocation (v3.64)
+    order_index              INTEGER,             -- drag-reorder position (v3.66)
+    source_registration_id   TEXT,                -- pairings→scoring bridge (v3.44)
+    source_player_index      INTEGER,             -- pairings→scoring bridge (v3.44)
     FOREIGN KEY (round_id) REFERENCES rounds(id) ON DELETE CASCADE
   );
 
@@ -896,6 +905,19 @@ db.exec(`
     contact_email TEXT,
     contact_phone TEXT,
     published     INTEGER DEFAULT 1,
+    -- Donations / auction columns landed as ALTER TABLE migrations at
+    -- lines 456-459 + 519-521 — but those run BEFORE this CREATE, so
+    -- they silently failed on fresh DBs (same class of bug as v3.73's
+    -- registration_packages fix). Bake them into the canonical schema
+    -- so fresh deployments + sandbox tests work. The old ALTERs stay
+    -- in place as no-ops for already-migrated prod DBs.
+    donations_enabled       INTEGER DEFAULT 0,
+    donation_suggested_json TEXT,
+    donation_min_cents      INTEGER DEFAULT 500,
+    donation_prompt         TEXT,
+    auction_enabled         INTEGER DEFAULT 0,
+    auction_intake_enabled  INTEGER DEFAULT 0,
+    auction_intro           TEXT,
     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
@@ -926,20 +948,27 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_packages_event ON registration_packages(event_id, sort_order);
 
   CREATE TABLE IF NOT EXISTS registrations (
-    id                  TEXT PRIMARY KEY,
-    event_id            TEXT NOT NULL,
-    package_id          TEXT NOT NULL,
-    buyer_name          TEXT NOT NULL,
-    buyer_email         TEXT NOT NULL,
-    buyer_phone         TEXT,
-    players_json        TEXT,                     -- JSON: [{name}, ...]
-    amount_cents        INTEGER NOT NULL DEFAULT 0,
-    platform_fee_cents  INTEGER DEFAULT 0,
-    payment_status      TEXT DEFAULT 'pending',   -- pending | paid | refunded | failed
-    payment_mode        TEXT,                     -- mock | stripe
-    stripe_session_id   TEXT,
-    created_at          DATETIME DEFAULT CURRENT_TIMESTAMP,
-    paid_at             DATETIME,
+    id                       TEXT PRIMARY KEY,
+    event_id                 TEXT NOT NULL,
+    package_id               TEXT NOT NULL,
+    buyer_name               TEXT NOT NULL,
+    buyer_email              TEXT NOT NULL,
+    buyer_phone              TEXT,
+    players_json             TEXT,                     -- JSON: [{name}, ...]
+    amount_cents             INTEGER NOT NULL DEFAULT 0,
+    platform_fee_cents       INTEGER DEFAULT 0,
+    payment_status           TEXT DEFAULT 'pending',   -- pending | paid | refunded | failed | partial_refund
+    payment_mode             TEXT,                     -- mock | stripe
+    stripe_session_id        TEXT,
+    -- Refunds + add-ons + auction items (v3.34, v3.45)
+    refund_amount_cents      INTEGER,
+    refund_reason            TEXT,
+    refunded_at              DATETIME,
+    refunded_by_admin_id     TEXT,
+    parent_registration_id   TEXT,                     -- add-on charges nest under the parent
+    description              TEXT,                     -- short label for add-on / auction lines
+    created_at               DATETIME DEFAULT CURRENT_TIMESTAMP,
+    paid_at                  DATETIME,
     FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
   );
   CREATE INDEX IF NOT EXISTS idx_registrations_event ON registrations(event_id, created_at DESC);
@@ -962,6 +991,7 @@ db.exec(`
     tee_time        TEXT,                 -- "08:15 AM" — free text so we don't fight time-zone math
     sort_order      INTEGER DEFAULT 0,    -- for manual reordering
     notes           TEXT,                 -- cart pairing, dietary, etc.
+    cart_numbers    TEXT,                 -- free-text "12, 13" / "Walking" (v3.45+)
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     created_by      TEXT,                 -- admin id
     FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
@@ -1170,7 +1200,9 @@ app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), (req,
 app.use(express.json({ limit: '2mb' }));
 // redirect:false → don't 301 /admin → /admin/ when public/admin/ exists as a dir;
 // page routes below handle clean URLs like /admin and /admin/backups themselves.
-app.use(express.static('public', { redirect: false }));
+// Resolve `public` against __dirname so the server can run from any CWD (the
+// sandbox-DB tests in tests/manual/*.js spawn the server from a temp dir).
+app.use(express.static(path.join(__dirname, 'public'), { redirect: false }));
 
 // ─── EMAIL ────────────────────────────────────────────────────────────────────
 const transporter = SMTP_HOST && SMTP_USER ? nodemailer.createTransport({

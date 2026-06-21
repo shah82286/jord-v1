@@ -513,8 +513,14 @@ body { overflow-x: hidden; }
   .lb-ball { grid-template-columns: 26px 1fr 70px; font-size: 13px; }
 
   /* Topbar */
-  .topbar-inner { padding: var(--s-2) var(--s-3); }
+  .topbar-inner { padding: var(--s-2) var(--s-3); gap: var(--s-2); flex-wrap: wrap; }
   .brand-name { font-size: 18px; }
+  /* "JORD Super Admin · Super" caption hidden on narrow screens — it
+   * was wrapping to 4 lines and pushing the Sign-out button off-screen.
+   * Caller can re-show via the topbar dropdown if they want it back. */
+  #topbar-user { display: none; }
+  /* Shrink the brand-sub ("TOURNAMENT ADMIN") so the bar fits on phones */
+  .brand-sub { padding-left: 8px !important; margin-left: 2px !important; font-size: 9px; }
 
   /* Hero */
   .hero { padding: var(--s-5) 0 var(--s-4); }

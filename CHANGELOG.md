@@ -2,6 +2,65 @@
 
 ---
 
+## v3.78.0 — 2026-06-19
+### Mobile-sweep audit: schema cleanup + topbar wrap + static-path fix
+
+Full mobile-viewport tour at 390 px across every surface touched in the
+v3.71-v3.77 arc (personal Clubhouse, charity admin, AI Help widget,
+public event site). The tour script
+`tests/manual/shot-mobile-full-sweep.js` itself surfaced three real
+bugs the audit caught — fixed and re-verified in this version.
+
+#### Schema-ordering bug, 5 more tables baked
+v3.73 fixed `registration_packages`; this version closes the same
+class of ordering bug for 5 more tables. ALTER TABLE migrations
+declared earlier in `server.js` (lines 280-878) silently fail on
+fresh DBs because they run BEFORE their CREATE TABLE statements. The
+columns are baked into the canonical CREATEs so fresh deployments
+(test sandboxes, new prod environments) work; the old ALTERs stay
+as no-ops for already-migrated prod DBs.
+
+Tables fixed:
+- `tournaments` — `user_id`, `format_settings`, `side_bets`
+- `round_entries` — `user_id`, `stroke_overrides`, `order_index`,
+  `source_registration_id`, `source_player_index`
+- `score_groups` — `pairing_group_id`
+- `pairing_groups` — `cart_numbers`
+- `registrations` — `refund_amount_cents`, `refund_reason`,
+  `refunded_at`, `refunded_by_admin_id`, `parent_registration_id`,
+  `description`
+- `event_sites` — `donations_enabled`, `donation_suggested_json`,
+  `donation_min_cents`, `donation_prompt`, `auction_enabled`,
+  `auction_intake_enabled`, `auction_intro`
+
+#### Static-files served from CWD-independent path
+`app.use(express.static('public', ...))` resolved relative to CWD,
+so spawning `server.js` from a sandbox dir (the tests/manual/*.js
+pattern) returned 404 for `/js/jord.js`, `/css/jord.css`, and every
+other public asset. Pages rendered blank. Fix:
+`express.static(path.join(__dirname, 'public'), ...)`. Server now
+runs correctly from any CWD.
+
+#### Admin topbar wrap at narrow widths
+At 390 px the admin topbar's right block ("JORD Super Admin · Super"
+caption + Password + Sign out) overflowed — the user-name caption
+wrapped to 4 lines and pushed Sign out off-screen. Two CSS rules:
+- `.topbar-inner` gains `flex-wrap: wrap` + tighter gap so the
+  buttons drop to a second row if they don't fit.
+- `#topbar-user` hidden below 768 px (it's informational — user
+  identity is also shown on the event card right below).
+- `.brand-sub` ("TOURNAMENT ADMIN") shrunk a notch so the brand row
+  stays compact.
+
+Tour result after fixes: 23 screenshots clean, no JS errors / missing
+selectors. The pairings-poster preview at mobile width is squished
+(24" poster scaled to 14% of full size) — flagged but not fixed
+since organizers preview/print this from desktop, not phones.
+
+415/415 main suite green.
+
+---
+
 ## v3.77.0 — 2026-06-19
 ### AI Help Agent + HANDOFF refresh (#PHASE-3, #DOCS-REFRESH)
 
