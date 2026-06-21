@@ -53,8 +53,15 @@ scan via `JORD.applyBranding()`. Always-on "Powered by JORD Golf"
 footer via `JORD.renderFooter()`. Only super or event creator can
 delete (`DELETE /api/events/:id` ownership guard).
 
-**#PHASE-3 — AI Help Agent**
-Claude-powered floating chat widget on admin panel. Aware of current event context (status, ball count, recent alerts). Escalation alerts to super admin dashboard when admin gets stuck. Note: usage-priced — watch costs.
+**#PHASE-3 — AI Help Agent** ✓ DONE
+v3.77. Floating 🆘 Help widget on admin/editor + admin.html. Sonnet
+4.6 via `@anthropic-ai/sdk` with prompt caching on the long system
+prompt (knows JORD's products + admin nav map). Auto-passes current
+event id/name/status as context. Daily token cap (default 50k/admin/
+day, `AI_HELP_DAILY_TOKEN_CAP` env override) returns 429 with friendly
+nudge to escalate. Escalation queue at `/admin/help-escalations` for
+super admin review w/ full transcripts. Surfaced in super-admin nav
+bar with live red badge for open escalations (v3.77.1).
 
 **#PHASE-5 — Klaviyo welcome email for new admins**
 When super admin creates a new admin account, send a welcome email with temp password (currently displayed in console). Also wire forgot-password reset link to email instead of manual copy.
@@ -99,8 +106,11 @@ wording. Verified by `tests/manual/shot-help-bubbles.js` (5 paths).
 Confirmed working May 2026 — pushes to `main` auto-trigger Railway
 builds (verified during Stripe Connect deploy). No further action needed.
 
-**#DOCS-REFRESH — Update CHANGELOG + HANDOFF**
-Several shipped features aren't fully in the docs: v3.11.0 tournament rep role, the registration flow rewrite (team name first, dropdown, dup-code popup), pre-tournament registration, the platform-wide cream email re-skin + 4 new emails, and the rep view-permission levels (`perm_view_leaderboard` etc.). Refresh both files so the next session starts with accurate context.
+**#DOCS-REFRESH — Update CHANGELOG + HANDOFF** ✓ DONE
+v3.77. HANDOFF.md jumped from v3.47 (stale 29 versions) to v3.76+
+with the Personal Clubhouse arc + charity-polish themes summarized,
+new files map (account.html, round-join.html, card.html, etc.), and
+refreshed priorities. CHANGELOG already kept current per-version.
 
 ---
 
