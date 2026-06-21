@@ -54,8 +54,10 @@ Claude-powered floating chat widget on admin panel. Aware of current event conte
 **#PHASE-5 — Klaviyo welcome email for new admins**
 When super admin creates a new admin account, send a welcome email with temp password (currently displayed in console). Also wire forgot-password reset link to email instead of manual copy.
 
-**#TEST-COLOR — Fix swapped fairway/green colors on test page**
-`/test` GPS simulator has fairway shown as green (`#22C55E`) and green shown as blue (`#3B82F6`) — opposite of the standard. `test.html:235-245`. Minor visual fix to match main maps.
+**#TEST-COLOR — Fix swapped fairway/green colors on test page** ✓ DONE
+v3.76. `/test` GPS simulator now matches the admin/leaderboard/monitor
+maps — fairway = blue (`#3B82F6`), green = green (`#22C55E`). Both the
+detectSimZone branch and the SIM_ZONES catalog corrected.
 
 **#KLAVIYO-FLOWS — Build the 5 remaining Klaviyo Flows**
 All transactional email now routes through Klaviyo (SMTP was dropped — Railway blocks outbound SMTP). The server fires these metrics but they have NO Flow yet, so nothing is delivered. Build a Live Flow for each (steps in KLAVIYO-SETUP.md Part 1):

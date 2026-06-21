@@ -86,6 +86,30 @@
     display:flex; flex-direction:column; gap:6px; }
   .members-list .m-row { display:flex; align-items:center; justify-content:space-between;
     gap:var(--s-2); font-size:12.5px; color:var(--ink-2); }
+
+  /* ── 375px polish ──────────────────────────────────────────────────
+   * iPhone-SE / iPhone-mini width. Above this, everything fits
+   * comfortably; below, the player row was getting cramped (~165px
+   * left over for name + YOU + CH after stepper + vs-par). Tighten
+   * row padding, shrink stepper buttons + score val a notch, and
+   * trim the hole-nav so the score grid breathes. No layout changes
+   * — just smaller numbers. */
+  @media (max-width: 400px) {
+    .sc-wrap { padding-left: var(--s-2); padding-right: var(--s-2); }
+    .hole-nav { padding: 10px 12px; }
+    .hole-nav .hole-no { font-size: 1.9rem; }
+    .hole-nav button { width: 40px; height: 40px; font-size: 18px; }
+    .p-row { padding: 9px 11px; gap: 8px; margin-bottom: 6px; }
+    .p-row .p-name { font-size: 14.5px; }
+    .p-row .p-name small { font-size: 10.5px; }
+    .stepper { gap: 6px; }
+    .stepper button { width: 36px; height: 36px; font-size: 18px; }
+    .stepper .val { width: 40px; height: 40px; font-size: 1.35rem; line-height: 40px; }
+    .vs-par { min-width: 28px; font-size: 10.5px; }
+    .you-badge { font-size: 9px; padding: 2px 5px; }
+    /* Strokes-given banner — still useful but no need for 13px text */
+    .events-panel h3 { font-size: 0.9rem; }
+  }
   .members-list .m-row .m-name { font-weight:600; color:var(--ink); }
   .members-list .m-row .m-hcp  { color:var(--ink-3); font-size:11px; margin-left:4px; }
   .members-list .m-row .m-strokes { color:var(--accent); font-weight:700; letter-spacing:1px;

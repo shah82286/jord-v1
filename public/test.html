@@ -284,17 +284,20 @@
 
   function detectSimZone(lat, lon) {
     if (!simEventData) return null;
-    if (pointInPoly(lat, lon, simEventData.fairway_polygon)) return { key: 'fairway', label: 'Fairway',        color: '#22C55E' };
+    // Colors match the admin / leaderboard / monitor maps (see editor.html
+    // ZONE_COLORS @ ~line 2418): fairway=blue, rough=yellow, OOB=red,
+    // green=green. The test page used to have fairway+green swapped.
+    if (pointInPoly(lat, lon, simEventData.fairway_polygon)) return { key: 'fairway', label: 'Fairway',        color: '#3B82F6' };
     if (pointInPoly(lat, lon, simEventData.rough_polygon))   return { key: 'rough',   label: 'Rough',          color: '#EAB308' };
     if (pointInPoly(lat, lon, simEventData.oob_polygon))     return { key: 'oob',     label: 'Out of Bounds',  color: '#DC2626' };
     return null;
   }
 
   var SIM_ZONES = [
-    { id: 'sz-fairway', key: 'fairway_polygon',     color: '#22C55E', label: 'Fairway'  },
+    { id: 'sz-fairway', key: 'fairway_polygon',     color: '#3B82F6', label: 'Fairway'  },
     { id: 'sz-rough',   key: 'rough_polygon',       color: '#EAB308', label: 'Rough'    },
     { id: 'sz-oob',     key: 'oob_polygon',         color: '#DC2626', label: 'OOB'      },
-    { id: 'sz-green',   key: 'ctp_green_polygon',   color: '#3B82F6', label: 'Green'    }
+    { id: 'sz-green',   key: 'ctp_green_polygon',   color: '#22C55E', label: 'Green'    }
   ];
 
   function clearSimPolygons() {

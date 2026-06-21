@@ -109,6 +109,27 @@
     .p-card ol li { margin-bottom:.02in; font-weight:500; }
     .p-card ol li.empty { color:#999; font-style:italic; list-style:none; padding-left:0; }
 
+    /* Sponsor strip — runs above the printed footer. Charity organizers
+     * expect to see "Thank you to our sponsors" with logos on the poster. */
+    .p-sponsors { padding-left:.5in; padding-right:.4in; border-top:2px solid var(--poster-rule);
+      padding-top:.35in; padding-bottom:.35in; }
+    .p-sponsors .lbl { font-size:14pt; letter-spacing:.26em; text-transform:uppercase;
+      color:var(--poster-accent); font-weight:700; margin-bottom:.22in; }
+    .p-sponsors .grid { display:flex; flex-wrap:wrap; gap:.35in .4in; align-items:center; }
+    .p-sponsors .sp { display:flex; flex-direction:column; align-items:center; gap:.08in;
+      max-width:2.4in; }
+    .p-sponsors .sp .logo { width:2in; height:1.1in; display:flex; align-items:center;
+      justify-content:center; background:#fff; border:1pt solid var(--poster-rule);
+      border-radius:.06in; padding:.08in; }
+    .p-sponsors .sp .logo img { max-width:100%; max-height:100%; object-fit:contain; }
+    .p-sponsors .sp .nm { font-size:11pt; color:var(--poster-ink); font-weight:600;
+      text-align:center; max-width:2in; }
+    .p-sponsors .sp .sub { font-size:9pt; color:var(--poster-ink-2); text-transform:uppercase;
+      letter-spacing:.08em; }
+    /* No-logo fallback: name pill so the sponsor still gets recognition. */
+    .p-sponsors .sp.text-only .logo { background:var(--poster-cream); border-style:dashed;
+      font-family:'Playfair Display', Georgia, serif; font-size:16pt; color:var(--poster-ink); }
+
     /* Footer */
     .p-foot { padding-left:.5in; border-top:2px solid var(--poster-rule); padding-top:.35in;
       display:flex; justify-content:space-between; align-items:baseline;
@@ -187,11 +208,18 @@ window.addEventListener('resize', rescale);
 
 async function load() {
   try {
-    const [ev, d] = await Promise.all([
+    // /site returns { site, packages } — packages includes sponsorships
+    // with image_data. The endpoint may 404 if the organizer never opened
+    // the site editor; degrade gracefully (no sponsor strip).
+    const [ev, d, site] = await Promise.all([
       JORD.api('/api/events/' + eventId),
       JORD.api('/api/admin/events/' + eventId + '/pairings'),
+      JORD.api('/api/admin/events/' + eventId + '/site').catch(() => ({ packages: [] })),
     ]);
-    render(ev, d);
+    const sponsors = (site && Array.isArray(site.packages))
+      ? site.packages.filter(p => p.package_kind === 'sponsorship')
+      : [];
+    render(ev, d, sponsors);
     $('#print-btn').disabled = false;
     $('#print-btn').onclick = () => window.print();
   } catch (e) {
@@ -200,7 +228,39 @@ async function load() {
   }
 }
 
-function render(ev, d) {
+// Sponsor strip — renders below the pairings, above the printed footer.
+// Sponsors with image_data get their logo; sponsors without fall back to
+// a name + tier card so they still get recognition on the poster.
+function renderSponsorStrip(sponsors) {
+  if (!sponsors || !sponsors.length) return '';
+  // Sort: logos first (visual priority), then by sort_order, then price.
+  const sorted = sponsors.slice().sort((a, b) => {
+    const av = a.image_data ? 0 : 1, bv = b.image_data ? 0 : 1;
+    if (av !== bv) return av - bv;
+    return (a.sort_order || 0) - (b.sort_order || 0) || (b.price_cents || 0) - (a.price_cents || 0);
+  });
+  const tierLabel = (t) => t ? String(t).replace(/_/g, ' ') : '';
+  const card = (s) => {
+    const tier = tierLabel(s.sponsor_type);
+    if (s.image_data) {
+      return `<div class="sp">
+        <div class="logo"><img src="${esc(s.image_data)}" alt="${esc(s.name || '')} logo" /></div>
+        <div class="nm">${esc(s.name || '')}</div>
+        ${tier ? `<div class="sub">${esc(tier)}</div>` : ''}
+      </div>`;
+    }
+    return `<div class="sp text-only">
+      <div class="logo">${esc(s.name || 'Sponsor')}</div>
+      ${tier ? `<div class="sub">${esc(tier)}</div>` : ''}
+    </div>`;
+  };
+  return `<div class="p-sponsors">
+    <div class="lbl">Thank you to our sponsors</div>
+    <div class="grid">${sorted.map(card).join('')}</div>
+  </div>`;
+}
+
+function render(ev, d, sponsors) {
   const iana = ev?.time_zone || null;
   const abbrev = tzAbbrev(iana, ev?.starts_at ? new Date(ev.starts_at) : new Date());
   if (abbrev) { $('#tz-pill').textContent = 'Times in ' + abbrev; $('#tz-pill').style.display = ''; }
@@ -238,6 +298,8 @@ function render(ev, d) {
         ${groups.map(g => renderCard(g, abbrev)).join('') || '<div style="padding:1in;color:#a33;font-size:16pt">No pairings yet — head back to the pairings page to create groups.</div>'}
       </div>
     </div>
+
+    ${renderSponsorStrip(sponsors)}
 
     <div class="p-foot">
       <div class="brand">Powered by <span class="acc">JORD</span> Golf</div>

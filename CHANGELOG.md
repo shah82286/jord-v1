@@ -2,6 +2,48 @@
 
 ---
 
+## v3.76.0 — 2026-06-19
+### Scorecard mobile polish + sponsor logos on poster + #TEST-COLOR fix
+
+Three small wins bundled — closes the audit punch list for everything
+except email/text (parked at user's request).
+
+**Scorecard at 375px (iPhone-SE)**
+The player row was working but cramped — ~165 px left for "Alex YOU
+CH 7 / +1" once the stepper + vs-par column claimed their space.
+Added a `@media (max-width: 400px)` media query that tightens
+everything a notch without changing layout:
+- `.p-row` padding 12→9 px, gap shrunk
+- Stepper buttons 40→36, val box 48→40, font 1.6→1.35 rem
+- Hole-nav buttons 46→40, hole number 2.2→1.9 rem
+- you-badge / vs-par slightly smaller
+- Wrapper page padding cut so the score grid actually breathes
+
+Above 400px, every existing pixel stays put.
+
+**Sponsor logos on pairings poster** (`public/admin/event-pairings-poster.html`)
+Charity organizers expect to see "Thank you to our sponsors" with
+logos on the printed poster. v3.73 wired logo upload; this surfaces
+them on the poster.
+- Loads `/api/admin/events/:id/site` alongside the existing pairings
+  fetch; gracefully degrades if the slug page was never opened
+- New "Thank you to our sponsors" strip above the printed footer
+- Logos on white panels (2"×1.1") with sponsor name + tier underneath
+- Logos-first sort so the visual hits read top-left; sponsors without
+  a logo get a clean name pill so they still get poster recognition
+- All sizing in inches (24×36 poster, 96 DPI preview, print-true)
+
+**#TEST-COLOR — fairway/green colors swapped on `/test`**
+The GPS simulator at `/test` had fairway shown as green (`#22C55E`)
+and green shown as blue (`#3B82F6`) — opposite of every other map in
+the app. Now matches editor.html's `ZONE_COLORS` (fairway=blue,
+rough=yellow, OOB=red, green=green). Fixed both `detectSimZone()`
+and the `SIM_ZONES` catalog.
+
+414/414 main suite green.
+
+---
+
 ## v3.75.0 — 2026-06-19
 ### Edit your courses post-creation (no more retypes)
 
