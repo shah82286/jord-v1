@@ -282,6 +282,7 @@
           <button class="btn btn-ghost hidden" id="btn-manage-admins">👤 Manage Admins</button>
           <button class="btn btn-ghost hidden" id="btn-manage-reps">🎽 Manage Reps</button>
           <button class="btn btn-ghost hidden" id="btn-manage-backups">💾 Backups</button>
+          <a class="btn btn-ghost hidden" href="/admin/help-escalations" id="btn-help-escalations" title="AI Help Agent escalations queue (super admin only)">🆘 Help Escalations <span id="help-esc-badge" class="hidden" style="background:#A12C2C;color:#fff;font-size:10px;font-weight:700;padding:2px 6px;border-radius:10px;margin-left:4px"></span></a>
           <a class="btn btn-ghost" href="/admin/stripe-connect" id="btn-stripe-connect">💳 Stripe</a>
           <a class="btn btn-ghost" href="/clubhouse" id="btn-tournaments">🏆 Clubhouse</a>
           <button class="btn btn-primary" id="btn-new-event">＋ New event</button>
@@ -830,11 +831,12 @@
     }
     // Show super-admin-only buttons
     if (currentAdmin?.role === 'super') {
-      ['#btn-manage-admins', '#btn-manage-global', '#btn-manage-requests', '#btn-manage-backups'].forEach(sel => {
+      ['#btn-manage-admins', '#btn-manage-global', '#btn-manage-requests', '#btn-manage-backups', '#btn-help-escalations'].forEach(sel => {
         const btn = $(sel);
         if (btn) btn.classList.remove('hidden');
       });
       refreshRequestsBadge();
+      refreshHelpEscalationsBadge();
     }
     // Manage Reps is available to both super AND tournament admins (they can have their own reps)
     if (currentAdmin?.role === 'super' || currentAdmin?.role === 'admin') {
@@ -1255,6 +1257,20 @@
         badge.classList.add('hidden');
       }
     } catch { /* not super or not logged in — silent */ }
+  }
+
+  // Mirror the pattern above for the AI Help Agent escalations queue.
+  // Super-only — admins/reps won't have access to the endpoint and the
+  // silent catch keeps the nav clean for them.
+  async function refreshHelpEscalationsBadge() {
+    try {
+      const r = await JORD.api('/api/super/help-agent/escalations?status=open');
+      const badge = $('#help-esc-badge');
+      if (!badge) return;
+      const n = (r.escalations || []).length;
+      if (n > 0) { badge.textContent = n; badge.classList.remove('hidden'); }
+      else       { badge.classList.add('hidden'); }
+    } catch { /* silent */ }
   }
 
   async function loadRequests(status) {
