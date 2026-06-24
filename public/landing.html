@@ -3,21 +3,21 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
-<title>JORD Golf · Tournament Live Scoring</title>
-<meta name="description" content="Live GPS scoring for Longest Drive and Closest to the Pin contests. By JORD Golf.">
+<title>JORD Golf · End-to-End Tournament Platform</title>
+<meta name="description" content="Run your whole golf tournament — branded event site, online registration with Stripe, day-of check-in, pairings, live scoring (28 formats + LD / CTP), sponsorships, silent auction, fundraising. Built for charity events and clubs.">
 <!-- Link preview (Open Graph + Twitter) -->
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="JORD Golf">
-<meta property="og:title" content="JORD Golf — Tournament Live Scoring">
-<meta property="og:description" content="Live GPS scoring for Longest Drive and Closest to the Pin. Players watch their shot land — the clubhouse watches the lead change.">
+<meta property="og:title" content="JORD Golf — End-to-End Tournament Platform">
+<meta property="og:description" content="From registration to silent auction. Brand your event site, sell tickets through Stripe, run check-in and pairings on game day, score live, raise more.">
 <meta property="og:url" content="https://tournament.jordgolf.com/">
 <meta property="og:image" content="https://tournament.jordgolf.com/img/og-cover.jpg">
 <meta property="og:image:width" content="2400">
 <meta property="og:image:height" content="1260">
-<meta property="og:image:alt" content="JORD Golf — the side game, made the main event.">
+<meta property="og:image:alt" content="JORD Golf — End-to-End Tournament Platform">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="JORD Golf — Tournament Live Scoring">
-<meta name="twitter:description" content="Live GPS scoring for Longest Drive and Closest to the Pin.">
+<meta name="twitter:title" content="JORD Golf — End-to-End Tournament Platform">
+<meta name="twitter:description" content="Run your whole golf tournament — registration, scoring, fundraising — in one place.">
 <meta name="twitter:image" content="https://tournament.jordgolf.com/img/og-cover.jpg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -236,6 +236,57 @@
     text-transform: uppercase; color: var(--mk-ink-3); font-weight: 600;
   }
 
+  /* ─── Platform screenshot grid ────────────────────────────────── */
+  .platform { padding: 96px 36px; background: var(--mk-bg-2); border-top: 1px solid var(--mk-rule); }
+  .platform-inner { max-width: 1280px; margin: 0 auto; }
+  .platform-lead { font-size: 16.5px; line-height: 1.6; color: var(--mk-ink-2);
+    max-width: 640px; margin: 0 0 48px; }
+  .tile-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 28px; }
+  .tile { display: block; background: var(--mk-paper); border: 1px solid var(--mk-rule);
+    text-decoration: none; color: inherit; transition: transform 0.2s, box-shadow 0.2s;
+    overflow: hidden; }
+  .tile:hover { transform: translateY(-3px); box-shadow: 0 12px 28px rgba(0,0,0,0.10); }
+  .tile img { width: 100%; aspect-ratio: 16 / 10; object-fit: cover; object-position: top center;
+    background: var(--mk-bg); display: block; }
+  .tile .cap { padding: 18px 20px 20px; }
+  .tile .cap strong { display: block; font-family: var(--serif); font-size: 18px;
+    font-weight: 600; margin-bottom: 6px; color: var(--mk-ink); }
+  .tile .cap span { font-size: 13px; color: var(--mk-ink-2); line-height: 1.5; }
+
+  /* ─── Embedded submit form ────────────────────────────────────── */
+  .submit { padding: 96px 36px; background: var(--mk-bg); border-top: 1px solid var(--mk-rule); }
+  .submit-inner { max-width: 1280px; margin: 0 auto;
+    display: grid; grid-template-columns: 1fr 1.1fr; gap: 80px; align-items: start; }
+  .submit-text h2 { color: var(--mk-ink); }
+  .submit-text h2 em { font-style: italic; color: var(--mk-saffron); font-weight: 500; }
+  .submit-text p { font-size: 16.5px; line-height: 1.65; color: var(--mk-ink-2); margin: 0 0 16px; }
+  .submit-text .micro { font-size: 13px; color: var(--mk-ink-3); }
+  .submit-form { background: var(--mk-paper); border: 1px solid var(--mk-rule);
+    padding: 32px; }
+  .submit-form .row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 16px; }
+  .submit-form .row.single { grid-template-columns: 1fr; }
+  .submit-form .field label { display: block; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--mk-ink-3);
+    margin-bottom: 8px; }
+  .submit-form .field label .opt { color: var(--mk-ink-3); text-transform: none;
+    letter-spacing: 0; font-weight: 500; font-size: 11px; margin-left: 4px; opacity: 0.8; }
+  .submit-form input, .submit-form textarea, .submit-form select {
+    width: 100%; padding: 11px 14px; border: 1px solid var(--mk-rule-2);
+    background: #fff; font-family: var(--sans); font-size: 15px; color: var(--mk-ink);
+    border-radius: 0; outline: none; transition: border-color 0.15s; }
+  .submit-form input:focus, .submit-form textarea:focus {
+    border-color: var(--mk-ink); }
+  .submit-form textarea { resize: vertical; min-height: 80px; }
+  .submit-btn { display: inline-flex; align-items: center; gap: 8px;
+    padding: 14px 24px; background: var(--mk-ink); color: var(--mk-bg);
+    font-size: 13px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+    border: none; cursor: pointer; font-family: inherit; transition: opacity 0.2s; }
+  .submit-btn:hover { opacity: 0.88; }
+  .submit-btn:disabled { opacity: 0.5; cursor: default; }
+  .form-msg { margin: 18px 0 0; padding: 12px 14px; font-size: 14px;
+    border-left: 3px solid var(--mk-saffron); background: rgba(184,136,77,0.08); }
+  .form-msg.error { border-color: #A12C2C; background: rgba(161,44,44,0.06); color: #A12C2C; }
+
   /* ─── Stats strip ─────────────────────────────────────────────── */
   .stats {
     padding: 80px 36px; background: var(--mk-bg-2);
@@ -356,6 +407,15 @@
     .close-cta h2 { font-size: 1.9rem; }
     .foot-inner { flex-direction: column; align-items: flex-start; gap: 18px; }
     .foot-meta { font-size: 11px; line-height: 1.7; }
+    /* Platform grid + submit form responsive */
+    .platform { padding: 64px 22px; }
+    .platform-lead { font-size: 15px; margin-bottom: 32px; }
+    .tile-grid { grid-template-columns: 1fr; gap: 18px; }
+    .tile img { aspect-ratio: 4 / 3; }
+    .submit { padding: 64px 22px; }
+    .submit-inner { grid-template-columns: 1fr; gap: 36px; }
+    .submit-form { padding: 22px; }
+    .submit-form .row { grid-template-columns: 1fr; gap: 14px; }
   }
   @media (max-width: 480px) {
     .nav .nav-link[data-secondary] { display: none; } /* hide secondary text links */
@@ -393,37 +453,89 @@
 <section class="hero">
   <div class="hero-bg"></div>
   <div class="hero-content">
-    <span class="eyebrow">JORD Golf · Tournaments</span>
-    <h1>The side game,<br><em>made the main event.</em></h1>
-    <p class="lead">Live GPS scoring for Longest Drive and Closest to the Pin contests. Players watch their shot land. The clubhouse watches the lead change. You run the tournament with one phone.</p>
+    <span class="eyebrow">JORD Golf · End-to-end tournament platform</span>
+    <h1>Run your whole tournament.<br><em>One platform.</em></h1>
+    <p class="lead">A branded event site, online registration through Stripe, day-of check-in and pairings, live scoring across 28 formats, sponsorships and a silent auction. Built for charity events and golf clubs who want the whole day to feel professional.</p>
     <div>
-      <a href="/signup" class="hero-cta">Sign Up Your Tournament</a>
-      <a href="/about" class="hero-secondary">How it works</a>
+      <a href="#submit" class="hero-cta">Tell us about your tournament</a>
+      <a href="#platform" class="hero-secondary">See the platform</a>
     </div>
   </div>
 </section>
 
 <!-- TAGLINE BAND -->
 <section class="tagline-band">
-  <p class="quote">"The closest-to-the-pin contest used to live on a clipboard. Now it lives on the leaderboard."</p>
-  <p class="credit">The new traditional</p>
+  <p class="quote">"Branded site, Stripe checkout, scoring, sponsorships, auction. The tournament director picks up their phone — and the whole event runs."</p>
+  <p class="credit">From clipboard to clubhouse</p>
 </section>
 
 <!-- EDITORIAL ROWS -->
 <section class="editorial">
   <div class="editorial-inner">
 
-    <!-- Row 1 -->
+    <!-- Row 1 — Branded event site + registration -->
     <div class="ed-row">
       <div class="ed-text">
-        <div class="ed-num">01 — The Live Show</div>
-        <h2>Watch the lead change <em>in real time.</em></h2>
-        <p>Cast the leaderboard to a TV in the clubhouse. Every drive that lands re-ranks the standings. Every ball drops onto a satellite map of the hole. The side game becomes the show your players post about.</p>
-        <p>No refresh button. No manual entry. No spreadsheets.</p>
+        <div class="ed-num">01 — Your event, your brand</div>
+        <h2>A public event site <em>that looks like yours.</em></h2>
+        <p>Drop your logo and pick an accent color. Players land on a branded page with your charity story, schedule, sponsors, and a Stripe-powered registration form. Foursomes, twosomes, singles, dinner-only — every package you sell.</p>
+        <p>Funds land directly in your organizer's Stripe account, minus a flat 3% platform fee. No invoicing, no chase.</p>
         <div class="ed-meta">
           <div class="ed-meta-item">
+            <div class="ed-meta-num">3%</div>
+            <div class="ed-meta-lbl">Platform fee</div>
+          </div>
+          <div class="ed-meta-item">
+            <div class="ed-meta-num">0</div>
+            <div class="ed-meta-lbl">Setup fees</div>
+          </div>
+        </div>
+      </div>
+      <div class="ed-img wide">
+        <img src="/img/landing/event-site-hero.png" alt="Branded charity event site at /e/your-slug" loading="lazy">
+        <div class="ed-caption">Event site · /e/your-slug</div>
+      </div>
+    </div>
+
+    <!-- Row 2 — Day-of operations -->
+    <div class="ed-row reverse">
+      <div class="ed-text">
+        <div class="ed-num">02 — Game day, sorted</div>
+        <h2>Check-in, pairings, walk-ups. <em>One operator.</em></h2>
+        <p>Mobile-first check-in screen handles every registration in seconds. Drag-and-drop pairings with auto-assign for shotgun or tee-time formats. Walk-up registrations on the spot, with Stripe QR for cash-free card payments at the desk.</p>
+        <p>Print a 24×36 branded pairings poster for the clubhouse — or pull the same view up on your phone between holes.</p>
+        <div class="ed-meta">
+          <div class="ed-meta-item">
+            <div class="ed-meta-num">144</div>
+            <div class="ed-meta-lbl">Players, no problem</div>
+          </div>
+          <div class="ed-meta-item">
+            <div class="ed-meta-num">1</div>
+            <div class="ed-meta-lbl">Operator needed</div>
+          </div>
+        </div>
+      </div>
+      <div class="ed-img wide">
+        <img src="/img/landing/admin-pairings.png" alt="Pairings page with drag-and-drop groups" loading="lazy">
+        <div class="ed-caption">Pairings · drag-and-drop with auto-assign</div>
+      </div>
+    </div>
+
+    <!-- Row 3 — Scoring engine -->
+    <div class="ed-row">
+      <div class="ed-text">
+        <div class="ed-num">03 — Score anything</div>
+        <h2>28 formats. Live leaderboard. <em>Plus the GPS contests.</em></h2>
+        <p>Stroke play, scramble, match play, skins, Nassau, Vegas, best ball, foursomes, Stableford — twenty-eight scoring engines, full WHS handicaps, side-bets layered on top of any primary format.</p>
+        <p>Plus the original JORD live GPS contests: Longest Drive and Closest to the Pin. Players scan their ball, the satellite map updates, the leaderboard re-ranks in under two seconds.</p>
+        <div class="ed-meta">
+          <div class="ed-meta-item">
+            <div class="ed-meta-num">28</div>
+            <div class="ed-meta-lbl">Scoring formats</div>
+          </div>
+          <div class="ed-meta-item">
             <div class="ed-meta-num">&lt; 2s</div>
-            <div class="ed-meta-lbl">Live latency</div>
+            <div class="ed-meta-lbl">Leaderboard latency</div>
           </div>
           <div class="ed-meta-item">
             <div class="ed-meta-num">±3m</div>
@@ -432,91 +544,84 @@
         </div>
       </div>
       <div class="ed-img wide">
-        <img src="/img/screenshots/leaderboard-map.png"
-             srcset="/img/screenshots/leaderboard-map.png"
-             alt="JORD live leaderboard with satellite map" loading="lazy">
-        <div class="ed-caption">Live leaderboard · Map view</div>
+        <img src="/img/landing/admin-event-editor.png" alt="Event editor with scoring formats and rules" loading="lazy">
+        <div class="ed-caption">Admin · scoring settings + contest rules</div>
       </div>
     </div>
 
-    <!-- Row 2 -->
+    <!-- Row 4 — Fundraising -->
     <div class="ed-row reverse">
       <div class="ed-text">
-        <div class="ed-num">02 — The Player Moment</div>
-        <h2>Hit your shot. Scan your ball. <em>Watch it land.</em></h2>
-        <p>Each ball has a 6-character code on a QR sticker. Players scan, GPS locks the position, the system auto-detects fairway, rough, or out of bounds, and a satellite flyover replay plays full-screen.</p>
-        <p>No app to download. The whole flow takes about twelve seconds.</p>
+        <div class="ed-num">04 — Raise more</div>
+        <h2>Sponsorships, silent auction, <em>donations.</em></h2>
+        <p>Twelve sponsorship tiers (title, hole-in-one, beverage, cart, longest drive, custom) with logo uploads that surface on every player-facing page — the event site, the live leaderboard, the printed pairings poster.</p>
+        <p>A full silent auction with public bidding, donor item intake, winner Stripe Checkout. A fundraising goal bar that shows real-time progress. Standalone donations with suggested amounts.</p>
         <div class="ed-meta">
           <div class="ed-meta-item">
-            <div class="ed-meta-num">12s</div>
-            <div class="ed-meta-lbl">Per shot</div>
+            <div class="ed-meta-num">12</div>
+            <div class="ed-meta-lbl">Sponsor tiers</div>
           </div>
           <div class="ed-meta-item">
-            <div class="ed-meta-num">0</div>
-            <div class="ed-meta-lbl">App downloads</div>
-          </div>
-        </div>
-      </div>
-      <div class="ed-img">
-        <picture>
-          <source type="image/webp"
-                  srcset="/img/lifestyle/portrait-rangefinder-800.webp 800w, /img/lifestyle/portrait-rangefinder-1600.webp 1600w"
-                  sizes="(max-width: 900px) 100vw, 50vw">
-          <img src="/img/lifestyle/portrait-rangefinder-1600.jpg"
-               srcset="/img/lifestyle/portrait-rangefinder-800.jpg 800w, /img/lifestyle/portrait-rangefinder-1600.jpg 1600w"
-               sizes="(max-width: 900px) 100vw, 50vw"
-               alt="JORD player using rangefinder" loading="lazy">
-        </picture>
-        <div class="ed-caption">Branson, Missouri · Field test</div>
-      </div>
-    </div>
-
-    <!-- Row 3 -->
-    <div class="ed-row">
-      <div class="ed-text">
-        <div class="ed-num">03 — The Setup</div>
-        <h2>Paint your hole on a satellite map. <em>We score the rest.</em></h2>
-        <p>Open the admin console, drag to draw the fairway, mark the rough and OOB zones, drop the pin. Setup takes under five minutes — the system handles every shot from there.</p>
-        <p>Run a 144-player charity scramble with one operator. Built for tournament directors, not engineers.</p>
-        <div class="ed-meta">
-          <div class="ed-meta-item">
-            <div class="ed-meta-num">5 min</div>
-            <div class="ed-meta-lbl">Course setup</div>
-          </div>
-          <div class="ed-meta-item">
-            <div class="ed-meta-num">∞</div>
-            <div class="ed-meta-lbl">Players</div>
+            <div class="ed-meta-num">$0</div>
+            <div class="ed-meta-lbl">To the platform</div>
           </div>
         </div>
       </div>
       <div class="ed-img wide">
-        <img src="/img/screenshots/course-map.png" alt="JORD admin course mapping" loading="lazy">
-        <div class="ed-caption">Admin · Course mapping</div>
+        <img src="/img/landing/auction-public.png" alt="Public silent auction page with bidding" loading="lazy">
+        <div class="ed-caption">Silent auction · public bidding</div>
       </div>
     </div>
 
-    <!-- Row 4 -->
-    <div class="ed-row reverse">
+    <!-- Row 5 — AI help -->
+    <div class="ed-row">
       <div class="ed-text">
-        <div class="ed-num">04 — The Closing Moment</div>
-        <h2>The end of the tournament <em>is its best part.</em></h2>
-        <p>When the contest closes, the leaderboard transforms. Total yards driven hero. Zone breakdown. Champion showcase. The all-time record for that course, kept in the JORD Hall of Fame.</p>
-        <p>A closing ceremony built right into the screen.</p>
+        <div class="ed-num">05 — You won't be stuck</div>
+        <h2>A JORD-aware help agent <em>built into every page.</em></h2>
+        <p>Tap the 🆘 Help button anywhere in the admin console to chat with an AI agent that knows JORD's products and your event's current state — "How do I refund a player?", "Where do I upload my sponsor logos?", "Why is my pairings poster blank?".</p>
+        <p>If the agent can't solve it, one tap escalates the conversation to our team with the full transcript. You're never stuck during the tournament.</p>
       </div>
-      <div class="ed-img">
-        <picture>
-          <source type="image/webp"
-                  srcset="/img/lifestyle/lifestyle-scorecard-800.webp 800w, /img/lifestyle/lifestyle-scorecard-1600.webp 1600w"
-                  sizes="(max-width: 900px) 100vw, 50vw">
-          <img src="/img/lifestyle/lifestyle-scorecard-1600.jpg"
-               srcset="/img/lifestyle/lifestyle-scorecard-800.jpg 800w, /img/lifestyle/lifestyle-scorecard-1600.jpg 1600w"
-               sizes="(max-width: 900px) 100vw, 50vw"
-               alt="JORD player after the round" loading="lazy">
-        </picture>
-        <div class="ed-caption">Final round · Scoring</div>
+      <div class="ed-img wide">
+        <img src="/img/landing/admin-site-editor.png" alt="Admin event-site editor with sponsorships" loading="lazy">
+        <div class="ed-caption">Site editor · sponsorships + donations + auction</div>
       </div>
     </div>
 
+  </div>
+</section>
+
+<!-- PLATFORM SCREENSHOT GRID -->
+<section class="platform" id="platform">
+  <div class="platform-inner">
+    <span class="eyebrow">A tour</span>
+    <h2 class="display" style="font-size:clamp(2rem,4vw,3rem);margin:14px 0 12px;max-width:760px">Built like a single workflow — <em>from save-the-date to last bid.</em></h2>
+    <p class="platform-lead">Every screenshot below is a real page in the live platform. Click around the demo event after you submit your tournament — we'll set you up with admin access on a sandbox so you can poke at everything.</p>
+    <div class="tile-grid">
+      <a class="tile" href="/e/spring-charity-classic-2026" target="_blank" rel="noopener">
+        <img src="/img/landing/event-site-mobile.png" alt="Public event site on phone">
+        <div class="cap"><strong>Public event site</strong><span>What your players see — branded, mobile-first, Stripe checkout.</span></div>
+      </a>
+      <a class="tile" href="/img/landing/admin-event-editor.png" target="_blank" rel="noopener">
+        <img src="/img/landing/admin-event-editor.png" alt="Admin event editor with help bubbles">
+        <div class="cap"><strong>Event editor</strong><span>One page sets up registration, scoring rules, contests, branding.</span></div>
+      </a>
+      <a class="tile" href="/img/landing/admin-pairings.png" target="_blank" rel="noopener">
+        <img src="/img/landing/admin-pairings.png" alt="Pairings drag-and-drop">
+        <div class="cap"><strong>Pairings</strong><span>Drag groups, auto-assign holes, print a poster, send to scoring.</span></div>
+      </a>
+      <a class="tile" href="/img/landing/pairings-mobile.png" target="_blank" rel="noopener">
+        <img src="/img/landing/pairings-mobile.png" alt="Pairings on phone">
+        <div class="cap"><strong>Pairings on your phone</strong><span>Mobile-friendly view for between holes — same data, readable.</span></div>
+      </a>
+      <a class="tile" href="/img/landing/admin-site-editor.png" target="_blank" rel="noopener">
+        <img src="/img/landing/admin-site-editor.png" alt="Site editor with sponsorships">
+        <div class="cap"><strong>Site editor</strong><span>Sponsorships with logos, donations, auction intake, fundraising goal.</span></div>
+      </a>
+      <a class="tile" href="/img/landing/auction-public.png" target="_blank" rel="noopener">
+        <img src="/img/landing/auction-public.png" alt="Silent auction page">
+        <div class="cap"><strong>Silent auction</strong><span>Public bidding, winner Stripe Checkout, photo uploads on items.</span></div>
+      </a>
+    </div>
   </div>
 </section>
 
@@ -524,21 +629,81 @@
 <section class="stats">
   <div class="stats-inner">
     <div class="stat">
+      <div class="n">28</div>
+      <div class="l">Scoring Formats</div>
+    </div>
+    <div class="stat">
+      <div class="n">3%</div>
+      <div class="l">Platform Fee</div>
+    </div>
+    <div class="stat">
       <div class="n">±3m</div>
       <div class="l">GPS Precision</div>
     </div>
     <div class="stat">
-      <div class="n">&lt; 2s</div>
-      <div class="l">Live Updates</div>
-    </div>
-    <div class="stat">
-      <div class="n">12s</div>
-      <div class="l">Per Player, Per Shot</div>
-    </div>
-    <div class="stat">
       <div class="n">0</div>
-      <div class="l">Apps to Download</div>
+      <div class="l">Setup Fees</div>
     </div>
+  </div>
+</section>
+
+<!-- EMBEDDED SUBMIT FORM -->
+<section class="submit" id="submit">
+  <div class="submit-inner">
+    <div class="submit-text">
+      <span class="eyebrow">Tell us about your tournament</span>
+      <h2 class="display" style="font-size:clamp(2rem,4vw,3rem);margin:14px 0 18px">Get set up <em>in a day.</em></h2>
+      <p>Charity scramble, club championship, corporate outing, member-guest — drop the details below and we'll have a branded event site and Stripe registration live by the next morning. We review every request to keep the platform clean.</p>
+      <p class="micro">Replies usually within 24 hours. No credit card needed to start.</p>
+    </div>
+    <form class="submit-form" id="submit-form">
+      <div class="row">
+        <div class="field">
+          <label>Tournament name</label>
+          <input type="text" name="tournament_name" placeholder="Spring Charity Classic 2026" required maxlength="200">
+        </div>
+        <div class="field">
+          <label>Date</label>
+          <input type="date" name="event_date" required>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Venue (golf course)</label>
+          <input type="text" name="venue" placeholder="Pebble Beach Golf Links" required maxlength="200">
+        </div>
+        <div class="field">
+          <label>Expected players</label>
+          <input type="number" name="expected_players" placeholder="48" min="1" max="500" required>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field">
+          <label>Your name</label>
+          <input type="text" name="admin_name" placeholder="Pat O'Connor" required maxlength="120">
+        </div>
+        <div class="field">
+          <label>Email</label>
+          <input type="email" name="admin_email" placeholder="you@charity.org" required maxlength="200">
+        </div>
+      </div>
+      <div class="row single">
+        <div class="field">
+          <label>Phone</label>
+          <input type="tel" name="admin_phone" placeholder="(555) 000-0000" required maxlength="40">
+        </div>
+      </div>
+      <div class="row single">
+        <div class="field">
+          <label>Anything else? <span class="opt">optional</span></label>
+          <textarea name="notes" rows="3" placeholder="Sponsor logos? Specific holes? Charity beneficiary? Anything we should know."></textarea>
+        </div>
+      </div>
+      <input type="hidden" name="contest_type" value="combined">
+      <input type="hidden" name="location" value="">
+      <button type="submit" class="submit-btn">Submit request →</button>
+      <p class="form-msg" id="form-msg" hidden></p>
+    </form>
   </div>
 </section>
 
@@ -546,10 +711,10 @@
 <section class="close-cta">
   <div class="close-cta-bg"></div>
   <div class="close-cta-inner">
-    <p class="eyebrow" style="color: rgba(251,249,244,0.78); margin-bottom: 16px;">Run your tournament</p>
-    <h2>Tell us about your event. <em>We'll have you set up before the first tee time.</em></h2>
-    <p>Charity scramble, club championship, member-guest — JORD scores them all.</p>
-    <a href="/signup" class="hero-cta">Sign Up Your Tournament</a>
+    <p class="eyebrow" style="color: rgba(251,249,244,0.78); margin-bottom: 16px;">Already running events?</p>
+    <h2>Want to migrate your next tournament? <em>We'll handle the move.</em></h2>
+    <p>Existing tournament on EventCaddy, GolfStatus, or a stack of spreadsheets? We'll import your players, packages, and sponsors — for free.</p>
+    <a href="#submit" class="hero-cta">Tell us about your event</a>
   </div>
 </section>
 
@@ -568,5 +733,41 @@
   </div>
 </footer>
 
+<!-- Embedded form submit. Goes to /api/tournament-signup which writes to
+     tournament_requests for super-admin review (same backend as /signup). -->
+<script>
+(function () {
+  var form = document.getElementById('submit-form');
+  if (!form) return;
+  var msg  = document.getElementById('form-msg');
+  var btn  = form.querySelector('.submit-btn');
+  form.addEventListener('submit', async function (ev) {
+    ev.preventDefault();
+    msg.hidden = true; msg.classList.remove('error');
+    btn.disabled = true; var orig = btn.textContent; btn.textContent = 'Sending…';
+    var data = {};
+    new FormData(form).forEach(function (v, k) { data[k] = v; });
+    // location is required by the API — derive from venue when blank.
+    if (!data.location) data.location = data.venue || '';
+    try {
+      var res = await fetch('/api/tournament-signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      var body = null; try { body = await res.json(); } catch {}
+      if (!res.ok) throw new Error((body && body.error) || ('HTTP ' + res.status));
+      msg.textContent = '✓ Got it. We\'ll be in touch within 24 hours at ' + (data.admin_email || 'the email above') + '.';
+      msg.hidden = false;
+      form.reset();
+      btn.textContent = 'Sent ✓';
+    } catch (e) {
+      msg.textContent = 'Something went wrong: ' + e.message + '. Email support@jordgolf.com and we\'ll get back to you fast.';
+      msg.classList.add('error'); msg.hidden = false;
+      btn.disabled = false; btn.textContent = orig;
+    }
+  });
+})();
+</script>
 </body>
 </html>

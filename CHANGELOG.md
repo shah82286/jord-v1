@@ -2,6 +2,65 @@
 
 ---
 
+## v3.80.0 — 2026-06-23
+### Landing redesign: end-to-end platform pitch + screenshot tour + embedded form
+
+The marketing landing at `/` used to position JORD as a Longest Drive /
+Closest to the Pin contest tool. That story is now ~3 years out of date —
+the platform runs full charity tournaments end-to-end (branded site +
+Stripe registration + day-of operations + 28 scoring formats +
+sponsorships + silent auction + AI help agent). Landing rewritten to
+match.
+
+**What changed on `/`:**
+- **Hero** — "Run your whole tournament. One platform." Two CTAs:
+  "Tell us about your tournament" (anchor to embedded form) and
+  "See the platform" (anchor to screenshot tour).
+- **Editorial rows expanded 4 → 5**, each covering one product surface
+  with real screenshots from the demo event:
+  1. Your event, your brand — branded site + Stripe registration
+  2. Game day, sorted — check-in / pairings / walk-ups
+  3. Score anything — 28 formats + LD / CTP GPS contests
+  4. Raise more — sponsorships / silent auction / donations
+  5. You won't be stuck — AI Help Agent
+- **NEW: Platform tour section** — 3×2 grid of clickable screenshot
+  tiles (event site mobile, event editor, pairings drag board, mobile
+  pairings, site editor, silent auction). First tile deep-links to
+  the live demo event so prospects can click around.
+- **NEW: Embedded submit form** — same fields as `/signup` but inline:
+  tournament name, date, venue, expected players, contact info,
+  notes. POSTs to `/api/tournament-signup` (existing endpoint), shows
+  a friendly confirmation in-place. Heavier `/signup` page kept for
+  organizers who want the longer treatment.
+- **Stats strip** retuned to platform-wide claims (28 formats, 3%
+  fee, ±3m GPS, 0 setup fees) instead of GPS-contest-only.
+- **Closing CTA** repositioned: "Already running events? We'll
+  migrate your next one — for free."
+- Updated meta tags + Open Graph + Twitter card to match new
+  positioning.
+
+**Demo event seed** — `scripts/seed-landing-demo.js`:
+Builds "Spring Charity Classic 2026" at Pebble Beach — realistic
+charity event with branding, 32-code ball pool, 4 registration
+packages, 6 sponsorships with logos, 4 auction items, donations
+enabled with $50k goal, 4 pairing groups on a shotgun start. Slug
+`spring-charity-classic-2026` lets the landing link to the live
+event. Re-runnable: cleans prior demo first. Supports `--base=`
+override so the same script can plant the demo on production.
+
+**Screenshot capture** — `scripts/shot-landing-screenshots.js`:
+Drives Puppeteer at 1440×900 desktop + 390×844 mobile, writes 10
+PNGs into `public/img/landing/`. All referenced from the landing.
+
+**Note for production deploy:** to make the live-demo link work on
+prod, run `scripts/seed-landing-demo.js --base=https://tournament.jordgolf.com
+--password=<super pw>` after the Railway build settles. Otherwise the
+"see the live demo" tile 404s.
+
+415/415 main suite green.
+
+---
+
 ## v3.79.0 — 2026-06-19
 ### Pairings poster: mobile-friendly readable view
 
